@@ -175,7 +175,7 @@ private struct GeneralSettingsPane: View {
                         Text("Light").tag(EditorSettings.Appearance.light)
                         Text("Dark").tag(EditorSettings.Appearance.dark)
                     }
-                    .pickerStyle(.segmented)
+                    .tabsPickerStyle()
                     .labelsHidden()
                     .fixedSize()
                 }
@@ -184,7 +184,7 @@ private struct GeneralSettingsPane: View {
                         Text("Translucent").tag(EditorSettings.WindowBackground.translucent)
                         Text("Opaque").tag(EditorSettings.WindowBackground.opaque)
                     }
-                    .pickerStyle(.segmented)
+                    .tabsPickerStyle()
                     .labelsHidden()
                     .fixedSize()
                 }
@@ -324,6 +324,19 @@ private struct EditorSettingsPane: View {
             } footer: {
                 Text("Files that are already indented keep their own style.")
             }
+        }
+    }
+}
+
+private extension View {
+    /// The capsule tabs treatment macOS 27 gives a picker, or plain segments on macOS 26.
+    @ViewBuilder
+    func tabsPickerStyle() -> some View {
+        if #available(macOS 27.0, *) {
+            pickerStyle(.tabs)
+                .buttonBorderShape(.capsule)
+        } else {
+            pickerStyle(.segmented)
         }
     }
 }
