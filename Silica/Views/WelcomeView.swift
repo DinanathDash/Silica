@@ -19,9 +19,9 @@ struct WelcomeView: View {
         // Up into the hidden title bar, so the recents list runs the window's full
         // height and the hero centers on the whole window.
         .ignoresSafeArea(.container, edges: .top)
-        // Frosted, behind-window blur for the whole welcome window.
+        // Behind-window blur for the whole welcome window, unless Settings makes it opaque.
         .containerBackground(for: .window) {
-          VisualEffectView(.hudWindow)
+          WindowBackgroundView()
         }
         .overlay {
             if isDropTargeted {

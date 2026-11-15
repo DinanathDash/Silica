@@ -109,7 +109,7 @@ struct WorkspaceView: View {
         }
         .frame(minWidth: 640, minHeight: 400)
         .containerBackground(for: .window) {
-            VisualEffectView()
+            WindowBackgroundView()
         }
         .navigationTitle(workspace.name)
         .background(KeyWindowTracker(workspace: workspace))

@@ -34,6 +34,7 @@ final class EditorSettings {
         static let showsMinimap = "editorShowsMinimap"
         static let syntaxTheme = "syntaxTheme"
         static let appearance = "appearance"
+        static let windowBackground = "windowBackground"
         static let restoresTabs = "restoresOpenTabs"
         static let pinsParentFolders = "fileTreePinsParentFolders"
     }
@@ -138,6 +139,28 @@ final class EditorSettings {
         }
     }
 
+    enum WindowBackground: String, CaseIterable, Identifiable {
+        case translucent, opaque
+        var id: Self { self }
+
+        /// What the window's `VisualEffectView` is filled with: a frosted blur of
+        /// whatever is behind the window, or the solid window background.
+        var material: NSVisualEffectView.Material {
+            switch self {
+            case .translucent: .menu
+            case .opaque: .windowBackground
+            }
+        }
+    }
+
+    /// Whether project and welcome windows let the desktop show through.
+    var windowBackground: WindowBackground {
+        didSet {
+            guard windowBackground != oldValue else { return }
+            store(windowBackground.rawValue, Key.windowBackground, isDefault: windowBackground == .translucent)
+        }
+    }
+
     /// Reopen a project's tabs where they were left.
     var restoresTabs: Bool {
         didSet {
@@ -177,6 +200,8 @@ final class EditorSettings {
         showsMinimap = defaults.bool(forKey: Key.showsMinimap)
         syntaxTheme = defaults.string(forKey: Key.syntaxTheme).flatMap(SyntaxTheme.init(rawValue:)) ?? .default
         appearance = defaults.string(forKey: Key.appearance).flatMap(Appearance.init(rawValue:)) ?? .system
+        windowBackground = defaults.string(forKey: Key.windowBackground)
+            .flatMap(WindowBackground.init(rawValue:)) ?? .translucent
         restoresTabs = defaults.object(forKey: Key.restoresTabs) as? Bool ?? true
         pinsParentFolders = defaults.object(forKey: Key.pinsParentFolders) as? Bool ?? true
     }

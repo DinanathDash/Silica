@@ -179,6 +179,15 @@ private struct GeneralSettingsPane: View {
                     .labelsHidden()
                     .fixedSize()
                 }
+                SettingsRow("Background") {
+                    Picker("Background", selection: $settings.windowBackground) {
+                        Text("Translucent").tag(EditorSettings.WindowBackground.translucent)
+                        Text("Opaque").tag(EditorSettings.WindowBackground.opaque)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                }
             }
 
             SettingsGroup("Projects") {
