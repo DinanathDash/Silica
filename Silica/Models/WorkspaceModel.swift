@@ -41,6 +41,11 @@ final class WorkspaceModel {
     }
     private(set) var buffers: [URL: EditorBuffer] = [:]
 
+    /// The project's terminal, once it has been opened. It keeps running while its
+    /// card is hidden.
+    private(set) var terminal: TerminalSession?
+    private(set) var isTerminalVisible = false
+
     /// The project's window, to bring forward when a file is opened in it from outside.
     @ObservationIgnored weak var window: NSWindow?
     @ObservationIgnored private var isAccessingScope: Bool
@@ -97,6 +102,8 @@ final class WorkspaceModel {
         }
         watcher?.stop()
         watcher = nil
+        terminal?.close()
+        terminal = nil
         if isAccessingScope {
             rootURL.stopAccessingSecurityScopedResource()
             isAccessingScope = false
@@ -128,6 +135,64 @@ final class WorkspaceModel {
 
     func toggleSidebar() {
         withAnimation(.snappy) { isSidebarVisible.toggle() }
+    }
+
+    // MARK: Terminal
+
+    /// ⌃`: shows the terminal and gives it the keyboard. From the terminal, hides it
+    /// and goes back to the editor.
+    func toggleTerminal() {
+        if isTerminalVisible, terminal?.isFocused == true {
+            hideTerminal()
+        } else {
+            showTerminal()
+        }
+    }
+
+    func showTerminal() {
+        let terminal = terminal ?? makeTerminal()
+        if !isTerminalVisible {
+            withAnimation(.snappy(duration: 0.2)) { isTerminalVisible = true }
+        }
+        terminal.view.focus()
+    }
+
+    /// Hides the card. The shell and whatever runs in it carry on.
+    func hideTerminal() {
+        guard isTerminalVisible else { return }
+        let hadFocus = terminal?.isFocused == true
+        withAnimation(.snappy(duration: 0.2)) { isTerminalVisible = false }
+        if hadFocus { focusEditor() }
+    }
+
+    /// Ends the shell and removes the card; the next ⌃` starts a new one.
+    func closeTerminal() {
+        guard let terminal else { return }
+        let hadFocus = terminal.isFocused
+        withAnimation(.snappy(duration: 0.2)) { isTerminalVisible = false }
+        terminal.close()
+        self.terminal = nil
+        if hadFocus { focusEditor() }
+    }
+
+    private func makeTerminal() -> TerminalSession {
+        let terminal = TerminalSession(directory: rootURL)
+        // The shell was exited, with "exit" or ⌃D.
+        terminal.onExit = { [weak self] in self?.closeTerminal() }
+        // Links to files open here, like Quick Open's results.
+        terminal.onOpenFile = { [weak self] url, line in
+            self?.open(url)
+            self?.reveal(url)
+            if let line { self?.goToLine(line) }
+        }
+        self.terminal = terminal
+        return terminal
+    }
+
+    private func focusEditor() {
+        if let textView = activeBuffer?.textController?.textView {
+            textView.window?.makeFirstResponder(textView)
+        }
     }
 
     // MARK: Sidebar modes

@@ -138,6 +138,16 @@ struct AppCommands: Commands {
 
             Divider()
 
+            Button("Terminal") { workspace?.toggleTerminal() }
+                .keyboardShortcut("`", modifiers: .control)
+                .disabled(workspace == nil)
+
+            Button("Clear Terminal") { workspace?.terminal?.clear() }
+                .keyboardShortcut("k")
+                .disabled(workspace?.terminal?.isFocused != true)
+
+            Divider()
+
             // ⇧⌘V itself is handled by KeyWorkspace.installKeyboardShortcuts().
             Button(previewToggleTitle) {
                 workspace?.activeBuffer?.togglePreview()

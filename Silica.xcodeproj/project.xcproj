@@ -23,6 +23,9 @@
       "version": {
         "up-to-next-major-version": "2.7.0",
       },
+    }, {
+      "kind": "local",
+      "path": "Vendor/GhosttyVt",
     },
   ],
   "files": [
@@ -48,6 +51,10 @@
       ],
       "package-product-members": [
         {
+          "package": "GhosttyVt",
+          "product-name": "GhosttyVt",
+          "build-phase": { "build-phase": "frameworks" },
+        }, {
           "package": "Sparkle",
           "product-name": "Sparkle",
           "build-phase": { "build-phase": "frameworks" },

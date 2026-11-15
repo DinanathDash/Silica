@@ -5,6 +5,11 @@ import SwiftUI
 struct EditorArea: View {
     let workspace: WorkspaceModel
 
+    @AppStorage("terminalHeight") private var terminalHeight: Double = 260
+    @State private var dragStartTerminalHeight: Double?
+    /// Height the editor and terminal cards share, which limits the terminal's.
+    @State private var cardsHeight: CGFloat = 0
+
     var body: some View {
         VStack(spacing: 0) {
             // Title bar row: tabs share it with the traffic lights.
@@ -22,11 +27,52 @@ struct EditorArea: View {
             }
             .frame(height: WorkspaceLayout.titleBarHeight)
 
-            editorCard
-                .padding(.leading, workspace.isSidebarVisible ? 0 : WorkspaceLayout.cardInset)
-                .padding([.trailing, .bottom], WorkspaceLayout.cardInset)
+            VStack(spacing: 0) {
+                editorCard
+                if workspace.isTerminalVisible, let terminal = workspace.terminal {
+                    // The terminal's card sits under the editor's, the gap between
+                    // them being the handle that resizes it.
+                    VStack(spacing: 0) {
+                        terminalResizeHandle
+                        TerminalCard(session: terminal, workspace: workspace)
+                            .frame(height: clampedTerminalHeight)
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardsHeight = $0 }
+            .padding(.leading, workspace.isSidebarVisible ? 0 : WorkspaceLayout.cardInset)
+            .padding([.trailing, .bottom], WorkspaceLayout.cardInset)
         }
         .frame(minWidth: 420)
+    }
+
+    /// The stored height, kept within what the window has room for: the editor
+    /// keeps a few lines however small the window gets.
+    private var clampedTerminalHeight: CGFloat {
+        let range = WorkspaceLayout.terminalHeightRange
+        let most = max(cardsHeight - WorkspaceLayout.cardInset - WorkspaceLayout.minimumEditorHeight, range.lowerBound)
+        return min(max(terminalHeight, range.lowerBound), min(most, range.upperBound))
+    }
+
+    /// Invisible strip between the two cards that resizes the terminal.
+    private var terminalResizeHandle: some View {
+        Color.clear
+            .frame(height: WorkspaceLayout.cardInset)
+            .contentShape(.rect)
+            .pointerStyle(.frameResize(position: .top))
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .onChanged { value in
+                        // From the height on screen, which the window may have limited.
+                        let start = dragStartTerminalHeight ?? clampedTerminalHeight
+                        dragStartTerminalHeight = start
+                        let range = WorkspaceLayout.terminalHeightRange
+                        let most = max(cardsHeight - WorkspaceLayout.cardInset - WorkspaceLayout.minimumEditorHeight, range.lowerBound)
+                        terminalHeight = min(max(start - value.translation.height, range.lowerBound), min(most, range.upperBound))
+                    }
+                    .onEnded { _ in dragStartTerminalHeight = nil }
+            )
     }
 
     private var editorCard: some View {

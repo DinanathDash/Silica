@@ -44,6 +44,13 @@ Silica needs macOS 26 or later.
   PDF asks for its password, and each tab keeps its place in its video.
 - **Editing tools.** Line numbers, indent guides, an optional minimap, word wrap, go to
   line, toggle comment, and moving or duplicating lines.
+- **A terminal under the editor.** ⌃` opens your shell in the project's folder, in a
+  card of its own below the editor. It runs on
+  [libghostty](https://lib.ghostty.org), the terminal emulator inside Ghostty, so
+  full-screen programs, true color and the mouse work as they do there. It follows
+  the editor's font, and light and dark mode. ⌘-click a web address to open it, or
+  a file's path to open the file in a tab, at the line a compiler or a search
+  printed after it.
 - **Picks up where you left off.** Projects reopen their tabs, and recent projects
   are on the welcome window.
 - **Works with Finder.** Use Open With, drop files on the Dock icon, or run
@@ -60,6 +67,8 @@ Silica needs macOS 26 or later.
 | ⌘L | Go to Line |
 | ⇧⌘V | Toggle Markdown, CSV or HTML preview |
 | ⌃⌘S | Show or hide the sidebar |
+| ⌃` | Show the terminal, or hide it from there |
+| ⌘K | Clear the terminal |
 | ⌃Tab / ⌃⇧Tab | Select the next or previous tab (also ⇧⌘] / ⇧⌘[) |
 | ⌘/ | Toggle comment |
 | ⌥↑ / ⌥↓ | Move lines up or down |
@@ -85,6 +94,7 @@ Bug reports, ideas and pull requests are welcome. Read
 
 Silica is released under the [MIT License](LICENSE). It includes
 [swift-markdown](https://github.com/swiftlang/swift-markdown),
-[swift-cmark](https://github.com/swiftlang/swift-cmark) and
-[Sparkle](https://sparkle-project.org), whose licenses are in
+[swift-cmark](https://github.com/swiftlang/swift-cmark),
+[Sparkle](https://sparkle-project.org) and
+[libghostty-vt](https://lib.ghostty.org), whose licenses are in
 `Silica/Resources/Licenses` and in Settings › About.

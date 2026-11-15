@@ -38,9 +38,11 @@ You need Xcode 27 or later. Silica runs on macOS 26 and later.
 | `Silica/App` | The app entry point, the app delegate and the menu commands |
 | `Silica/Views` | SwiftUI views: the welcome window, the workspace, the file tree, Settings |
 | `Silica/Editor` | The AppKit text view, line numbers, minimap, syntax highlighting and the Markdown, CSV and HTML previews |
+| `Silica/Terminal` | The integrated terminal: the shell's process, the libghostty-vt emulator and the view that draws it |
 | `Silica/Models` | Workspace state, open buffers, settings, recent projects, search |
 | `Silica/Support` | Glue for AppKit, Finder, file watching and updates |
 | `Config/Info.plist` | Keys merged into the generated Info.plist |
+| `Vendor/GhosttyVt` | A local Swift package that fetches the prebuilt libghostty-vt library |
 
 The app uses SwiftUI for windows and layout and AppKit (`NSTextView`) for the editor
 itself. Code is main-actor isolated by default.
