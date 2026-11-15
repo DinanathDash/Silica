@@ -53,6 +53,26 @@ struct TerminalCard: View {
     }
 }
 
+/// Shows and hides the terminal from the title bar: the bottom card's counterpart to
+/// the sidebar's toggle at the other end of the row.
+struct TerminalToggleButton: View {
+    let workspace: WorkspaceModel
+
+    var body: some View {
+        Button {
+            // Unlike ⌃`, which goes to a terminal that's showing but doesn't have
+            // the keyboard, a click on this always shows or hides.
+            if workspace.isTerminalVisible { workspace.hideTerminal() } else { workspace.showTerminal() }
+        } label: {
+            Image(systemName: "terminal")
+        }
+        .buttonStyle(.titleBarIcon)
+        // Tinted while it's on, like the Search button in the sidebar's header.
+        .foregroundStyle(workspace.isTerminalVisible ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+        .help(workspace.isTerminalVisible ? "Hide Terminal (⌃`)" : "Show Terminal (⌃`)")
+    }
+}
+
 /// Puts the session's own view in the card. The view outlives the card: hiding the
 /// terminal takes the card away, and showing it again brings the same view back.
 private struct TerminalViewHost: NSViewRepresentable {

@@ -44,8 +44,9 @@ Silica needs macOS 26 or later.
   PDF asks for its password, and each tab keeps its place in its video.
 - **Editing tools.** Line numbers, indent guides, an optional minimap, word wrap, go to
   line, toggle comment, and moving or duplicating lines.
-- **A terminal under the editor.** ⌃` opens your shell in the project's folder, in a
-  card of its own below the editor. It runs on
+- **A terminal under the editor.** ⌃`, or the button at the end of the tab bar,
+  opens your shell in the project's folder, in a card of its own below the editor.
+  It runs on
   [libghostty](https://lib.ghostty.org), the terminal emulator inside Ghostty, so
   full-screen programs, true color and the mouse work as they do there. It follows
   the editor's font, and light and dark mode. ⌘-click a web address to open it, or

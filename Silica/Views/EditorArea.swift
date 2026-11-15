@@ -22,8 +22,10 @@ struct EditorArea: View {
                 Spacer(minLength: 0)
                 if let buffer = workspace.activeBuffer, let format = buffer.previewFormat {
                     PreviewModeToggle(buffer: buffer, format: format)
-                        .padding(.trailing, WorkspaceLayout.cardInset + 4)
                 }
+                // Last, so it stays in place whatever the tab has beside it.
+                TerminalToggleButton(workspace: workspace)
+                    .padding(.trailing, WorkspaceLayout.cardInset + 4)
             }
             .frame(height: WorkspaceLayout.titleBarHeight)
 
