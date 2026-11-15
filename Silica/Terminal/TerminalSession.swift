@@ -19,6 +19,8 @@ final class TerminalSession {
     var linkDestination: String?
     /// "zsh", for the card's header until there's a title.
     let shellName: String
+    /// What the card's header and the terminal's tab call it.
+    var name: String { title.isEmpty ? shellName : title }
 
     /// The emulator; `nil` once the session is closed.
     @ObservationIgnored private(set) var terminal: GhosttyTerminal?
@@ -394,6 +396,9 @@ final class TerminalSession {
         ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND, &background)
     }
 }
+
+/// Told apart by which object they are, for the tabs in the card's header.
+extension TerminalSession: Identifiable {}
 
 /// The private terminal modes (DECSET numbers) the app looks at.
 nonisolated enum TerminalMode {

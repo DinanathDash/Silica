@@ -41,8 +41,10 @@ final class WorkspaceModel {
     }
     private(set) var buffers: [URL: EditorBuffer] = [:]
 
-    /// The project's terminal, once it has been opened. It keeps running while its
-    /// card is hidden.
+    /// The project's terminals, in the order of their tabs. They keep running while
+    /// their card is hidden.
+    private(set) var terminals: [TerminalSession] = []
+    /// The terminal the card shows: one of `terminals`, as long as there are any.
     private(set) var terminal: TerminalSession?
     private(set) var isTerminalVisible = false
 
@@ -102,7 +104,8 @@ final class WorkspaceModel {
         }
         watcher?.stop()
         watcher = nil
-        terminal?.close()
+        for terminal in terminals { terminal.close() }
+        terminals = []
         terminal = nil
         if isAccessingScope {
             rootURL.stopAccessingSecurityScopedResource()
@@ -157,7 +160,7 @@ final class WorkspaceModel {
         terminal.view.focus()
     }
 
-    /// Hides the card. The shell and whatever runs in it carry on.
+    /// Hides the card. The shells and whatever runs in them carry on.
     func hideTerminal() {
         guard isTerminalVisible else { return }
         let hadFocus = terminal?.isFocused == true
@@ -165,26 +168,77 @@ final class WorkspaceModel {
         if hadFocus { focusEditor() }
     }
 
-    /// Ends the shell and removes the card; the next ⌃` starts a new one.
-    func closeTerminal() {
-        guard let terminal else { return }
-        let hadFocus = terminal.isFocused
-        withAnimation(.snappy(duration: 0.2)) { isTerminalVisible = false }
-        terminal.close()
-        self.terminal = nil
-        if hadFocus { focusEditor() }
+    /// New Terminal (⌃⇧`): another shell, in a tab after the ones there are.
+    func newTerminal() {
+        makeTerminal()
+        showTerminal()
     }
 
+    /// Brings a terminal's tab forward and gives it the keyboard.
+    func selectTerminal(_ terminal: TerminalSession) {
+        guard terminals.contains(where: { $0 === terminal }) else { return }
+        self.terminal = terminal
+        showTerminal()
+    }
+
+    /// The terminal `offset` tabs along from the one that's showing, going round
+    /// from either end to the other.
+    func selectTerminal(offsetBy offset: Int) {
+        let count = terminals.count
+        guard count > 1, let index = terminals.firstIndex(where: { $0 === terminal }) else { return }
+        selectTerminal(terminals[((index + offset) % count + count) % count])
+    }
+
+    /// Select Next Tab / Select Previous Tab: through the terminal's tabs when the
+    /// terminal has the keyboard and others beside it, and the editor's otherwise.
+    func selectTab(offsetBy offset: Int) {
+        if terminals.count > 1, isTerminalVisible, terminal?.isFocused == true {
+            selectTerminal(offsetBy: offset)
+        } else {
+            activateTab(offsetBy: offset)
+        }
+    }
+
+    /// Whether Select Next Tab and Select Previous Tab have another tab to go to.
+    var canSelectOtherTab: Bool {
+        openTabs.count > 1 || (terminals.count > 1 && isTerminalVisible && terminal?.isFocused == true)
+    }
+
+    /// Ends a terminal's shell and closes its tab: the one that's showing, unless
+    /// another is named. Its neighbor takes its place; without one the card goes,
+    /// and the next ⌃` starts a new shell.
+    func closeTerminal(_ closing: TerminalSession? = nil) {
+        guard let closing = closing ?? terminal,
+              let index = terminals.firstIndex(where: { $0 === closing }) else { return }
+        let hadFocus = closing.isFocused
+        terminals.remove(at: index)
+        if closing === terminal {
+            terminal = terminals.isEmpty ? nil : terminals[min(index, terminals.count - 1)]
+            if let terminal {
+                if hadFocus { terminal.view.focus() }
+            } else {
+                withAnimation(.snappy(duration: 0.2)) { isTerminalVisible = false }
+                if hadFocus { focusEditor() }
+            }
+        }
+        closing.close()
+    }
+
+    /// Starts a terminal in a new last tab, and makes it the one the card shows.
+    @discardableResult
     private func makeTerminal() -> TerminalSession {
         let terminal = TerminalSession(directory: rootURL)
         // The shell was exited, with "exit" or ⌃D.
-        terminal.onExit = { [weak self] in self?.closeTerminal() }
+        terminal.onExit = { [weak self, weak terminal] in
+            if let terminal { self?.closeTerminal(terminal) }
+        }
         // Links to files open here, like Quick Open's results.
         terminal.onOpenFile = { [weak self] url, line in
             self?.open(url)
             self?.reveal(url)
             if let line { self?.goToLine(line) }
         }
+        terminals.append(terminal)
         self.terminal = terminal
         return terminal
     }

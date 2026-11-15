@@ -354,7 +354,7 @@ private struct EditorTabBar: View {
 /// row that scrolls sideways ignores unless Shift is held, so while the pointer is on
 /// the bar the wheel's travel reaches the row as sideways travel. Trackpads and mice
 /// that scroll both ways are left as they are.
-private struct WheelScrollsSideways: NSViewRepresentable {
+struct WheelScrollsSideways: NSViewRepresentable {
     func makeNSView(context: Context) -> AnchorView { AnchorView() }
 
     func updateNSView(_ nsView: AnchorView, context: Context) {}
@@ -389,10 +389,10 @@ private struct WheelScrollsSideways: NSViewRepresentable {
 
 /// Closes the tab that the middle mouse button is clicked on, as browsers and other
 /// editors do. SwiftUI has no gesture for that button, so the bar watches for it.
-private struct MiddleClickClosesTab: NSViewRepresentable {
+struct MiddleClickClosesTab<Tab: Hashable>: NSViewRepresentable {
     /// The tab at a horizontal position in the bar, if there's one.
-    let tab: (CGFloat) -> URL?
-    let close: (URL) -> Void
+    let tab: (CGFloat) -> Tab?
+    let close: (Tab) -> Void
 
     func makeNSView(context: Context) -> AnchorView { AnchorView() }
 
@@ -407,12 +407,12 @@ private struct MiddleClickClosesTab: NSViewRepresentable {
 
     /// Marks where the bar is in its window, behind the row.
     final class AnchorView: NSView {
-        var tab: (CGFloat) -> URL? = { _ in nil }
-        var close: (URL) -> Void = { _ in }
+        var tab: (CGFloat) -> Tab? = { _ in nil }
+        var close: (Tab) -> Void = { _ in }
 
         private var monitor: Any?
         /// The tab the button went down on: it closes if the button comes up on it too.
-        private var pressed: URL?
+        private var pressed: Tab?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -472,7 +472,7 @@ private extension NSEvent {
 }
 
 /// How strongly each end of the tab row fades, from 0 (not at all) to 1.
-private struct EdgeFades: Equatable {
+struct EdgeFades: Equatable {
     var leading: CGFloat = 0
     var trailing: CGFloat = 0
 

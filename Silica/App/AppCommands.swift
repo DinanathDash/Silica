@@ -142,6 +142,10 @@ struct AppCommands: Commands {
                 .keyboardShortcut("`", modifiers: .control)
                 .disabled(workspace == nil)
 
+            Button("New Terminal") { workspace?.newTerminal() }
+                .keyboardShortcut("`", modifiers: [.control, .shift])
+                .disabled(workspace == nil)
+
             Button("Clear Terminal") { workspace?.terminal?.clear() }
                 .keyboardShortcut("k")
                 .disabled(workspace?.terminal?.isFocused != true)
@@ -160,13 +164,14 @@ struct AppCommands: Commands {
             // The file tabs, not the window tabs of the Window menu's Show Next Tab, which
             // has ⌃Tab as well: this menu comes first, so the file tabs get the key.
             // ⇧⌘] and ⇧⌘[ do the same; see KeyWorkspace.installKeyboardShortcuts().
-            let hasOtherTabs = (workspace?.openTabs.count ?? 0) > 1
+            // From a terminal with others beside it, they step through the terminals.
+            let hasOtherTabs = workspace?.canSelectOtherTab == true
 
-            Button("Select Next Tab") { workspace?.activateTab(offsetBy: 1) }
+            Button("Select Next Tab") { workspace?.selectTab(offsetBy: 1) }
                 .keyboardShortcut(.tab, modifiers: .control)
                 .disabled(!hasOtherTabs)
 
-            Button("Select Previous Tab") { workspace?.activateTab(offsetBy: -1) }
+            Button("Select Previous Tab") { workspace?.selectTab(offsetBy: -1) }
                 .keyboardShortcut(.tab, modifiers: [.control, .shift])
                 .disabled(!hasOtherTabs)
         }

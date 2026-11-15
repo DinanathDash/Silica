@@ -46,7 +46,8 @@ Silica needs macOS 26 or later.
   line, toggle comment, and moving or duplicating lines.
 - **A terminal under the editor.** ⌃`, or the button at the end of the tab bar,
   opens your shell in the project's folder, in a card of its own below the editor.
-  It runs on
+  Open as many as you need with ⌃⇧` or the card's + button: each gets a tab in the
+  card's header. It runs on
   [libghostty](https://lib.ghostty.org), the terminal emulator inside Ghostty, so
   full-screen programs, true color and the mouse work as they do there. It follows
   the editor's font, and light and dark mode. ⌘-click a web address to open it, or
@@ -69,8 +70,9 @@ Silica needs macOS 26 or later.
 | ⇧⌘V | Toggle Markdown, CSV or HTML preview |
 | ⌃⌘S | Show or hide the sidebar |
 | ⌃` | Show the terminal, or hide it from there |
+| ⌃⇧` | New terminal |
 | ⌘K | Clear the terminal |
-| ⌃Tab / ⌃⇧Tab | Select the next or previous tab (also ⇧⌘] / ⇧⌘[) |
+| ⌃Tab / ⌃⇧Tab | Select the next or previous tab (also ⇧⌘] / ⇧⌘[); from a terminal, the terminals' tabs |
 | ⌘/ | Toggle comment |
 | ⌥↑ / ⌥↓ | Move lines up or down |
 | ⇧⌥↑ / ⇧⌥↓ | Duplicate lines up or down |
