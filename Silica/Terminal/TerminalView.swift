@@ -26,8 +26,11 @@ final class TerminalView: NSView {
     var selectionDrag: GhosttySelectionGestureEvent?
     var selectionTick: GhosttySelectionGestureEvent?
 
-    /// Room between the card's edges and the grid.
-    static let inset = CGSize(width: 10, height: 8)
+    /// Room between the card's sides and the grid, and above it: none there, where
+    /// the card's header already stands between the text and the edge.
+    static let inset = CGSize(width: 10, height: 0)
+    /// Room under the grid, which keeps the last row out of the card's round corners.
+    static let bottomInset: CGFloat = 8
 
     // MARK: Metrics
 
@@ -270,7 +273,7 @@ final class TerminalView: NSView {
         isGridUpdateScheduled = false
         guard let session, window != nil else { return }
         let columns = Int((bounds.width - 2 * Self.inset.width) / cellSize.width)
-        let rows = Int((bounds.height - 2 * Self.inset.height) / cellSize.height)
+        let rows = Int((bounds.height - Self.inset.height - Self.bottomInset) / cellSize.height)
         // Smaller than this and the card is still on its way in or out.
         guard columns >= 4, rows >= 1 else { return }
         self.columns = columns
