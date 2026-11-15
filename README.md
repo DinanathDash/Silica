@@ -35,8 +35,7 @@ Silica needs macOS 26 or later.
 - **Your fonts.** Choose the editor's font and size, and set the sidebar's text size
   on its own, in Settings › Fonts & Colors.
 - **Markdown preview**, with highlighted code blocks.
-- **CSV preview.** See `.csv` and `.tsv` files as a table, and double-click a row to
-  edit it.
+- **CSV preview.** See `.csv` and `.tsv` files as a table.
 - **HTML preview.** `.html` files render as in a browser, with their styles, images
   and scripts, and with your unsaved changes.
 - **Images, PDFs and video.** Images, PDF files and videos open in their own tabs

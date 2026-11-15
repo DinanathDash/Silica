@@ -9,7 +9,7 @@ import WebKit
 /// A Markdown or CSV page is HTML from the format's renderer (`MarkdownHTMLRenderer`,
 /// `CSVHTMLRenderer`), styled to match the editor and drawn on a transparent
 /// background so the glass card shows through. Scripts in the document itself never
-/// run; Silica's own small script (scroll position, double-click) runs in a separate
+/// run; Silica's own small script (scroll position) runs in a separate
 /// script world. Relative images load from disk through the `silica-preview:` scheme,
 /// links to project files open in Silica, and web links open in the browser.
 ///
@@ -18,13 +18,11 @@ import WebKit
 /// WebKit's rules for local files apply, as in Safari: the page can load the images,
 /// styles and scripts around it, but its scripts can't read local files. The
 /// `silica-preview:` scheme, which serves any file, isn't used for it.
-final class DocumentPreview: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+final class DocumentPreview: NSObject, WKNavigationDelegate {
     let webView: PreviewWebView
 
     /// Opens another file in the project (a link to it was clicked).
     var onOpenFile: ((URL) -> Void)?
-    /// Double-click: edit the source at this 1-based line.
-    var onEditLine: ((Int) -> Void)?
     /// A character was typed; switch to the source and insert it.
     var onType: ((String) -> Void)?
 
@@ -81,8 +79,6 @@ final class DocumentPreview: NSObject, WKNavigationDelegate, WKScriptMessageHand
 
         // An HTML page keeps the web view's own background, and the keyboard, as in a browser.
         guard format != .html else { return }
-        // Through a weak proxy: the content controller retains its handlers.
-        configuration.userContentController.add(WeakScriptHandler(self), contentWorld: .defaultClient, name: "silica")
         webView.underPageBackgroundColor = .clear
         webView.setValue(false, forKey: "drawsBackground")
         webView.onType = { [weak self] characters in self?.onType?(characters) }
@@ -322,14 +318,6 @@ final class DocumentPreview: NSObject, WKNavigationDelegate, WKScriptMessageHand
         isStartingPage = false
     }
 
-    // MARK: WKScriptMessageHandler
-
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        if let line = message.body as? Int {
-            onEditLine?(line)
-        }
-    }
-
     // MARK: Page
 
     private static func encodedPath(_ path: String) -> String {
@@ -450,10 +438,6 @@ final class DocumentPreview: NSObject, WKNavigationDelegate, WKScriptMessageHand
         return 1;
       }
     };
-    document.addEventListener('dblclick', (event) => {
-      const block = event.target.closest('[data-line]');
-      window.webkit.messageHandlers.silica.postMessage(block ? +block.dataset.line : 1);
-    });
     """
 }
 
@@ -471,18 +455,6 @@ final class PreviewWebView: WKWebView {
         }
         // Space, arrows and page keys keep scrolling the preview.
         super.keyDown(with: event)
-    }
-}
-
-private final class WeakScriptHandler: NSObject, WKScriptMessageHandler {
-    weak var target: WKScriptMessageHandler?
-
-    init(_ target: WKScriptMessageHandler) {
-        self.target = target
-    }
-
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        target?.userContentController(userContentController, didReceive: message)
     }
 }
 
