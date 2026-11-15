@@ -188,6 +188,7 @@ private struct GeneralSettingsPane: View {
                     .labelsHidden()
                     .fixedSize()
                 }
+                SettingsToggle("Glass effect", isOn: $settings.usesGlassEffect)
             }
 
             SettingsGroup("Projects") {

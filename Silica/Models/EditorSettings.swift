@@ -35,6 +35,7 @@ final class EditorSettings {
         static let syntaxTheme = "syntaxTheme"
         static let appearance = "appearance"
         static let windowBackground = "windowBackground"
+        static let usesGlassEffect = "usesGlassEffect"
         static let restoresTabs = "restoresOpenTabs"
         static let pinsParentFolders = "fileTreePinsParentFolders"
     }
@@ -161,6 +162,15 @@ final class EditorSettings {
         }
     }
 
+    /// Cards, tabs and buttons sit on Liquid Glass; off, a border and a shadow
+    /// set them apart instead.
+    var usesGlassEffect: Bool {
+        didSet {
+            guard usesGlassEffect != oldValue else { return }
+            store(usesGlassEffect, Key.usesGlassEffect, isDefault: usesGlassEffect)
+        }
+    }
+
     /// Reopen a project's tabs where they were left.
     var restoresTabs: Bool {
         didSet {
@@ -202,6 +212,7 @@ final class EditorSettings {
         appearance = defaults.string(forKey: Key.appearance).flatMap(Appearance.init(rawValue:)) ?? .system
         windowBackground = defaults.string(forKey: Key.windowBackground)
             .flatMap(WindowBackground.init(rawValue:)) ?? .translucent
+        usesGlassEffect = defaults.object(forKey: Key.usesGlassEffect) as? Bool ?? true
         restoresTabs = defaults.object(forKey: Key.restoresTabs) as? Bool ?? true
         pinsParentFolders = defaults.object(forKey: Key.pinsParentFolders) as? Bool ?? true
     }

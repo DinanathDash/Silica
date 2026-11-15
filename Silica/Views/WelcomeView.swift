@@ -66,7 +66,7 @@ struct WelcomeView: View {
                         Label("Open Project…", systemImage: "folder.badge.plus")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.glassProminent)
+                    .glassButtonStyle(prominent: true)
                     .keyboardShortcut("o")
 
                     if let last = store.projects.first {
@@ -77,7 +77,7 @@ struct WelcomeView: View {
                                 .lineLimit(1)
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.glass)
+                        .glassButtonStyle()
                     }
                 }
                 .controlSize(.extraLarge)
