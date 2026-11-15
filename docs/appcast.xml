@@ -3,6 +3,30 @@
     <channel>
         <title>Silica</title>
         <item>
+            <title>0.5.0</title>
+            <pubDate>Sun, 15 Nov 2026 13:52:28 +0800</pubDate>
+            <link>https://github.com/dqhieu/Silica</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/dqhieu/Silica/releases</sparkle:fullReleaseNotesLink>
+            <sparkle:version>7</sparkle:version>
+            <sparkle:shortVersionString>0.5.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[### What's new
+
+- **A terminal under the editor.** **View › Terminal** (**⌃`**) opens your shell in the project's folder, in a glass card below the editor. Drag the gap between the two to resize it. The arrow in the card's header hides the terminal while the shell carries on, and the trash, **Kill Terminal**, ends it. **View › Clear Terminal** (**⌘K**) clears it.
+- **Several terminals, each in a tab.** The **+** button in the terminal's header, or **View › New Terminal** (**⌃⇧`**), starts another shell, and from the second on each gets a tab in the header. Click a tab to bring its terminal forward, drag it to reorder, and middle-click it or right-click and choose **Kill Terminal** to end it. While a terminal has the keyboard, **⌃Tab**, **⌃⇧Tab**, **⇧⌘]** and **⇧⌘[** step through the terminals; from the editor they still step through the file tabs.
+- **Follow links in the terminal with a ⌘ click.** Hold ⌘ over a web address or a file path to underline it and see where it goes in the card's header. A path to a file that exists opens in a Silica tab, at the line printed after it.
+- **Show and hide the terminal from the title bar.** A terminal button sits at the end of the title bar, whatever is open and whether or not the sidebar is showing. It is tinted while the terminal is showing.
+- **Recent projects show their Finder icons.** The **Recent Projects** list in the welcome window now shows each folder as Finder does, with custom folder icons and packages looking like what they are.
+- **A dragged tab stays in view.** Dropping a tab after a drag that scrolled the tab bar could leave the tab out of sight. The bar now scrolls to where the tab landed.
+
+If you already have Silica, it will offer this update on its own, or choose **Silica › Check for Updates…**.
+
+Found a bug or have an idea? Please [open an issue](https://github.com/dqhieu/Silica/issues).
+
+]]></description>
+            <enclosure url="https://github.com/dqhieu/Silica/releases/download/v0.5.0/Silica-0.5.0.dmg" length="9259275" type="application/octet-stream" sparkle:edSignature="VfOq8/lrZp0cdiSFhFTPjdLvuHZxwX+2+6pV/zbFzGkRnGpIzAyRLeEk01VkJPdIg67l3eTgOhceRHNDMc24AA=="/>
+        </item>
+        <item>
             <title>0.4.0</title>
             <pubDate>Fri, 13 Nov 2026 21:32:18 +0800</pubDate>
             <link>https://github.com/dqhieu/Silica</link>
