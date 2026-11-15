@@ -189,6 +189,17 @@ final class WorkspaceModel {
         selectTerminal(terminals[((index + offset) % count + count) % count])
     }
 
+    /// Puts a terminal's tab at another place in the row (dragging it there).
+    func moveTerminal(_ terminal: TerminalSession, to index: Int) {
+        guard let current = terminals.firstIndex(where: { $0 === terminal }) else { return }
+        let target = min(max(index, 0), terminals.count - 1)
+        guard target != current else { return }
+        var moved = terminals
+        moved.remove(at: current)
+        moved.insert(terminal, at: target)
+        terminals = moved
+    }
+
     /// Select Next Tab / Select Previous Tab: through the terminal's tabs when the
     /// terminal has the keyboard and others beside it, and the editor's otherwise.
     func selectTab(offsetBy offset: Int) {

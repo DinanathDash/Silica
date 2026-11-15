@@ -47,7 +47,7 @@ Silica needs macOS 26 or later.
 - **A terminal under the editor.** ⌃`, or the button at the end of the tab bar,
   opens your shell in the project's folder, in a card of its own below the editor.
   Open as many as you need with ⌃⇧` or the card's + button: each gets a tab in the
-  card's header. It runs on
+  card's header, which you can drag to another place in the row. It runs on
   [libghostty](https://lib.ghostty.org), the terminal emulator inside Ghostty, so
   full-screen programs, true color and the mouse work as they do there. It follows
   the editor's font, and light and dark mode. ⌘-click a web address to open it, or

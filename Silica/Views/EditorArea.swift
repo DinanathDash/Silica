@@ -104,7 +104,7 @@ private struct EditorTabBar: View {
     let workspace: WorkspaceModel
 
     /// The tab being dragged to a new place, and how far the pointer has carried it.
-    @State private var drag: TabDrag?
+    @State private var drag: TabDrag<URL>?
     /// Each tab's laid-out width, to tell which tabs a dragged one has passed.
     @State private var tabWidths: [URL: CGFloat] = [:]
     /// Width of the part of the row that shows, and how far the row is scrolled under it.
@@ -121,21 +121,17 @@ private struct EditorTabBar: View {
     private static let spacing: CGFloat = 6
     private static let inset: CGFloat = 2
     private static let reorderAnimation = Animation.snappy(duration: 0.2)
-    /// How close to an end of the bar the pointer starts scrolling it.
-    private static let autoscrollZone: CGFloat = 40
-    /// Scrolling speed, in points per second for each point the pointer is into the zone.
-    private static let autoscrollRate: CGFloat = 10
     /// How far in from an end of the bar the row fades out.
     private static let fadeWidth: CGFloat = 20
 
     var body: some View {
-        let offsets = drag.flatMap(reorderLayout(for:))?.offsets ?? [:]
+        let offsets = drag?.reorder(in: layout)?.offsets ?? [:]
         ScrollViewReader { proxy in
             ScrollView(.horizontal) {
                 HStack(spacing: Self.spacing - 2 * Self.fadeWidth) {
                     ForEach(workspace.openTabs, id: \.self) { url in
                         let offset = offsets[url] ?? 0
-                        let isDragged = drag?.url == url
+                        let isDragged = drag?.tab == url
                         EditorTab(
                             url: url,
                             isActive: url == workspace.activeTab,
@@ -207,14 +203,14 @@ private struct EditorTabBar: View {
                 tabWidths = tabWidths.filter { tabs.contains($0.key) }
                 // The dragged tab can close or be renamed mid-drag, which removes its view
                 // before the gesture can end or cancel.
-                if let drag, !tabs.contains(drag.url) { self.drag = nil }
+                if let drag, !tabs.contains(drag.tab) { self.drag = nil }
                 // Closing the last tab leaves nothing for the pointer to move off.
                 if tabs.isEmpty { workspace.window?.isMovable = true }
             }
             .onDisappear { workspace.window?.isMovable = true }
             // A pointer resting near an end of the bar sends no events, so a timer keeps
             // the row scrolling under it for as long as the drag lasts.
-            .task(id: drag?.url) {
+            .task(id: drag?.tab) {
                 guard drag != nil else { return }
                 var last = Date.now
                 while !Task.isCancelled {
@@ -247,49 +243,48 @@ private struct EditorTabBar: View {
     private func handleDrag(_ event: TabDragEvent, of url: URL, proxy: ScrollViewProxy) {
         switch event {
         case .moved(let translation, let location):
-            if let drag, drag.url == url {
-                self.drag = TabDrag(url: url, translation: translation, location: location, startScrollOffset: drag.startScrollOffset)
+            if let drag, drag.tab == url {
+                self.drag = TabDrag(tab: url, translation: translation, location: location, startScrollOffset: drag.startScrollOffset)
             } else {
                 // Dragging a tab brings it forward, as clicking it does.
                 workspace.activate(url)
-                drag = TabDrag(url: url, translation: translation, location: location, startScrollOffset: scrollOffset)
+                drag = TabDrag(tab: url, translation: translation, location: location, startScrollOffset: scrollOffset)
             }
         case .dropped(let translation):
-            guard var dropped = drag, dropped.url == url else { return }
+            guard var dropped = drag, dropped.tab == url else { return }
             dropped.translation = translation
-            let destination = reorderLayout(for: dropped)?.destination
+            let destination = dropped.reorder(in: layout)?.destination
             // The new order and the end of the drag go in one animation, so every tab
             // settles from where the drag left it instead of jumping to its new place.
             withAnimation(Self.reorderAnimation) {
                 if let destination { workspace.moveTab(url, to: destination) }
                 drag = nil
-                // Its new place can reach past the end of the bar.
-                proxy.scrollTo(url)
+            }
+            // Its new place can reach past the end of the bar. Once the row is laid out
+            // in its new order: asked in the same pass, the reader goes to where the
+            // tab was, which a drag that scrolled the row has left far behind.
+            DispatchQueue.main.async {
+                withAnimation(Self.reorderAnimation) { proxy.scrollTo(url) }
             }
         case .cancelled:
-            if drag?.url == url {
+            if drag?.tab == url {
                 withAnimation(Self.reorderAnimation) { drag = nil }
             }
         }
     }
 
-    /// Scrolls the row while a tab is held near an end of the bar, faster the further
-    /// the pointer goes, so a tab can be taken past the ones that fit in the bar.
-    private func autoscroll(elapsed: TimeInterval) {
-        guard let drag, barWidth > 0 else { return }
-        // Only towards the side the tab has been dragged to: picking up a tab that
-        // sits at an end of the bar shouldn't scroll it straight away.
-        var depth: CGFloat = 0
-        if drag.translation > 0 {
-            depth = max(drag.location - (barWidth - Self.autoscrollZone), 0)
-        } else if drag.translation < 0 {
-            depth = min(drag.location - Self.autoscrollZone, 0)
-        }
-        let speed = min(max(depth, -2 * Self.autoscrollZone), 2 * Self.autoscrollZone) * Self.autoscrollRate
+    /// The row as it's laid out now, for the drag to be worked out from.
+    private var layout: TabBarLayout<URL> {
+        TabBarLayout(
+            tabs: workspace.openTabs, widths: tabWidths, spacing: Self.spacing, inset: Self.inset,
+            barWidth: barWidth, scrollOffset: scrollOffset
+        )
+    }
 
-        let rowWidth = workspace.openTabs.reduce(2 * Self.inset - Self.spacing) { $0 + (tabWidths[$1] ?? 0) + Self.spacing }
-        let target = min(max(scrollOffset + speed * CGFloat(elapsed), 0), max(rowWidth - barWidth, 0))
-        guard target != scrollOffset else { return }
+    /// Scrolls the row while a tab is held near an end of the bar, so a tab can be
+    /// taken past the ones that fit in the bar.
+    private func autoscroll(elapsed: TimeInterval) {
+        guard let target = drag?.autoscrollOffset(in: layout, elapsed: elapsed) else { return }
         scrollPosition.scrollTo(x: target)
         // Ahead of the scroll view reporting it, so the tab doesn't trail the row by a frame.
         scrollOffset = target
@@ -299,54 +294,7 @@ private struct EditorTabBar: View {
     /// tabs and the empty end of the row have none.
     private func tab(at x: CGFloat) -> URL? {
         // The tabs are out of their places during a drag.
-        guard drag == nil else { return nil }
-        var leading = Self.inset - scrollOffset
-        for url in workspace.openTabs {
-            let width = tabWidths[url] ?? 0
-            if x >= leading && x < leading + width { return url }
-            leading += width + Self.spacing
-        }
-        return nil
-    }
-
-    /// Where the dragged tab would land if dropped now, and how far each tab sits from
-    /// its place in the row meanwhile: the dragged one follows the pointer, and the
-    /// tabs it has passed step aside by its width. The order itself changes on drop.
-    private func reorderLayout(for drag: TabDrag) -> (destination: Int, offsets: [URL: CGFloat])? {
-        let tabs = workspace.openTabs
-        guard let source = tabs.firstIndex(of: drag.url) else { return nil }
-        let widths = tabs.map { tabWidths[$0] ?? 0 }
-        // How far along the row a tab pushes the ones after it.
-        let strides = widths.map { $0 + Self.spacing }
-        let before = strides[..<source].reduce(0, +)
-        let after = strides[(source + 1)...].reduce(0, +)
-
-        // The pointer's travel, plus the row's as it scrolled under the pointer.
-        var offset = drag.translation + scrollOffset - drag.startScrollOffset
-        // The tab stays in view when the pointer leaves the bar, which scrolls it...
-        if barWidth > 0 {
-            let leading = scrollOffset - (Self.inset + before)
-            offset = max(min(offset, leading + barWidth - widths[source]), leading)
-        }
-        // ...and stops at the ends of the row.
-        offset = min(max(offset, -before), after)
-
-        // A neighbor is passed once the dragged tab's leading or trailing edge crosses its middle.
-        let neighbors = offset > 0 ? Array((source + 1)..<tabs.count) : Array((0..<source).reversed())
-        var destination = source
-        var passed: CGFloat = 0
-        for index in neighbors {
-            guard abs(offset) > passed + Self.spacing + widths[index] / 2 else { break }
-            passed += strides[index]
-            destination = index
-        }
-
-        var offsets = [drag.url: offset]
-        let slot = destination > source ? -strides[source] : strides[source]
-        for index in min(source, destination)...max(source, destination) where index != source {
-            offsets[tabs[index]] = slot
-        }
-        return (destination, offsets)
+        drag == nil ? layout.tab(at: x) : nil
     }
 }
 
@@ -485,17 +433,106 @@ struct EdgeFades: Equatable {
     }
 }
 
-private struct TabDrag {
-    let url: URL
+/// A tab bar's row as it's laid out, which a drag along it is worked out from.
+struct TabBarLayout<Tab: Hashable> {
+    let tabs: [Tab]
+    /// Each tab's laid-out width.
+    let widths: [Tab: CGFloat]
+    /// The gap between two tabs, and the room before the first and after the last.
+    let spacing: CGFloat
+    let inset: CGFloat
+    /// Width of the part of the row that shows, and how far the row is scrolled under it.
+    let barWidth: CGFloat
+    let scrollOffset: CGFloat
+
+    /// The tab at a horizontal position in the bar, if there's one.
+    func tab(at x: CGFloat) -> Tab? {
+        var leading = inset - scrollOffset
+        for tab in tabs {
+            let width = widths[tab] ?? 0
+            if x >= leading && x < leading + width { return tab }
+            leading += width + spacing
+        }
+        return nil
+    }
+}
+
+/// A tab being dragged to another place in its bar.
+struct TabDrag<Tab: Hashable> {
+    let tab: Tab
     /// Horizontal distance the pointer has moved since the drag began.
     var translation: CGFloat
     /// The pointer's horizontal position in the tab bar.
     var location: CGFloat
     /// How far the row was scrolled when the drag began.
     let startScrollOffset: CGFloat
+
+    /// Where the dragged tab would land if dropped now, and how far each tab sits from
+    /// its place in the row meanwhile: the dragged one follows the pointer, and the
+    /// tabs it has passed step aside by its width. The order itself changes on drop.
+    func reorder(in bar: TabBarLayout<Tab>) -> (destination: Int, offsets: [Tab: CGFloat])? {
+        let tabs = bar.tabs
+        guard let source = tabs.firstIndex(of: tab) else { return nil }
+        let widths = tabs.map { bar.widths[$0] ?? 0 }
+        // How far along the row a tab pushes the ones after it.
+        let strides = widths.map { $0 + bar.spacing }
+        let before = strides[..<source].reduce(0, +)
+        let after = strides[(source + 1)...].reduce(0, +)
+
+        // The pointer's travel, plus the row's as it scrolled under the pointer.
+        var offset = translation + bar.scrollOffset - startScrollOffset
+        // The tab stays in view when the pointer leaves the bar, which scrolls it...
+        if bar.barWidth > 0 {
+            let leading = bar.scrollOffset - (bar.inset + before)
+            offset = max(min(offset, leading + bar.barWidth - widths[source]), leading)
+        }
+        // ...and stops at the ends of the row.
+        offset = min(max(offset, -before), after)
+
+        // A neighbor is passed once the dragged tab's leading or trailing edge crosses its middle.
+        let neighbors = offset > 0 ? Array((source + 1)..<tabs.count) : Array((0..<source).reversed())
+        var destination = source
+        var passed: CGFloat = 0
+        for index in neighbors {
+            guard abs(offset) > passed + bar.spacing + widths[index] / 2 else { break }
+            passed += strides[index]
+            destination = index
+        }
+
+        var offsets = [tab: offset]
+        let slot = destination > source ? -strides[source] : strides[source]
+        for index in min(source, destination)...max(source, destination) where index != source {
+            offsets[tabs[index]] = slot
+        }
+        return (destination, offsets)
+    }
+
+    /// Where the row should be scrolled to after `elapsed` seconds of the tab being
+    /// held near an end of the bar, faster the further the pointer goes; `nil` when
+    /// the row has no need to move.
+    func autoscrollOffset(in bar: TabBarLayout<Tab>, elapsed: TimeInterval) -> CGFloat? {
+        guard bar.barWidth > 0 else { return nil }
+        // How close to an end of the bar the pointer starts scrolling it.
+        let zone: CGFloat = 40
+        // Scrolling speed, in points per second for each point the pointer is into the zone.
+        let rate: CGFloat = 10
+        // Only towards the side the tab has been dragged to: picking up a tab that
+        // sits at an end of the bar shouldn't scroll it straight away.
+        var depth: CGFloat = 0
+        if translation > 0 {
+            depth = max(location - (bar.barWidth - zone), 0)
+        } else if translation < 0 {
+            depth = min(location - zone, 0)
+        }
+        let speed = min(max(depth, -2 * zone), 2 * zone) * rate
+
+        let rowWidth = bar.tabs.reduce(2 * bar.inset - bar.spacing) { $0 + (bar.widths[$1] ?? 0) + bar.spacing }
+        let target = min(max(bar.scrollOffset + speed * CGFloat(elapsed), 0), max(rowWidth - bar.barWidth, 0))
+        return target == bar.scrollOffset ? nil : target
+    }
 }
 
-private enum TabDragEvent {
+enum TabDragEvent {
     /// The pointer's travel since the drag began, and its position in the tab bar.
     case moved(translation: CGFloat, location: CGFloat)
     case dropped(translation: CGFloat)
