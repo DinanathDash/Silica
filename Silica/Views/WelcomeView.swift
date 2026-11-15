@@ -162,10 +162,8 @@ private struct RecentProjectRow: View {
     var body: some View {
         Button(action: open) {
             HStack(spacing: 12) {
-                Image(systemName: "folder.fill")
-                    .font(.title2)
-                    .foregroundStyle(FileIconPalette.folder)
-                    .frame(width: 30)
+                // The icon Finder shows for the folder, as in the file tree.
+                FileIcon(url: URL(filePath: project.path), isDirectory: true, width: 30)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(project.name)
