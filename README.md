@@ -27,8 +27,8 @@ Silica needs macOS 15 or later. The Liquid Glass look needs macOS 26; earlier ve
 - **Tabs.** Drag tabs to reorder them, step through them with ⌃Tab, and close one with
   a middle click. With more tabs than fit, a mouse wheel scrolls the tab bar.
   Right-click a tab to reveal its file in the explorer or in Finder, or to copy its path.
-- **Syntax highlighting** for 26 languages, including Swift, JavaScript, TypeScript,
-  Python, Go, Rust, C, C++, Java, Kotlin, HTML, CSS, JSON, YAML and Markdown. Diff and
+- **Syntax highlighting** for 27 languages, including Swift, JavaScript, TypeScript,
+  Python, Go, Rust, C, C++, Java, Kotlin, Dart, HTML, CSS, JSON, YAML and Markdown. Diff and
   patch files show added lines in green and removed lines in red.
 - **Nine color themes**, each with a light and a dark palette: Atom One, GitHub,
   Xcode, Solarized, Catppuccin, Gruvbox, Tokyo Night, Rosé Pine and Dracula.
