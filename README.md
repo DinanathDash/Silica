@@ -9,8 +9,14 @@ and video open beside your code, all in a native SwiftUI and AppKit app.
 ## Download
 
 Get the latest DMG from [Releases](https://github.com/dqhieu/Silica/releases/latest),
-open it and drag Silica to Applications. Silica checks for updates once a day and
-installs them for you; you can turn that off in Settings › General.
+open it and drag Silica to Applications. Or install it with [Homebrew](https://brew.sh):
+
+```
+brew install --cask dqhieu/tap/silica
+```
+
+Silica checks for updates once a day and installs them for you; you can turn that
+off in Settings › General.
 
 Silica needs macOS 15 or later. The Liquid Glass look needs macOS 26; earlier versions get plain bordered cards.
 
