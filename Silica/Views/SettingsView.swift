@@ -118,7 +118,10 @@ private struct GeneralSettingsPane: View {
                     Text("Opaque").tag(EditorSettings.WindowBackground.opaque)
                 }
                 .tabsPickerStyle()
-                Toggle("Glass effect", isOn: $settings.usesGlassEffect)
+                // Liquid Glass came with macOS 26; earlier versions always get the plain cards.
+                if #available(macOS 26.0, *) {
+                    Toggle("Glass effect", isOn: $settings.usesGlassEffect)
+                }
             }
 
             Section("Projects") {
@@ -260,7 +263,7 @@ private struct EditorSettingsPane: View {
 }
 
 private extension View {
-    /// The capsule tabs treatment macOS 27 gives a picker, or plain segments on macOS 26.
+    /// The capsule tabs treatment macOS 27 gives a picker, or plain segments before it.
     @ViewBuilder
     func tabsPickerStyle() -> some View {
         if #available(macOS 27.0, *) {

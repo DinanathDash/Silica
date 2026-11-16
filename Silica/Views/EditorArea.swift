@@ -78,10 +78,7 @@ struct EditorArea: View {
     }
 
     private var editorCard: some View {
-        // Corners next to the window's corners follow its radius minus the inset;
-        // the others (under the tab bar) fall back to the minimum.
-        let shape = ConcentricRectangle(corners: .concentric(minimum: .fixed(WorkspaceLayout.cardCornerRadius)))
-        return Group {
+        Group {
             if let buffer = workspace.activeBuffer {
                 BufferView(buffer: buffer, workspace: workspace)
             } else {
@@ -89,9 +86,10 @@ struct EditorArea: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipShape(shape)
-        // Liquid Glass card, or a bordered one with the glass effect off.
-        .glassSurface(in: shape)
+        // Liquid Glass card, or a bordered one with the glass effect off. Corners
+        // next to the window's corners follow its radius minus the inset; the
+        // others (under the tab bar) fall back to the minimum.
+        .workspaceCard()
     }
 }
 

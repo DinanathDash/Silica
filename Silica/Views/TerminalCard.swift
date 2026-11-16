@@ -9,15 +9,13 @@ struct TerminalCard: View {
     let workspace: WorkspaceModel
 
     var body: some View {
-        // The same shape as the editor card: the bottom corners follow the window's.
-        let shape = ConcentricRectangle(corners: .concentric(minimum: .fixed(WorkspaceLayout.cardCornerRadius)))
         VStack(spacing: 0) {
             header
             TerminalViewHost(view: session.view)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipShape(shape)
-        .glassSurface(in: shape)
+        // The same shape as the editor card: the bottom corners follow the window's.
+        .workspaceCard()
     }
 
     private var header: some View {
