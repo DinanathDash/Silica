@@ -98,6 +98,16 @@ You need Xcode 27 or later.
 Bug reports, ideas and pull requests are welcome. Read
 [CONTRIBUTING.md](CONTRIBUTING.md) before you start on a change.
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=dqhieu%2Fsilica&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=dqhieu/silica&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=dqhieu/silica&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=dqhieu/silica&type=date&legend=top-left" />
+ </picture>
+</a>
+
 ## License
 
 Silica is released under the [MIT License](LICENSE). It includes
