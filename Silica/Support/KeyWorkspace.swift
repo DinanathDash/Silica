@@ -88,23 +88,32 @@ struct KeyWindowTracker: NSViewRepresentable {
             guard let window else { return }
             workspace?.window = window
             NotificationCenter.default.addObserver(
-                self, selector: #selector(windowDidBecomeKey),
+                self, selector: #selector(keyStateDidChange),
                 name: NSWindow.didBecomeKeyNotification, object: window
             )
             NotificationCenter.default.addObserver(
-                self, selector: #selector(windowDidResignKey),
+                self, selector: #selector(keyStateDidChange),
                 name: NSWindow.didResignKeyNotification, object: window
             )
-            if window.isKeyWindow { windowDidBecomeKey() }
+            if window.isKeyWindow { keyStateDidChange() }
         }
 
-        @objc private func windowDidBecomeKey() {
-            KeyWorkspace.shared.current = workspace
+        /// Published a turn later: this is reached in the middle of a SwiftUI view update
+        /// (the view joining a window that is already key, or SwiftUI making the window
+        /// key), where changing what `AppCommands` observes isn't allowed.
+        @objc private func keyStateDidChange() {
+            DispatchQueue.main.async { [weak self] in self?.publishKeyState() }
         }
 
-        @objc private func windowDidResignKey() {
-            if KeyWorkspace.shared.current === workspace {
-                KeyWorkspace.shared.current = nil
+        /// Reads the window's state now rather than trusting the notification, so a
+        /// window that became key and resigned again before this ran isn't published.
+        private func publishKeyState() {
+            guard let workspace else { return }
+            let key = KeyWorkspace.shared
+            if window?.isKeyWindow == true {
+                if key.current !== workspace { key.current = workspace }
+            } else if key.current === workspace {
+                key.current = nil
             }
         }
     }
