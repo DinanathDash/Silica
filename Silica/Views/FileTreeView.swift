@@ -716,10 +716,7 @@ private struct FileNodeMenu: View {
         Divider()
         Button("Show in Finder") { Finder.reveal(node.url) }
         Button("Copy Path") { Finder.copyPath(node.url) }
-        Button("Copy Relative Path") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(workspace.relativePath(of: node.url), forType: .string)
-        }
+        Button("Copy Relative Path") { Finder.copyPath(workspace.relativePath(of: node.url)) }
     }
 }
 
