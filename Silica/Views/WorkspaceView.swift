@@ -81,6 +81,9 @@ enum WorkspaceLayout {
     /// How much of the sidebar list's built-in top inset to hide.
     static let sidebarListTopTrim: CGFloat = 8
     static let sidebarWidthRange: ClosedRange<Double> = 220...480
+    static let editorMinWidth: CGFloat = 420
+    /// Fits the narrowest sidebar beside the narrowest editor.
+    static let windowMinWidth: CGFloat = sidebarWidthRange.lowerBound + editorMinWidth
     static let terminalHeightRange: ClosedRange<Double> = 100...1200
     /// What the terminal card leaves of the editor card at the least.
     static let minimumEditorHeight: CGFloat = 120
@@ -90,12 +93,13 @@ struct WorkspaceView: View {
     @Bindable var workspace: WorkspaceModel
     @AppStorage("sidebarWidth") private var sidebarWidth: Double = 260
     @State private var dragStartWidth: Double?
+    @State private var windowWidth: CGFloat = 0
 
     var body: some View {
         HStack(spacing: 0) {
             if workspace.isSidebarVisible {
                 FileTreeView(workspace: workspace)
-                    .frame(width: min(max(sidebarWidth, WorkspaceLayout.sidebarWidthRange.lowerBound), WorkspaceLayout.sidebarWidthRange.upperBound))
+                    .frame(width: shownSidebarWidth)
                     .overlay(alignment: .trailing) { resizeHandle }
                     .transition(.move(edge: .leading).combined(with: .opacity))
             }
@@ -107,7 +111,8 @@ struct WorkspaceView: View {
                 QuickOpenOverlay(workspace: workspace)
             }
         }
-        .frame(minWidth: 640, minHeight: 400)
+        .frame(minWidth: WorkspaceLayout.windowMinWidth, minHeight: 400)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { windowWidth = $0 }
         .containerBackground(for: .window) {
             WindowBackgroundView()
         }
@@ -117,6 +122,20 @@ struct WorkspaceView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             workspace.refresh()
         }
+    }
+
+    /// The widest the sidebar can be while the editor keeps its minimum width.
+    private var widestSidebar: Double {
+        let range = WorkspaceLayout.sidebarWidthRange
+        // Before the first layout pass there's no width to go by.
+        guard windowWidth > 0 else { return range.upperBound }
+        return min(max(windowWidth - WorkspaceLayout.editorMinWidth, range.lowerBound), range.upperBound)
+    }
+
+    /// The stored width, narrowed while the window is too small for it. The stored
+    /// width is kept, so the sidebar grows back when the window does.
+    private var shownSidebarWidth: Double {
+        min(max(sidebarWidth, WorkspaceLayout.sidebarWidthRange.lowerBound), widestSidebar)
     }
 
     /// Invisible strip on the sidebar's trailing edge that resizes it.
@@ -129,11 +148,10 @@ struct WorkspaceView: View {
             .gesture(
                 DragGesture(minimumDistance: 1, coordinateSpace: .global)
                     .onChanged { value in
-                        let start = dragStartWidth ?? sidebarWidth
+                        let start = dragStartWidth ?? shownSidebarWidth
                         dragStartWidth = start
                         let proposed = start + value.translation.width
-                        sidebarWidth = min(max(proposed, WorkspaceLayout.sidebarWidthRange.lowerBound),
-                                           WorkspaceLayout.sidebarWidthRange.upperBound)
+                        sidebarWidth = min(max(proposed, WorkspaceLayout.sidebarWidthRange.lowerBound), widestSidebar)
                     }
                     .onEnded { _ in dragStartWidth = nil }
             )
