@@ -58,7 +58,11 @@ enum Finder {
     }
 
     static func copyPath(_ url: URL) {
+        copyPath(url.path(percentEncoded: false))
+    }
+
+    static func copyPath(_ path: String) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(url.path(percentEncoded: false), forType: .string)
+        NSPasteboard.general.setString(path, forType: .string)
     }
 }
