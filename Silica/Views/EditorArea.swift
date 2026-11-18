@@ -136,7 +136,7 @@ private struct EditorTabBar: View {
                             close: { withAnimation(.snappy) { workspace.closeTab(url) } },
                             closeOthers: { withAnimation(.snappy) { workspace.closeOtherTabs(than: url) } },
                             revealInTree: workspace.contains(url) ? { workspace.revealInTree(url) } : nil,
-                            copyRelativePath: { Finder.copyPath(workspace.relativePath(of: url)) },
+                            copyRelativePath: workspace.contains(url) ? { Finder.copyPath(workspace.relativePath(of: url)) } : nil,
                             drag: { handleDrag($0, of: url, proxy: proxy) }
                         )
                         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { tabWidths[url] = $0 }
@@ -547,7 +547,8 @@ private struct EditorTab: View {
     let closeOthers: () -> Void
     /// Shows the file in the tree; `nil` for a file the tree doesn't have.
     let revealInTree: (() -> Void)?
-    let copyRelativePath: () -> Void
+    /// Copies the path from the workspace root; `nil` for a file outside the workspace.
+    let copyRelativePath: (() -> Void)?
     /// Reports a drag along the tab bar, which moves the tab to another place in it.
     let drag: (TabDragEvent) -> Void
 
@@ -615,7 +616,9 @@ private struct EditorTab: View {
                 }
                 Button("Show in Finder") { Finder.reveal(url) }
                 Button("Copy Path") { Finder.copyPath(url) }
-                Button("Copy Relative Path", action: copyRelativePath)
+                if let copyRelativePath {
+                    Button("Copy Relative Path", action: copyRelativePath)
+                }
             }
         }
     }
