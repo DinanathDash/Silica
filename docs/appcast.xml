@@ -3,6 +3,29 @@
     <channel>
         <title>Silica</title>
         <item>
+            <title>0.7.0</title>
+            <pubDate>Wed, 18 Nov 2026 22:27:07 +0800</pubDate>
+            <link>https://github.com/dqhieu/Silica</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/dqhieu/Silica/releases</sparkle:fullReleaseNotesLink>
+            <sparkle:version>9</sparkle:version>
+            <sparkle:shortVersionString>0.7.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[### What's new
+
+- **Copy Relative Path on editor tabs.** Right-click a tab and choose **Copy Relative Path** to copy the file's path from the workspace folder, as the file tree already offers. It shows for files inside the workspace.
+- **Find highlights the matches on every search.** After the first search in a tab, later searches showed the match count and dimmed the text but highlighted nothing. Every search now highlights its matches.
+- **The find bar no longer covers the first lines.** Opening it at the top of a file used to hide line 1, even when the first match was there. The text now moves down with the bar, and back up when it closes.
+- **Project dotfiles aren't dimmed.** In a git repository, the file tree used to dim every dotfile, so folders like `.github` looked hidden. Now it dims only what is gitignored. In a folder that isn't a repository, dotfiles are still dimmed.
+- **A narrow window no longer cuts off the sidebar and editor.** Shrinking a workspace window could clip the left of the file tree and the right of the editor. The sidebar now gives up width so both fit, and grows back when the window does.
+
+If you already have Silica, it will offer this update on its own, or choose **Silica › Check for Updates…**.
+
+Found a bug or have an idea? Please [open an issue](https://github.com/dqhieu/Silica/issues).
+
+]]></description>
+            <enclosure url="https://github.com/dqhieu/Silica/releases/download/v0.7.0/Silica-0.7.0.dmg" length="9292831" type="application/octet-stream" sparkle:edSignature="aoCi174NXmdZAO1qR1s4kIGW5UdtXACFIoOZDpx0sAPORfrTYIbXOORkKgbnAhJfVpvW04QqE9jbrze6KUsECg=="/>
+        </item>
+        <item>
             <title>0.6.0</title>
             <pubDate>Mon, 16 Nov 2026 21:33:11 +0800</pubDate>
             <link>https://github.com/dqhieu/Silica</link>
