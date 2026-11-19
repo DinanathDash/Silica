@@ -38,6 +38,15 @@ final class EditorSettings {
         static let usesGlassEffect = "usesGlassEffect"
         static let restoresTabs = "restoresOpenTabs"
         static let pinsParentFolders = "fileTreePinsParentFolders"
+        static let autoSaveOnEdit = "editorAutoSaveOnEdit"
+    }
+
+    /// Automatically saves existing files after user editing.
+    var autoSaveOnEdit: Bool {
+        didSet {
+            guard autoSaveOnEdit != oldValue else { return }
+            store(autoSaveOnEdit, Key.autoSaveOnEdit, isDefault: !autoSaveOnEdit)
+        }
     }
 
     /// Font size of the editor text; the line-number gutter scales with it.
@@ -215,6 +224,7 @@ final class EditorSettings {
         usesGlassEffect = defaults.object(forKey: Key.usesGlassEffect) as? Bool ?? true
         restoresTabs = defaults.object(forKey: Key.restoresTabs) as? Bool ?? true
         pinsParentFolders = defaults.object(forKey: Key.pinsParentFolders) as? Bool ?? true
+        autoSaveOnEdit = defaults.bool(forKey: Key.autoSaveOnEdit)
     }
 
     private func store(_ value: Any?, _ key: String, isDefault: Bool) {

@@ -461,6 +461,14 @@ private struct EditorSettingsPane: View {
                 }
             }
 
+            ChromeSection(title: "Saving") {
+                ChromeCard {
+                    ChromeRow(title: "Auto-save on edit", detail: "Automatically save files after typing changes") {
+                        SettingsSwitch(isOn: $settings.autoSaveOnEdit)
+                    }
+                }
+            }
+
             ChromeSection(title: "Indentation", footer: "Files that are already indented keep their own style.") {
                 ChromeCard {
                     ChromeRow(title: "Tab width") {

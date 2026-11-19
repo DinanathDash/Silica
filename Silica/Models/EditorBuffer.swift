@@ -406,6 +406,19 @@ final class EditorBuffer: Identifiable {
         isMissingOnDisk = false
     }
 
+    @ObservationIgnored private var autoSaveTask: Task<Void, Never>?
+
+    /// Schedules an auto-save after user finishes typing if autoSaveOnEdit is enabled.
+    func scheduleAutoSave() {
+        guard EditorSettings.shared.autoSaveOnEdit, !isUntitled else { return }
+        autoSaveTask?.cancel()
+        autoSaveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(750))
+            guard let self, !Task.isCancelled, self.isDirty, !self.isUntitled else { return }
+            try? self.save()
+        }
+    }
+
     // MARK: Changes on disk
 
     enum DiskChange {

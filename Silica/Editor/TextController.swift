@@ -370,8 +370,11 @@ final class TextController: NSObject, NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
         highlighter?.textDidChange()
         lineNumbers?.textDidChange()
-        if !isReplacingText, buffer?.isDirty == false {
-            buffer?.isDirty = true
+        if !isReplacingText {
+            if buffer?.isDirty == false {
+                buffer?.isDirty = true
+            }
+            buffer?.scheduleAutoSave()
         }
         scheduleStatusUpdate()
     }
