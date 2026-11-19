@@ -5,13 +5,18 @@ import SwiftUI
 /// Silica › About Silica shows) is the last pane.
 struct SettingsView: View {
     enum Pane: String, CaseIterable, Identifiable {
-        case general, fontsAndColors, editor, about
+        case general
+        case keybinds
+        case fontsAndColors
+        case editor
+        case about
 
         var id: String { rawValue }
 
         var title: String {
             switch self {
             case .general: "General"
+            case .keybinds: "Keybinds"
             case .fontsAndColors: "Fonts & Colors"
             case .editor: "Editor"
             case .about: "About"
@@ -21,6 +26,7 @@ struct SettingsView: View {
         var symbol: String {
             switch self {
             case .general: "gearshape.fill"
+            case .keybinds: "keyboard"
             case .fontsAndColors: "textformat"
             case .editor: "text.cursor"
             case .about: "info"
@@ -30,6 +36,7 @@ struct SettingsView: View {
         var tint: Color {
             switch self {
             case .general: .gray
+            case .keybinds: .mint
             case .fontsAndColors: .blue
             case .editor: .orange
             case .about: .gray
@@ -41,7 +48,7 @@ struct SettingsView: View {
     static let paneKey = "settingsTab"
 
     /// Panes in the sidebar's sections.
-    private static let sections: [[Pane]] = [[.general, .fontsAndColors, .editor], [.about]]
+    private static let sections: [[Pane]] = [[.general, .keybinds, .fontsAndColors, .editor], [.about]]
 
     var body: some View {
         // A fixed sidebar: always shown, one width, no toggle button.
@@ -77,6 +84,7 @@ struct SettingsView: View {
         case .general: GeneralSettingsPane()
         case .fontsAndColors: FontsAndColorsSettingsPane()
         case .editor: EditorSettingsPane()
+        case .keybinds: KeybindSettingsPane()
         case .about: AboutSettingsView()
         }
     }
@@ -98,6 +106,8 @@ struct SettingsIcon: View {
             }
     }
 }
+
+// MARK: General
 
 /// Appearance, how projects open and show their files, and update checks.
 private struct GeneralSettingsPane: View {
@@ -139,6 +149,8 @@ private struct GeneralSettingsPane: View {
         }
     }
 }
+
+// MARK: Fonts & Colors
 
 /// Editor font and syntax colors, with a live sample, and the sidebar's font size.
 /// Changes apply to open windows at once.
@@ -230,6 +242,8 @@ private struct FontsAndColorsSettingsPane: View {
     }
 }
 
+// MARK: Editor
+
 /// What the editor shows beside the text, and indentation for new files.
 private struct EditorSettingsPane: View {
     @Bindable private var settings = EditorSettings.shared
@@ -261,6 +275,146 @@ private struct EditorSettingsPane: View {
         }
     }
 }
+
+// MARK: Keybinds
+
+/// Keybind configuration and options.
+private struct KeybindSettingsPane: View {
+    @Bindable private var keybinds = KeybindSettings.shared
+    @State private var recording: ConfigKeyCommand?
+    
+    var body: some View {
+        Form {
+            Section("Configurable") {
+                ForEach(ConfigKeyCommand.allCases) { command in
+                    LabeledContent(command.title) {
+                        HStack(spacing: 8) {
+                            Button(keybinds.keybind(for: command).displayName) {
+                                recording = command
+                            }
+                            .buttonStyle(.bordered)
+                            
+                            if !keybinds.isDefaultKeybind(for: command) {
+                                Button {
+                                    keybinds.resetKeybind(for: command)
+                                } label: {
+                                    Image(systemName: "arrow.counterclockwise")
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Restore Default")
+                            }
+                        }
+                    }
+                }
+            }
+            Section("Fixed") {
+                ForEach(FixedKeyCommand.allCases) { command in
+                    LabeledContent(command.title) {
+                        Button(keybinds.keybind(for: command).displayName) {}
+                            .buttonStyle(.bordered)
+                            .disabled(true)
+                    }
+                }
+            }
+            Section {
+                HStack {
+                    Spacer()
+                    Button("Restore Defaults") {
+                        keybinds.resetAll()
+                    }
+                    .disabled(ConfigKeyCommand.allCases.allSatisfy {
+                        keybinds.isDefaultKeybind(for: $0)
+                    })
+                }
+            }
+        }
+        .sheet(item: $recording) {
+            KeybindRecorderView(
+                command: $0,
+                keybinds: keybinds
+            )
+        }
+    }
+}
+
+private struct KeybindRecorderView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var eventMonitor: Any?
+    @State private var errorMessage: String?
+    
+    let command: ConfigKeyCommand
+    let keybinds: KeybindSettings
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Record Keybind")
+                .font(.headline)
+
+            Text("Press the new shortcut for \(command.title).")
+                .foregroundStyle(.secondary)
+
+            Text("Press Escape to cancel.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+            }
+            
+            HStack {
+                Spacer()
+                Button("Cancel") {
+                    dismiss()
+                }
+            }
+        }
+        .padding(20)
+        .frame(width: 360)
+        .onAppear(perform: startEventMonitor)
+        .onDisappear(perform: stopEventMonitor)
+    }
+    
+    private func startEventMonitor() {
+        guard eventMonitor == nil else { return }
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+            record($0)
+        }
+    }
+    
+    private func stopEventMonitor() {
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+        }
+        eventMonitor = nil
+    }
+    
+    private func record(_ event: NSEvent) -> NSEvent? {
+        // Escape always cancels recording, including ⌘Escape.
+        if event.keyCode == 53 {
+            dismiss()
+            return nil
+        }
+
+        guard let keybind = Keybind(event: event) else {
+            errorMessage = "Use a printable key with Command, Control, or Option."
+            return nil
+        }
+
+        do {
+            try keybinds.setKeybind(keybind, for: command)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+
+        // Do not let the captured shortcut invoke a menu command while recording.
+        return nil
+    }
+}
+
+// MARK: Helpers
 
 private extension View {
     /// The capsule tabs treatment macOS 27 gives a picker, or plain segments before it.
