@@ -29,6 +29,18 @@
 				<string>public.folder</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Silica Keybinds</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.hieudinh.Silica.silicakb</string>
+			</array>
+		</dict>
 	</array>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
@@ -36,5 +48,27 @@
 	<string>https://dqhieu.github.io/Silica/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>T9aDbtANF0yr9ZMLWC98FVvzQiAmkIPy/JggQKIEvl0=</string>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Silica Keybinds</string>
+			<key>UTTypeIcons</key>
+			<dict/>
+			<key>UTTypeIdentifier</key>
+			<string>com.hieudinh.Silica.silicakb</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>silicakb</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 </dict>
 </plist>
