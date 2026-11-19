@@ -105,6 +105,20 @@ struct WorkspaceView: View {
             }
             EditorArea(workspace: workspace)
         }
+        .opacity(workspace.isSettingsVisible ? 0 : 1)
+        .allowsHitTesting(!workspace.isSettingsVisible)
+        .accessibilityHidden(workspace.isSettingsVisible)
+        .overlay {
+            if workspace.isSettingsVisible {
+                SettingsView(onClose: { workspace.hideSettings() })
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.98).combined(with: .opacity),
+                        removal: .scale(scale: 0.98).combined(with: .opacity)
+                    ))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .animation(Chrome.panelSlide, value: workspace.isSettingsVisible)
         .ignoresSafeArea(.container, edges: .top)
         .overlay {
             if workspace.isQuickOpenVisible {

@@ -27,6 +27,17 @@ final class KeyWorkspace: ObservableObject {
                 workspace.quickOpen.query += characters
                 return nil
             }
+            // Escape to close Settings panel when open
+            if event.keyCode == 53, let workspace = self?.current, workspace.isSettingsVisible,
+               flags.isEmpty, !((event.window?.firstResponder as? NSTextView)?.isFieldEditor ?? false) {
+                workspace.hideSettings()
+                return nil
+            }
+            // ⌘, to toggle integrated Settings in active workspace
+            if flags == .command, event.charactersIgnoringModifiers == ",", let workspace = self?.current {
+                workspace.toggleSettings()
+                return nil
+            }
             guard flags == [.command, .shift], let workspace = self?.current,
                   // Not while a sheet or alert is up.
                   event.window?.attachedSheet == nil, NSApp.modalWindow == nil,

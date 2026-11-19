@@ -26,19 +26,28 @@ struct AppCommands: Commands {
         // About lives in Settings, next to the open-source licenses.
         CommandGroup(replacing: .appInfo) {
             Button("About Silica") {
-                UserDefaults.standard.set(SettingsView.Pane.about.rawValue, forKey: SettingsView.paneKey)
-                openWindow(id: WindowID.settings)
+                if let workspace {
+                    workspace.showSettings(pane: .about)
+                } else {
+                    UserDefaults.standard.set(SettingsView.Pane.about.rawValue, forKey: SettingsView.paneKey)
+                    openWindow(id: WindowID.settings)
+                }
             }
 
             Button("Check for Updates…") { updater.checkForUpdates() }
                 .disabled(!updater.canCheckForUpdates)
         }
 
-        // Settings is a regular Window scene (so it can resize), which doesn't get
-        // the Settings… item on its own.
+        // Settings opens seamlessly inside the active workspace window, or opens the standalone window if none exists.
         CommandGroup(replacing: .appSettings) {
-            Button("Settings…") { openWindow(id: WindowID.settings) }
-                .keyboardShortcut(",")
+            Button("Settings…") {
+                if let workspace {
+                    workspace.toggleSettings()
+                } else {
+                    openWindow(id: WindowID.settings)
+                }
+            }
+            .keyboardShortcut(",")
         }
 
         CommandGroup(replacing: .newItem) {

@@ -32,6 +32,8 @@ final class WorkspaceModel {
     @ObservationIgnored private var treeFilterItems: [QuickOpenItem]?
     @ObservationIgnored private var treeFilterTask: Task<Void, Never>?
     private(set) var isQuickOpenVisible = false
+    private(set) var isSettingsVisible = false
+    var settingsPane: SettingsView.Pane = .general
     let quickOpen: QuickOpenModel
     private(set) var openTabs: [URL] = [] {
         didSet { scheduleSessionSave() }
@@ -334,6 +336,29 @@ final class WorkspaceModel {
         // Give typing focus back to the editor.
         if let textView = activeBuffer?.textController?.textView {
             textView.window?.makeFirstResponder(textView)
+        }
+    }
+
+    // MARK: Settings
+
+    func showSettings(pane: SettingsView.Pane? = nil) {
+        if let pane { settingsPane = pane }
+        if !isSettingsVisible {
+            withAnimation(Chrome.panelSlide) { isSettingsVisible = true }
+        }
+    }
+
+    func hideSettings() {
+        guard isSettingsVisible else { return }
+        withAnimation(Chrome.panelSlide) { isSettingsVisible = false }
+        focusEditor()
+    }
+
+    func toggleSettings(pane: SettingsView.Pane? = nil) {
+        if isSettingsVisible {
+            hideSettings()
+        } else {
+            showSettings(pane: pane)
         }
     }
 

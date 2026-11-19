@@ -75,6 +75,14 @@ struct FileTreeView: View {
                 .help("Collapse Folders")
             }
 
+            Button {
+                workspace.toggleSettings()
+            } label: {
+                Image(systemName: "gearshape")
+                    .foregroundStyle(workspace.isSettingsVisible ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            }
+            .help("Settings (⌘,)")
+
             // Last, so it stays in place when the Collapse button hides in search mode.
             Button {
                 if workspace.sidebarMode == .search { workspace.showExplorer() } else { workspace.showSearch() }

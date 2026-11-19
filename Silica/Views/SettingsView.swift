@@ -36,6 +36,7 @@ struct SettingsView: View {
         }
     }
 
+    var onClose: (() -> Void)? = nil
     @AppStorage(SettingsView.paneKey) private var pane: Pane = .general
     static let paneKey = "settingsTab"
 
@@ -45,11 +46,33 @@ struct SettingsView: View {
         HStack(spacing: 0) {
             // Sidebar matching Droppy Code's sidebar layout
             VStack(alignment: .leading, spacing: 0) {
+                if let onClose {
+                    Button(action: onClose) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.left")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("Back")
+                                .font(.system(size: 13, weight: .medium))
+                        }
+                        .foregroundStyle(Chrome.secondaryText)
+                        .padding(.horizontal, 8)
+                        .frame(height: 28)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(Chrome.overlay(0.05))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 14)
+                    .padding(.bottom, 6)
+                }
+
                 Text("Settings")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Chrome.secondaryText)
                     .padding(.horizontal, 16)
-                    .padding(.top, 16)
+                    .padding(.top, onClose == nil ? 16 : 4)
                     .padding(.bottom, 10)
 
                 VStack(alignment: .leading, spacing: 2) {
