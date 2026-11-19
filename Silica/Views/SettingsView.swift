@@ -226,6 +226,16 @@ private struct GeneralSettingsPane: View {
         VStack(alignment: .leading, spacing: Chrome.sectionSpacing) {
             ChromeSection(title: "Appearance") {
                 ChromeCard {
+                    ChromeRow(title: "Theme", detail: settings.theme.subtitle) {
+                        Picker("Theme", selection: $settings.theme) {
+                            ForEach(AppTheme.allCases) { theme in
+                                Text(theme.displayName).tag(theme)
+                            }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                    }
+                    ChromeRowDivider()
                     ChromeRow(title: "Appearance", detail: "Overall color scheme of the application") {
                         Picker("Appearance", selection: $settings.appearance) {
                             Text("System").tag(EditorSettings.Appearance.system)

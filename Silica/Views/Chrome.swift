@@ -20,7 +20,11 @@ enum Chrome {
     // MARK: Colors & Materials
     static let primaryText = Color(nsColor: .labelColor)
     static let secondaryText = primaryText.opacity(0.70)
-    static let accent = Color(nsColor: .controlAccentColor)
+    static var accent: Color { ThemeManager.spec.accent ?? Color(nsColor: .controlAccentColor) }
+    static var surface: Color { ThemeManager.spec.surface }
+    static var success: Color { ThemeManager.spec.success }
+    static var warning: Color { ThemeManager.spec.warning }
+    static var danger: Color { ThemeManager.spec.danger }
 
     static func overlay(_ opacity: Double) -> Color {
         primaryText.opacity(opacity)

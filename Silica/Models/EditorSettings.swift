@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import SwiftUI
 
 extension Notification.Name {
     static let editorFontSizeDidChange = Notification.Name("EditorFontSizeDidChange")
@@ -39,6 +40,17 @@ final class EditorSettings {
         static let restoresTabs = "restoresOpenTabs"
         static let pinsParentFolders = "fileTreePinsParentFolders"
         static let autoSaveOnEdit = "editorAutoSaveOnEdit"
+        static let theme = "appTheme"
+    }
+
+    /// Droppy Code theme (system, light, dark, catppuccin, dracula, etc.).
+    var theme: AppTheme {
+        didSet {
+            guard theme != oldValue else { return }
+            store(theme.rawValue, Key.theme, isDefault: theme == .system)
+            ThemeManager.current = theme
+            applyAppearance()
+        }
     }
 
     /// Automatically saves existing files after user editing.
@@ -225,6 +237,9 @@ final class EditorSettings {
         restoresTabs = defaults.object(forKey: Key.restoresTabs) as? Bool ?? true
         pinsParentFolders = defaults.object(forKey: Key.pinsParentFolders) as? Bool ?? true
         autoSaveOnEdit = defaults.bool(forKey: Key.autoSaveOnEdit)
+        let storedTheme = defaults.string(forKey: Key.theme).flatMap(AppTheme.init(rawValue:)) ?? .system
+        theme = storedTheme
+        ThemeManager.current = storedTheme
     }
 
     private func store(_ value: Any?, _ key: String, isDefault: Bool) {
@@ -273,12 +288,16 @@ final class EditorSettings {
 
     // MARK: Appearance
 
-    /// Light, dark, or following the system, for every window.
+    /// Theme and appearance for every window.
     func applyAppearance() {
-        NSApp.appearance = switch appearance {
-        case .system: nil
-        case .light: NSAppearance(named: .aqua)
-        case .dark: NSAppearance(named: .darkAqua)
+        if let scheme = theme.scheme {
+            NSApp.appearance = scheme == .dark ? NSAppearance(named: .darkAqua) : NSAppearance(named: .aqua)
+        } else {
+            NSApp.appearance = switch appearance {
+            case .system: nil
+            case .light: NSAppearance(named: .aqua)
+            case .dark: NSAppearance(named: .darkAqua)
+            }
         }
     }
 
