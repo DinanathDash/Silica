@@ -35,6 +35,10 @@ FEED=docs/appcast.xml
 # The Homebrew tap and the cask in it that `brew install --cask dqhieu/tap/silica` reads.
 TAP=dqhieu/homebrew-tap
 CASK=Casks/silica.rb
+# The `silica` command inside the app (Silica/Resources/silica), and the cask line
+# that links it into Homebrew's bin.
+CLI=Contents/Resources/silica
+CASK_BINARY="  binary \"#{appdir}/Silica.app/$CLI\""
 TAG=v$VERSION
 WORK=build/release/$VERSION
 PACKAGES=build/SourcePackages
@@ -124,6 +128,8 @@ BUILT_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "
 BUILT_NUMBER=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Contents/Info.plist")
 [[ $BUILT_VERSION == "$VERSION" && $BUILT_NUMBER == "$BUILD_NUMBER" ]] \
     || die "built $BUILT_VERSION ($BUILT_NUMBER), expected $VERSION ($BUILD_NUMBER)"
+# Settings › General and the Homebrew cask both link to it by this path.
+[[ -x $APP/$CLI ]] || die "the built app has no executable $CLI"
 
 # --- Notarize -------------------------------------------------------------------
 
@@ -189,7 +195,12 @@ update_cask() {
     cask=$(sed \
         -e "s/^  version \".*\"/  version \"$VERSION\"/" \
         -e "s/^  sha256 \".*\"/  sha256 \"$checksum\"/" <<<"$cask")
-    grep -q "version \"$VERSION\"" <<<"$cask" && grep -q "sha256 \"$checksum\"" <<<"$cask" || return 1
+    # The `silica` command, linked into Homebrew's bin. Added by the first release
+    # that ships the script: an earlier DMG has nothing for the link to point at.
+    grep -q '^  binary ' <<<"$cask" \
+        || cask=$(awk -v line="$CASK_BINARY" '{ print } /^  app "Silica.app"$/ { print line }' <<<"$cask")
+    grep -q "version \"$VERSION\"" <<<"$cask" && grep -q "sha256 \"$checksum\"" <<<"$cask" \
+        && grep -qF "$CASK_BINARY" <<<"$cask" || return 1
     gh api -X PUT "repos/$TAP/contents/$CASK" \
         -f message="Update Silica to $VERSION" \
         -f content="$(base64 <<<"$cask")" \

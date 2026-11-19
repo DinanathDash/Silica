@@ -17,7 +17,9 @@ update as soon as Pages redeploys. Run it from a clean, pushed `main`.
 Last, it points the Homebrew cask at the new DMG: `Casks/silica.rb` in
 [dqhieu/homebrew-tap](https://github.com/dqhieu/homebrew-tap), which is what
 `brew install --cask dqhieu/tap/silica` reads. The cask names the version and the
-DMG's SHA-256; the script commits both through GitHub's API.
+DMG's SHA-256; the script commits both through GitHub's API. It also adds the
+`binary` line that links the `silica` command into Homebrew's bin, if the cask
+doesn't have it yet.
 
 Write the notes in Markdown; they appear on the GitHub release and in Sparkle's
 update window. Keep the file outside the repository (or commit it first), since

@@ -60,9 +60,12 @@ Silica needs macOS 15 or later. The Liquid Glass look needs macOS 26; earlier ve
   printed after it.
 - **Picks up where you left off.** Projects reopen their tabs, and recent projects
   are on the welcome window.
-- **Works with Finder.** Use Open With, drop files on the Dock icon, or run
-  `open -a Silica <path>`. Drag a file or folder out of the sidebar, or the project's
-  folder icon from beside its name, to hand it to Terminal, Finder or another app.
+- **Works with Finder.** Use Open With or drop files on the Dock icon. Drag a file or
+  folder out of the sidebar, or the project's folder icon from beside its name, to
+  hand it to Terminal, Finder or another app.
+- **Opens from the terminal.** `silica .` opens the current folder as a project, and
+  `silica <file>` opens a file in the project it belongs to. Homebrew installs the
+  command with the app; otherwise install it from Settings › General.
 
 ## Keyboard shortcuts
 
