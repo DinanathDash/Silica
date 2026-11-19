@@ -283,8 +283,30 @@ private struct KeybindSettingsPane: View {
     @Bindable private var keybinds = KeybindSettings.shared
     @State private var recording: ConfigKeyCommand?
     
+    private var presetLabel: String {
+        guard !keybinds.hasCustomKeybinds else {
+            return "Custom"
+        }
+        return keybinds.presets.first(where: {
+            $0.id == keybinds.activePresetId
+        })?.title ?? "Custom"
+    }
+    
     var body: some View {
         Form {
+            Section {
+                LabeledContent("Preset") {
+                    HStack {
+                        Menu(presetLabel) {
+                            ForEach(keybinds.presets) { preset in
+                                Button(preset.title) {
+                                    try? keybinds.setActivePreset(id: preset.id)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             Section("Configurable") {
                 ForEach(ConfigKeyCommand.allCases) { command in
                     LabeledContent(command.title) {
@@ -296,7 +318,7 @@ private struct KeybindSettingsPane: View {
                             
                             if !keybinds.isDefaultKeybind(for: command) {
                                 Button {
-                                    keybinds.resetKeybind(for: command)
+                                    try? keybinds.setKeybind(nil, for: command)
                                 } label: {
                                     Image(systemName: "arrow.counterclockwise")
                                 }
@@ -306,6 +328,15 @@ private struct KeybindSettingsPane: View {
                         }
                     }
                 }
+                HStack {
+                    Spacer()
+                    Button("Restore Defaults") {
+                        keybinds.reset()
+                    }
+                    .disabled(ConfigKeyCommand.allCases.allSatisfy {
+                        keybinds.isDefaultKeybind(for: $0)
+                    })
+                }
             }
             Section("Fixed") {
                 ForEach(FixedKeyCommand.allCases) { command in
@@ -314,17 +345,6 @@ private struct KeybindSettingsPane: View {
                             .buttonStyle(.bordered)
                             .disabled(true)
                     }
-                }
-            }
-            Section {
-                HStack {
-                    Spacer()
-                    Button("Restore Defaults") {
-                        keybinds.resetAll()
-                    }
-                    .disabled(ConfigKeyCommand.allCases.allSatisfy {
-                        keybinds.isDefaultKeybind(for: $0)
-                    })
                 }
             }
         }
@@ -350,13 +370,9 @@ private struct KeybindRecorderView: View {
             Text("Record Keybind")
                 .font(.headline)
 
-            Text("Press the new shortcut for \(command.title).")
+            Text("Press a key combination for '\(command.title)'.")
                 .foregroundStyle(.secondary)
-
-            Text("Press Escape to cancel.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-
+            
             if let errorMessage {
                 Text(errorMessage)
                     .font(.callout)
@@ -391,14 +407,8 @@ private struct KeybindRecorderView: View {
     }
     
     private func record(_ event: NSEvent) -> NSEvent? {
-        // Escape always cancels recording, including ⌘Escape.
-        if event.keyCode == 53 {
-            dismiss()
-            return nil
-        }
-
         guard let keybind = Keybind(event: event) else {
-            errorMessage = "Use a printable key with Command, Control, or Option."
+            errorMessage = "Keybind must contain ⌘, ⌥ or ⌃, and a valid key."
             return nil
         }
 
@@ -409,7 +419,8 @@ private struct KeybindRecorderView: View {
             errorMessage = error.localizedDescription
         }
 
-        // Do not let the captured shortcut invoke a menu command while recording.
+        // Prevent the captured shortcut from invoking
+        // a menu command while recording.
         return nil
     }
 }

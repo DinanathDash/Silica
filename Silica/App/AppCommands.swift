@@ -41,25 +41,25 @@ struct AppCommands: Commands {
         // the Settings… item on its own.
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") { openWindow(id: WindowID.settings) }
-                .keybindShortcut(for: .settings, keybinds: keybinds)
+                .keybindShortcut(for: .settings, keybinds)
         }
 
         CommandGroup(replacing: .newItem) {
             Button("New File") { workspace?.newUntitledFile() }
-                .keybindShortcut(for: .newFile, keybinds: keybinds)
+                .keybindShortcut(for: .newFile, keybinds)
                 .disabled(workspace == nil)
 
             Button("New File in Project…") { workspace?.beginNewItem(isDirectory: false) }
                 .disabled(workspace == nil)
 
             Button("New Folder") { workspace?.beginNewItem(isDirectory: true) }
-                .keybindShortcut(for: .newFolder, keybinds: keybinds)
+                .keybindShortcut(for: .newFolder, keybinds)
                 .disabled(workspace == nil)
 
             Divider()
 
             Button("Open…") { opener.chooseAndOpen() }
-                .keybindShortcut(for: .open, keybinds: keybinds)
+                .keybindShortcut(for: .open, keybinds)
 
             Menu("Open Recent") {
                 ForEach(recents.projects) { project in
@@ -73,13 +73,17 @@ struct AppCommands: Commands {
             Divider()
 
             Button("Quick Open…") { workspace?.toggleQuickOpen() }
-                .keybindShortcut(for: .quickOpen, keybinds: keybinds)
+                .keybindShortcut(for: .quickOpen, keybinds)
+                .disabled(workspace == nil)
+            
+            Button("Quick Jump to File") { workspace?.quickJumpToFile() }
+                .keybindShortcut(for: .quickJumpToFile, keybinds)
                 .disabled(workspace == nil)
 
             Divider()
 
             Button("Welcome Window") { openWindow(id: WindowID.welcome) }
-                .keybindShortcut(for: .welcomeWindow, keybinds: keybinds)
+                .keybindShortcut(for: .welcomeWindow, keybinds)
         }
 
         // No printing; ⌘P is our default Quick Open shortcut, as in other code editors.
@@ -87,15 +91,15 @@ struct AppCommands: Commands {
 
         CommandGroup(replacing: .saveItem) {
             Button("Save") { workspace?.saveActive() }
-                .keybindShortcut(for: .save, keybinds: keybinds)
+                .keybindShortcut(for: .save, keybinds)
                 .disabled(workspace?.activeBuffer.map { $0.isDirty || $0.isUntitled } != true)
 
             Button("Save As…") { workspace?.saveActiveAs() }
-                .keybindShortcut(for: .saveAs, keybinds: keybinds)
+                .keybindShortcut(for: .saveAs, keybinds)
                 .disabled(workspace?.activeBuffer?.textController == nil)
 
             Button("Save All") { workspace?.saveAll() }
-                .keybindShortcut(for: .saveAll, keybinds: keybinds)
+                .keybindShortcut(for: .saveAll, keybinds)
                 .disabled(workspace?.hasUnsavedChanges != true)
 
             Divider()
@@ -108,49 +112,49 @@ struct AppCommands: Commands {
                     NSApp.keyWindow?.performClose(nil)
                 }
             }
-            .keybindShortcut(for: .closeTab, keybinds: keybinds)
+            .keybindShortcut(for: .closeTab, keybinds)
 
             // ⇧⌘W is also handled by KeyWorkspace.installKeyboardShortcuts().
             Button("Close Window") { NSApp.keyWindow?.performClose(nil) }
-                .keybindShortcut(for: .closeWindow, keybinds: keybinds)
+                .keybindShortcut(for: .closeWindow, keybinds)
         }
 
         CommandGroup(replacing: .sidebar) {
             Button(workspace?.isSidebarVisible == false ? "Show Sidebar" : "Hide Sidebar") {
                 workspace?.toggleSidebar()
             }
-            .keybindShortcut(for: .toggleSidebar, keybinds: keybinds)
+            .keybindShortcut(for: .toggleSidebar, keybinds)
             .disabled(workspace == nil)
 
             // ⇧⌘E, ⇧⌘F and ⇧⌘S are also handled by KeyWorkspace.installKeyboardShortcuts().
             Button("Explorer") { workspace?.showExplorer() }
-                .keybindShortcut(for: .explorer, keybinds: keybinds)
+                .keybindShortcut(for: .explorer, keybinds)
                 .disabled(workspace == nil)
 
             Button("Find in Project") { workspace?.showSearch() }
-                .keybindShortcut(for: .findInProject, keybinds: keybinds)
+                .keybindShortcut(for: .findInProject, keybinds)
                 .disabled(workspace == nil)
 
             Button("Filter Files") { workspace?.focusTreeFilter() }
-                .keybindShortcut(for: .filterTreeFiles, keybinds: keybinds)
+                .keybindShortcut(for: .filterTreeFiles, keybinds)
                 .disabled(workspace == nil)
 
             Button("Refresh Explorer") { workspace?.refresh() }
-                .keybindShortcut(for: .refreshExplorer, keybinds: keybinds)
+                .keybindShortcut(for: .refreshExplorer, keybinds)
                 .disabled(workspace == nil)
 
             Divider()
 
             Button("Terminal") { workspace?.toggleTerminal() }
-                .keybindShortcut(for: .toggleTerminal, keybinds: keybinds)
+                .keybindShortcut(for: .toggleTerminal, keybinds)
                 .disabled(workspace == nil)
 
             Button("New Terminal") { workspace?.newTerminal() }
-                .keybindShortcut(for: .newTerminal, keybinds: keybinds)
+                .keybindShortcut(for: .newTerminal, keybinds)
                 .disabled(workspace == nil)
 
             Button("Clear Terminal") { workspace?.terminal?.clear() }
-                .keybindShortcut(for: .clearTerminal, keybinds: keybinds)
+                .keybindShortcut(for: .clearTerminal, keybinds)
                 .disabled(workspace?.terminal?.isFocused != true)
 
             Divider()
@@ -159,7 +163,7 @@ struct AppCommands: Commands {
             Button(previewToggleTitle) {
                 workspace?.activeBuffer?.togglePreview()
             }
-            .keybindShortcut(for: .togglePreview, keybinds: keybinds)
+            .keybindShortcut(for: .togglePreview, keybinds)
             .disabled(workspace?.activeBuffer?.previewFormat == nil)
 
             Divider()
@@ -171,11 +175,11 @@ struct AppCommands: Commands {
             let hasOtherTabs = workspace?.canSelectOtherTab == true
 
             Button("Select Next Tab") { workspace?.selectTab(offsetBy: 1) }
-                .keybindShortcut(for: .selectNextTab, keybinds: keybinds)
+                .keybindShortcut(for: .selectNextTab, keybinds)
                 .disabled(!hasOtherTabs)
 
             Button("Select Previous Tab") { workspace?.selectTab(offsetBy: -1) }
-                .keybindShortcut(for: .selectPreviousTab, keybinds: keybinds)
+                .keybindShortcut(for: .selectPreviousTab, keybinds)
                 .disabled(!hasOtherTabs)
         }
 
@@ -186,7 +190,7 @@ struct AppCommands: Commands {
                 get: { settings.wrapsLines },
                 set: { settings.wrapsLines = $0 }
             ))
-            .keybindShortcut(for: .toggleWordWrap, keybinds: keybinds)
+            .keybindShortcut(for: .toggleWordWrap, keybinds)
 
             Toggle("Minimap", isOn: Binding(
                 get: { settings.showsMinimap },
@@ -197,15 +201,15 @@ struct AppCommands: Commands {
 
             // ⌘= also zooms in; see EditorSettings.installKeyboardShortcuts().
             Button("Increase Font Size") { settings.increaseFontSize() }
-                .keybindShortcut(for: .increaseFontSize, keybinds: keybinds)
+                .keybindShortcut(for: .increaseFontSize, keybinds)
                 .disabled(!settings.canIncreaseFontSize)
 
             Button("Decrease Font Size") { settings.decreaseFontSize() }
-                .keybindShortcut(for: .decreaseFontSize, keybinds: keybinds)
+                .keybindShortcut(for: .decreaseFontSize, keybinds)
                 .disabled(!settings.canDecreaseFontSize)
 
             Button("Reset Font Size") { settings.resetFontSize() }
-                .keybindShortcut(for: .resetFontSize, keybinds: keybinds)
+                .keybindShortcut(for: .resetFontSize, keybinds)
                 .disabled(settings.isDefaultFontSize)
         }
 
@@ -213,7 +217,7 @@ struct AppCommands: Commands {
             let hasText = workspace?.activeBuffer?.textController != nil
 
             Button("Go to Line…") { workspace?.showGoToLine() }
-                .keybindShortcut(for: .goToLine, keybinds: keybinds)
+                .keybindShortcut(for: .goToLine, keybinds)
                 .disabled(!hasText)
 
             Divider()
@@ -237,7 +241,7 @@ struct AppCommands: Commands {
         _ action: Selector
     ) -> some View {
         Button(title) { NSApp.sendAction(action, to: nil, from: nil) }
-            .keybindShortcut(for: command, keybinds: keybinds)
+            .keybindShortcut(for: command, keybinds)
             .disabled(workspace?.activeBuffer?.textController == nil)
     }
     
@@ -247,7 +251,7 @@ struct AppCommands: Commands {
         _ action: Selector
     ) -> some View {
         Button(title) { NSApp.sendAction(action, to: nil, from: nil) }
-            .keybindShortcut(for: command, keybinds: keybinds)
+            .keybindShortcut(for: command, keybinds)
             .disabled(workspace?.activeBuffer?.textController == nil)
     }
 }
