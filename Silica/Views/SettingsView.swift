@@ -54,6 +54,10 @@ struct SettingsView: View {
         HStack(spacing: 0) {
             // Sidebar matching Droppy Code's SettingsSidebar
             VStack(alignment: .leading, spacing: 0) {
+                // Room for window traffic lights
+                Color.clear
+                    .frame(height: WorkspaceLayout.titleBarHeight)
+
                 if let onClose {
                     SettingsNavRow(title: "Back", isSelected: false, action: onClose) {
                         Image(systemName: "arrow.left")
@@ -61,7 +65,7 @@ struct SettingsView: View {
                     }
                     .help("Back to your editor")
                     .padding(.horizontal, Chrome.listInset)
-                    .padding(.top, 14)
+                    .padding(.top, 6)
                 }
 
                 SidebarSearchField(text: $search) {
