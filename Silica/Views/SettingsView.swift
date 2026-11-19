@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Settings (⌘,), styled with Droppy Code's clean, modern chrome:
-/// an inset navigation sidebar, smooth animated transitions, unified cards, and refined typography.
+/// Settings (⌘,), completely redesigned to match Droppy Code's architecture, typography,
+/// metrics, native switch toggles, and centered detail content.
 struct SettingsView: View {
     enum Pane: String, CaseIterable, Identifiable {
         case general, fontsAndColors, editor, about
@@ -19,101 +19,116 @@ struct SettingsView: View {
 
         var symbol: String {
             switch self {
-            case .general: "gearshape.fill"
-            case .fontsAndColors: "textformat"
+            case .general: "gearshape"
+            case .fontsAndColors: "paintpalette"
             case .editor: "text.cursor"
-            case .about: "info"
+            case .about: "info.circle"
             }
         }
 
-        var tint: Color {
+        var keywords: [String] {
             switch self {
-            case .general: Color(red: 0.556, green: 0.557, blue: 0.576)
-            case .fontsAndColors: Color(red: 0.040, green: 0.478, blue: 1.000)
-            case .editor: Color(red: 1.000, green: 0.584, blue: 0.000)
-            case .about: Color(red: 0.204, green: 0.780, blue: 0.349)
+            case .general: ["appearance", "theme", "dark", "light", "background", "translucent", "opaque", "glass", "restore", "tabs", "command line", "silica", "update"]
+            case .fontsAndColors: ["font", "size", "colors", "syntax", "theme", "sidebar", "family", "monospaced", "code"]
+            case .editor: ["lines", "line numbers", "indent", "guides", "minimap", "wrap", "tab width", "spaces"]
+            case .about: ["version", "build", "license", "acknowledgements", "copyright", "sparkle", "ghostty"]
             }
         }
     }
 
     var onClose: (() -> Void)? = nil
     @AppStorage(SettingsView.paneKey) private var pane: Pane = .general
+    @State private var search = ""
     static let paneKey = "settingsTab"
 
-    private static let sections: [[Pane]] = [[.general, .fontsAndColors, .editor], [.about]]
+    private var visiblePages: [Pane] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return Pane.allCases }
+        return Pane.allCases.filter { page in
+            page.title.localizedCaseInsensitiveContains(query)
+                || page.keywords.contains { $0.localizedCaseInsensitiveContains(query) }
+        }
+    }
 
     var body: some View {
         HStack(spacing: 0) {
-            // Sidebar matching Droppy Code's sidebar layout
+            // Sidebar matching Droppy Code's SettingsSidebar
             VStack(alignment: .leading, spacing: 0) {
                 if let onClose {
-                    Button(action: onClose) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "arrow.left")
-                                .font(.system(size: 11, weight: .semibold))
-                            Text("Back")
-                                .font(.system(size: 13, weight: .medium))
-                        }
-                        .foregroundStyle(Chrome.secondaryText)
-                        .padding(.horizontal, 8)
-                        .frame(height: 28)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(Chrome.overlay(0.05))
-                        )
+                    SettingsNavRow(title: "Back", isSelected: false, action: onClose) {
+                        Image(systemName: "arrow.left")
+                            .font(.system(size: 13, weight: .medium))
                     }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 12)
+                    .help("Back to your editor")
+                    .padding(.horizontal, Chrome.listInset)
                     .padding(.top, 14)
-                    .padding(.bottom, 6)
                 }
 
-                Text("Settings")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Chrome.secondaryText)
-                    .padding(.horizontal, 16)
-                    .padding(.top, onClose == nil ? 16 : 4)
-                    .padding(.bottom, 10)
+                SidebarSearchField(text: $search) {
+                    if let first = visiblePages.first { pane = first }
+                }
+                .padding(.horizontal, Chrome.listInset)
+                .padding(.top, onClose == nil ? 14 : 8)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(Array(Self.sections.enumerated()), id: \.offset) { sectionIndex, group in
-                        if sectionIndex > 0 {
-                            Divider()
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .opacity(0.4)
-                        }
-                        ForEach(group) { item in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(visiblePages) { item in
                             SettingsNavRow(
                                 title: item.title,
-                                symbol: item.symbol,
-                                tint: item.tint,
-                                isSelected: pane == item
-                            ) {
-                                withAnimation(Chrome.panelSlide) {
-                                    pane = item
+                                isSelected: pane == item,
+                                action: {
+                                    withAnimation(Chrome.panelSlide) {
+                                        pane = item
+                                    }
                                 }
+                            ) {
+                                Image(systemName: item.symbol)
+                                    .resizable()
+                                    .interpolation(.high)
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: Chrome.symbolSize, height: Chrome.symbolSize)
+                                    .frame(width: Chrome.iconSize, height: Chrome.iconSize)
                             }
+                            // Gap before About
+                            .padding(.top, item == .about && search.isEmpty ? 14 : 0)
+                        }
+
+                        if visiblePages.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("No results")
+                                    .font(.system(.body, weight: .semibold))
+                                    .foregroundStyle(Chrome.primaryText.opacity(0.92))
+                                Text("Try a setting or preference name.")
+                                    .font(.system(.subheadline))
+                                    .foregroundStyle(Chrome.secondaryText)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.top, 14)
                         }
                     }
+                    .padding(.horizontal, Chrome.listInset)
+                    .padding(.top, 12)
+                    .padding(.bottom, 12)
                 }
-                .padding(.horizontal, 10)
-
-                Spacer(minLength: 0)
+                .scrollIndicators(.never)
             }
             .frame(width: 210)
             .background(Color(nsColor: .windowBackgroundColor).opacity(0.4))
+            .onChange(of: visiblePages) { _, pages in
+                guard !pages.isEmpty, !pages.contains(pane), let first = pages.first else { return }
+                pane = first
+            }
 
             Divider()
-                .opacity(0.5)
+                .opacity(0.4)
 
-            // Detail content column
+            // Centered Settings Detail Pane matching Droppy Code's SettingsDetail
             ScrollView {
                 VStack(alignment: .leading, spacing: Chrome.sectionSpacing) {
-                    Text(pane.title)
-                        .font(.system(size: 20, weight: .semibold))
+                    Text(verbatim: pane.title)
+                        .font(.system(size: 20, weight: .medium))
                         .foregroundStyle(Chrome.primaryText)
-                        .padding(.top, 4)
+                        .accessibilityAddTraits(.isHeader)
 
                     detail
                         .transition(.asymmetric(
@@ -121,11 +136,14 @@ struct SettingsView: View {
                             removal: .opacity
                         ))
                 }
-                .padding(.horizontal, 36)
-                .padding(.vertical, 28)
-                .frame(maxWidth: 640, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .frame(maxWidth: Chrome.pageMaxWidth, alignment: .leading)
+                .padding(.horizontal, Chrome.pagePadding)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 28)
+                .padding(.bottom, 48)
             }
+            .scrollIndicators(.never)
+            .id(pane)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .controlBackgroundColor).opacity(0.2))
         }
@@ -144,45 +162,44 @@ struct SettingsView: View {
     }
 }
 
-/// An interactive sidebar nav row mirroring Droppy Code's smooth hover & selection physics.
-struct SettingsNavRow: View {
+/// One row of the Settings page list matching Droppy Code's `SettingsNavRow`:
+/// 8pt continuous corner radius, 32pt height, and smooth hover fill.
+struct SettingsNavRow<Icon: View>: View {
+    static var iconSize: CGFloat { 15 }
+
     let title: String
-    let symbol: String
-    let tint: Color
     let isSelected: Bool
     let action: () -> Void
+    @ViewBuilder let icon: Icon
 
     @State private var isHovering = false
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: Chrome.rowCornerRadius, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        let text = isSelected || isHovering ? Chrome.primaryText : Chrome.secondaryText
         Button(action: action) {
-            HStack(spacing: 10) {
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(tint.gradient)
-                    .frame(width: 20, height: 20)
-                    .overlay {
-                        Image(systemName: symbol)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.white)
-                    }
-
-                Text(title)
+            HStack(spacing: 8) {
+                icon
+                    .frame(width: Chrome.iconSize, height: Chrome.iconSize)
+                Text(verbatim: title)
                     .font(.system(size: 13, weight: isSelected ? .medium : .regular))
-                    .foregroundStyle(isSelected || isHovering ? Chrome.primaryText : Chrome.secondaryText)
                     .lineLimit(1)
-
+                    .truncationMode(.tail)
                 Spacer(minLength: 4)
             }
+            .foregroundStyle(text)
             .padding(.horizontal, 8)
-            .frame(height: Chrome.rowHeight)
+            .frame(minHeight: 32)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background { shape.fill(fill) }
             .contentShape(shape)
+            .animation(Chrome.hover, value: isSelected)
         }
         .buttonStyle(.plain)
         .onHover { hovering in
             withAnimation(Chrome.hover) { isHovering = hovering }
         }
+        .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : .isButton)
     }
 
     private var fill: Color {
@@ -216,7 +233,7 @@ private struct GeneralSettingsPane: View {
                         .fixedSize()
                     }
                     ChromeRowDivider()
-                    ChromeRow(title: "Window Background", detail: "Translucent vibrancy or solid backdrop") {
+                    ChromeRow(title: "Window background", detail: "Translucent vibrancy or solid backdrop") {
                         Picker("Background", selection: $settings.windowBackground) {
                             Text("Translucent").tag(EditorSettings.WindowBackground.translucent)
                             Text("Opaque").tag(EditorSettings.WindowBackground.opaque)
@@ -227,9 +244,8 @@ private struct GeneralSettingsPane: View {
                     }
                     if #available(macOS 26.0, *) {
                         ChromeRowDivider()
-                        ChromeRow(title: "Glass Effect", detail: "Enable Liquid Glass surfaces") {
-                            Toggle("Glass effect", isOn: $settings.usesGlassEffect)
-                                .labelsHidden()
+                        ChromeRow(title: "Glass effect", detail: "Liquid Glass behind cards, tabs and buttons") {
+                            SettingsSwitch(isOn: $settings.usesGlassEffect)
                         }
                     }
                 }
@@ -237,27 +253,25 @@ private struct GeneralSettingsPane: View {
 
             ChromeSection(title: "Projects") {
                 ChromeCard {
-                    ChromeRow(title: "Restore Tabs", detail: "Reopen a project’s tabs where you left them") {
-                        Toggle("Restore Tabs", isOn: $settings.restoresTabs)
-                            .labelsHidden()
+                    ChromeRow(title: "Restore open tabs", detail: "Reopen a project’s tabs where you left them") {
+                        SettingsSwitch(isOn: $settings.restoresTabs)
                     }
                     ChromeRowDivider()
-                    ChromeRow(title: "Pin Parent Folders", detail: "Keep parent folders in view while scrolling the file tree") {
-                        Toggle("Pin Folders", isOn: $settings.pinsParentFolders)
-                            .labelsHidden()
+                    ChromeRow(title: "Pin parent folders", detail: "Keep parent folders in view while scrolling the file tree") {
+                        SettingsSwitch(isOn: $settings.pinsParentFolders)
                     }
                 }
             }
 
             ChromeSection(
-                title: "Command Line",
+                title: "Command line",
                 footer: commandPath == nil ? CommandLineTool.unavailableReason ?? commandHint : commandHint
             ) {
                 ChromeCard {
-                    ChromeRow(title: "“\(CommandLineTool.name)” Command") {
+                    ChromeRow(title: "“\(CommandLineTool.name)” command") {
                         if let commandPath {
-                            Text("Installed in \((commandPath as NSString).deletingLastPathComponent)")
-                                .font(.system(size: 12))
+                            Text(verbatim: "Installed in \((commandPath as NSString).deletingLastPathComponent)")
+                                .font(.system(.subheadline))
                                 .foregroundStyle(Chrome.secondaryText)
                         } else {
                             Button("Install") {
@@ -280,13 +294,12 @@ private struct GeneralSettingsPane: View {
 
             ChromeSection(title: "Updates") {
                 ChromeCard {
-                    ChromeRow(title: "Automatic Updates", detail: "Check for new versions automatically") {
-                        Toggle("Check for updates", isOn: $updater.automaticallyChecksForUpdates)
-                            .labelsHidden()
+                    ChromeRow(title: "Check for updates automatically", detail: "Check for new versions once a day") {
+                        SettingsSwitch(isOn: $updater.automaticallyChecksForUpdates)
                     }
                     ChromeRowDivider()
                     ChromeRow(
-                        title: "Current Version",
+                        title: "Current version",
                         detail: "Version \(AppInfo.version) (\(AppInfo.build))"
                     ) {
                         Button("Check Now") { updater.checkForUpdates() }
@@ -326,7 +339,7 @@ private struct FontsAndColorsSettingsPane: View {
 
                     ChromeRowDivider()
 
-                    ChromeRow(title: "Font Family") {
+                    ChromeRow(title: "Font family") {
                         Picker("Font", selection: fontFamily) {
                             Text("SF Mono (System)").tag("")
                             Divider()
@@ -342,9 +355,9 @@ private struct FontsAndColorsSettingsPane: View {
 
                     ChromeRow(title: "Size") {
                         HStack(spacing: 8) {
-                            Text("\(Int(settings.fontSize)) pt")
+                            Text(verbatim: "\(Int(settings.fontSize)) pt")
                                 .monospacedDigit()
-                                .font(.system(size: 13))
+                                .font(.system(.body))
                                 .foregroundStyle(Chrome.secondaryText)
                             Stepper("Size", value: fontSize, in: EditorSettings.fontSizeRange, step: 1)
                                 .labelsHidden()
@@ -355,11 +368,11 @@ private struct FontsAndColorsSettingsPane: View {
 
             ChromeSection(title: "Sidebar") {
                 ChromeCard {
-                    ChromeRow(title: "Font Size") {
+                    ChromeRow(title: "Font size") {
                         HStack(spacing: 8) {
-                            Text("\(Int(settings.sidebarFontSize)) pt")
+                            Text(verbatim: "\(Int(settings.sidebarFontSize)) pt")
                                 .monospacedDigit()
-                                .font(.system(size: 13))
+                                .font(.system(.body))
                                 .foregroundStyle(Chrome.secondaryText)
                             Stepper("Sidebar size", value: $settings.sidebarFontSize,
                                     in: EditorSettings.sidebarFontSizeRange, step: 1)
@@ -371,7 +384,7 @@ private struct FontsAndColorsSettingsPane: View {
 
             ChromeSection(title: "Colors") {
                 ChromeCard {
-                    ChromeRow(title: "Syntax Theme") {
+                    ChromeRow(title: "Syntax colors") {
                         Picker("Syntax colors", selection: $settings.syntaxTheme) {
                             ForEach(SyntaxTheme.allCases) { theme in
                                 Text(theme.name).tag(theme)
@@ -426,31 +439,27 @@ private struct EditorSettingsPane: View {
         VStack(alignment: .leading, spacing: Chrome.sectionSpacing) {
             ChromeSection(title: "Display") {
                 ChromeCard {
-                    ChromeRow(title: "Line Numbers", detail: "Display line numbers in gutter") {
-                        Toggle("Line Numbers", isOn: $settings.showsLineNumbers)
-                            .labelsHidden()
+                    ChromeRow(title: "Show line numbers", detail: "Display line numbers in the editor gutter") {
+                        SettingsSwitch(isOn: $settings.showsLineNumbers)
                     }
                     ChromeRowDivider()
-                    ChromeRow(title: "Indent Guides", detail: "Draw vertical indentation lines") {
-                        Toggle("Indent Guides", isOn: $settings.showsIndentGuides)
-                            .labelsHidden()
+                    ChromeRow(title: "Show indent guides", detail: "Draw vertical indentation guide lines") {
+                        SettingsSwitch(isOn: $settings.showsIndentGuides)
                     }
                     ChromeRowDivider()
-                    ChromeRow(title: "Minimap", detail: "Show high-level document preview on the right") {
-                        Toggle("Minimap", isOn: $settings.showsMinimap)
-                            .labelsHidden()
+                    ChromeRow(title: "Show minimap", detail: "High-level file overview down the editor’s right edge") {
+                        SettingsSwitch(isOn: $settings.showsMinimap)
                     }
                     ChromeRowDivider()
-                    ChromeRow(title: "Wrap Lines", detail: "Soft-wrap long lines to fit the view") {
-                        Toggle("Wrap Lines", isOn: $settings.wrapsLines)
-                            .labelsHidden()
+                    ChromeRow(title: "Wrap long lines", detail: "Wrap lines to editor width instead of scrolling sideways") {
+                        SettingsSwitch(isOn: $settings.wrapsLines)
                     }
                 }
             }
 
             ChromeSection(title: "Indentation", footer: "Files that are already indented keep their own style.") {
                 ChromeCard {
-                    ChromeRow(title: "Tab Width") {
+                    ChromeRow(title: "Tab width") {
                         Picker("Tab width", selection: $settings.tabWidth) {
                             ForEach(EditorSettings.tabWidths, id: \.self) { width in
                                 Text("\(width) spaces").tag(width)
@@ -460,7 +469,7 @@ private struct EditorSettingsPane: View {
                         .fixedSize()
                     }
                     ChromeRowDivider()
-                    ChromeRow(title: "Indent New Files With") {
+                    ChromeRow(title: "Indent new files with") {
                         Picker("Indent new files with", selection: $settings.indentsWithTabs) {
                             Text("Spaces").tag(false)
                             Text("Tabs").tag(true)

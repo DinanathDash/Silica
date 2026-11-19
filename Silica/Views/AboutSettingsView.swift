@@ -9,25 +9,31 @@ struct AboutSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Chrome.sectionSpacing) {
             ChromeCard {
-                VStack(spacing: 8) {
+                HStack(spacing: 14) {
                     Image(nsImage: NSApp.applicationIconImage)
                         .resizable()
-                        .frame(width: 80, height: 80)
-                    Text(AppInfo.name)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(Chrome.primaryText)
-                    Text("Version \(AppInfo.version) (\(AppInfo.build))")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Chrome.secondaryText)
-                        .textSelection(.enabled)
-                    if let copyright = AppInfo.copyright {
-                        Text(copyright)
-                            .font(.system(size: 11))
-                            .foregroundStyle(Chrome.secondaryText.opacity(0.8))
+                        .frame(width: 56, height: 56)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(AppInfo.name)
+                            .font(.system(.title3, weight: .semibold))
+                            .foregroundStyle(Chrome.primaryText)
+                        Text(verbatim: "Version \(AppInfo.version) (\(AppInfo.build))")
+                            .font(.system(.callout))
+                            .foregroundStyle(Chrome.secondaryText)
+                            .textSelection(.enabled)
                     }
+                    Spacer()
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
+                .padding(16)
+                if let copyright = AppInfo.copyright {
+                    ChromeRowDivider()
+                    Text(copyright)
+                        .font(.system(.callout))
+                        .foregroundStyle(Chrome.secondaryText)
+                        .padding(.leading, 16)
+                        .padding(.trailing, Chrome.rowControlTrailingPadding)
+                        .padding(.vertical, 11)
+                }
             }
 
             ChromeSection(

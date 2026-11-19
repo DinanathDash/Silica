@@ -4,18 +4,22 @@ import SwiftUI
 /// Shared UI tokens and styling building blocks adapted from Droppy Code's design system.
 enum Chrome {
     // MARK: Layout & Radius
-    static let windowCornerRadius: CGFloat = 20
-    static let cardCornerRadius: CGFloat = 14
+    static let windowCornerRadius: CGFloat = 26
+    static let cardCornerRadius: CGFloat = 16
     static let rowCornerRadius: CGFloat = 8
-    static let iconSize: CGFloat = 18
+    static let iconSize: CGFloat = 16
+    static let symbolSize: CGFloat = 14
     static let rowHeight: CGFloat = 32
-    static let sectionSpacing: CGFloat = 22
-    static let sectionHeaderSpacing: CGFloat = 8
-    static let rowControlTrailingPadding: CGFloat = 12
+    static let sectionSpacing: CGFloat = 20
+    static let sectionHeaderSpacing: CGFloat = 10
+    static let rowControlTrailingPadding: CGFloat = 10
+    static let listInset: CGFloat = 10
+    static let pageMaxWidth: CGFloat = 680
+    static let pagePadding: CGFloat = 40
 
     // MARK: Colors & Materials
     static let primaryText = Color(nsColor: .labelColor)
-    static let secondaryText = primaryText.opacity(0.68)
+    static let secondaryText = primaryText.opacity(0.70)
     static let accent = Color(nsColor: .controlAccentColor)
 
     static func overlay(_ opacity: Double) -> Color {
@@ -23,15 +27,15 @@ enum Chrome {
     }
 
     // MARK: Animation & Physics
-    static var hover: Animation { .easeOut(duration: 0.12) }
+    static var hover: Animation { .easeOut(duration: 0.1) }
 
     static var panelSlide: Animation {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
             ? .easeOut(duration: 0.18)
-            : .spring(response: 0.32, dampingFraction: 0.88)
+            : .spring(response: 0.32, dampingFraction: 0.9)
     }
 
-    static var softAppear: Animation { .smooth(duration: 0.28) }
+    static var softAppear: Animation { .smooth(duration: 0.32) }
 }
 
 // MARK: - Cards & Sections
@@ -47,11 +51,7 @@ struct ChromeCard<Content: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: Chrome.cardCornerRadius, style: .continuous)
-                .fill(Chrome.overlay(0.04))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Chrome.cardCornerRadius, style: .continuous)
-                .strokeBorder(Chrome.overlay(0.06), lineWidth: 0.5)
+                .fill(Chrome.overlay(0.03))
         )
     }
 }
@@ -64,19 +64,17 @@ struct ChromeSection<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Chrome.sectionHeaderSpacing) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
+            Text(verbatim: title)
+                .font(.system(.body, weight: .semibold))
                 .foregroundStyle(Chrome.secondaryText)
-                .textCase(.uppercase)
-                .tracking(0.5)
                 .padding(.leading, 4)
 
             content
 
             if let footer, !footer.isEmpty {
-                Text(footer)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(Chrome.secondaryText.opacity(0.9))
+                Text(verbatim: footer)
+                    .font(.system(.subheadline))
+                    .foregroundStyle(Chrome.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, 4)
                     .padding(.top, 2)
@@ -95,12 +93,12 @@ struct ChromeRow<Control: View>: View {
     var body: some View {
         HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 13, weight: .regular))
+                Text(verbatim: title)
+                    .font(.system(.body))
                     .foregroundStyle(Chrome.primaryText)
                 if let detail, !detail.isEmpty {
-                    Text(detail)
-                        .font(.system(size: 11.5))
+                    Text(verbatim: detail)
+                        .font(.system(.subheadline))
                         .foregroundStyle(Chrome.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -110,7 +108,7 @@ struct ChromeRow<Control: View>: View {
         }
         .padding(.leading, 16)
         .padding(.trailing, Chrome.rowControlTrailingPadding)
-        .padding(.vertical, 10)
+        .padding(.vertical, 11)
     }
 }
 
@@ -119,6 +117,55 @@ struct ChromeRowDivider: View {
     var body: some View {
         Divider()
             .padding(.leading, 16)
-            .opacity(0.5)
+    }
+}
+
+/// A native macOS switch toggle matching Droppy Code's `SettingsSwitch`.
+struct SettingsSwitch: View {
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Toggle("", isOn: $isOn)
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.small)
+    }
+}
+
+/// A search field capsule matching Droppy Code's `SidebarSearchField`.
+struct SidebarSearchField: View {
+    @Binding var text: String
+    var prompt = "Search"
+    var onSubmit: () -> Void = {}
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(.callout, weight: .medium))
+                .foregroundStyle(Chrome.secondaryText.opacity(0.85))
+            TextField(prompt, text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(.body))
+                .frame(maxWidth: .infinity)
+                .onSubmit(onSubmit)
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(.callout))
+                        .foregroundStyle(Chrome.secondaryText.opacity(0.75))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Clear search"))
+            }
+        }
+        .padding(.horizontal, 9)
+        .frame(height: 30)
+        .background {
+            Capsule(style: .continuous).fill(Chrome.overlay(0.07))
+        }
+        .contentShape(Capsule(style: .continuous))
+        .onExitCommand { text = "" }
     }
 }
