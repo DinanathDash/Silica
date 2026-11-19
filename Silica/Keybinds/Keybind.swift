@@ -158,6 +158,7 @@ extension Keybind {
         case space
         case tab
         case escape = "esc"
+        case `return` = "⏎"
         case upArrow = "↑"
         case downArrow = "↓"
         case leftArrow = "←"
@@ -175,6 +176,7 @@ extension Keybind {
             case .space: .space
             case .tab: .tab
             case .escape: .escape
+            case .return: .return
             case .upArrow: .upArrow
             case .downArrow: .downArrow
             case .leftArrow: .leftArrow

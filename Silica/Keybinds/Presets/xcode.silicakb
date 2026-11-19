@@ -30,8 +30,8 @@
         {
             "id": "welcome_window",
             "title": "Welcome Window",
-            "key": "1",
-            "mods": ["shift", "cmd"]
+            "key": "0",
+            "mods": ["cmd"]
         },
         {
             "id": "save",
@@ -66,8 +66,8 @@
         {
             "id": "explorer",
             "title": "Explorer",
-            "key": "e",
-            "mods": ["shift", "cmd"]
+            "key": "1",
+            "mods": ["cmd"]
         },
         {
             "id": "refresh_explorer",
@@ -182,26 +182,26 @@
         {
             "id": "toggle_preview",
             "title": "Toggle Preview",
-            "key": "v",
-            "mods": ["shift", "cmd"]
+            "key": "⏎",
+            "mods": ["opt", "cmd"]
         },
         {
             "id": "toggle_sidebar",
             "title": "Toggle Sidebar",
-            "key": "s",
-            "mods": ["ctrl", "cmd"]
+            "key": "1",
+            "mods": ["shift", "cmd"]
         },
         {
             "id": "toggle_terminal",
             "title": "Toggle Terminal",
-            "key": "`",
-            "mods": ["ctrl"]
+            "key": "y",
+            "mods": ["shift", "cmd"]
         },
         {
             "id": "new_terminal",
             "title": "New Terminal",
-            "key": "`",
-            "mods": ["ctrl", "shift"]
+            "key": "c",
+            "mods": ["shift", "cmd"]
         },
         {
             "id": "clear_terminal",
@@ -212,14 +212,14 @@
         {
             "id": "select_next_tab",
             "title": "Select Next Tab",
-            "key": "tab",
-            "mods": ["ctrl"]
+            "key": "]",
+            "mods": ["shift", "cmd"]
         },
         {
             "id": "select_previous_tab",
             "title": "Select Previous Tab",
-            "key": "tab",
-            "mods": ["ctrl", "shift"]
+            "key": "[",
+            "mods": ["shift", "cmd"]
         },
         {
             "id": "toggle_comment",
@@ -230,14 +230,14 @@
         {
             "id": "move_line_up",
             "title": "Move Line Up",
-            "key": "↑",
-            "mods": ["opt"]
+            "key": "[",
+            "mods": ["opt", "cmd"]
         },
         {
             "id": "move_line_down",
             "title": "Move Line Down",
-            "key": "↓",
-            "mods": ["opt"]
+            "key": "]",
+            "mods": ["opt", "cmd"]
         },
         {
             "id": "duplicate_line_up",
@@ -272,8 +272,8 @@
         {
             "id": "reset_font_size",
             "title": "Reset Font Size",
-            "key": "0",
-            "mods": ["cmd"]
+            "key": "+",
+            "mods": ["shift", "cmd"]
         }
     ]
 }
