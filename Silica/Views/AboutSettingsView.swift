@@ -7,40 +7,45 @@ struct AboutSettingsView: View {
     @State private var shownLicense: Acknowledgement?
 
     var body: some View {
-        Form {
-            Section {
-                VStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: Chrome.sectionSpacing) {
+            ChromeCard {
+                VStack(spacing: 8) {
                     Image(nsImage: NSApp.applicationIconImage)
                         .resizable()
-                        .frame(width: 96, height: 96)
+                        .frame(width: 80, height: 80)
                     Text(AppInfo.name)
-                        .font(.title2.weight(.semibold))
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Chrome.primaryText)
                     Text("Version \(AppInfo.version) (\(AppInfo.build))")
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Chrome.secondaryText)
                         .textSelection(.enabled)
                     if let copyright = AppInfo.copyright {
                         Text(copyright)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Chrome.secondaryText.opacity(0.8))
                     }
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
+                .padding(.vertical, 16)
             }
 
-            Section {
-                ForEach(Acknowledgement.all) { acknowledgement in
-                    LabeledContent {
-                        Button("View License") { shownLicense = acknowledgement }
-                    } label: {
-                        Text(acknowledgement.name)
-                        Text("\(acknowledgement.license) · \(acknowledgement.holder)")
+            ChromeSection(
+                title: "Acknowledgements",
+                footer: "Silica’s Markdown preview, terminal emulation and updates are built on these open-source projects."
+            ) {
+                ChromeCard {
+                    ForEach(Array(Acknowledgement.all.enumerated()), id: \.element.id) { index, acknowledgement in
+                        if index > 0 { ChromeRowDivider() }
+                        ChromeRow(
+                            title: acknowledgement.name,
+                            detail: "\(acknowledgement.license) · \(acknowledgement.holder)"
+                        ) {
+                            Button("View License") { shownLicense = acknowledgement }
+                                .controlSize(.small)
+                        }
                     }
                 }
-            } header: {
-                Text("Acknowledgements")
-            } footer: {
-                Text("Silica’s Markdown preview and updates are built on these open-source projects.")
             }
         }
         .sheet(item: $shownLicense) { acknowledgement in
