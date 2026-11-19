@@ -32,15 +32,20 @@ struct VisualEffectView: NSViewRepresentable {
 }
 
 /// The background of a project or welcome window: translucent or opaque, as chosen
-/// in Settings, washed with the active Droppy Code theme.
+/// in Settings, washed with the active theme. In performance mode, paints a solid
+/// background to minimize GPU overhead.
 struct WindowBackgroundView: View {
     private var settings: EditorSettings { .shared }
 
     var body: some View {
-        ZStack {
-            VisualEffectView(settings.windowBackground.material)
-            ThemeManager.spec.surface
-                .opacity(settings.windowBackground == .opaque ? 0.25 : 0.12)
+        if settings.performanceMode || settings.windowBackground == .opaque {
+            Color(nsColor: .windowBackgroundColor)
+        } else {
+            ZStack {
+                VisualEffectView(settings.windowBackground.material)
+                ThemeManager.spec.surface
+                    .opacity(0.12)
+            }
         }
     }
 }

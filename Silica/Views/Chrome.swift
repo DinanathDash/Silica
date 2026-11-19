@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Shared UI tokens and styling building blocks adapted from Droppy Code's design system.
+/// Shared UI tokens and styling building blocks for the application chrome.
 enum Chrome {
     // MARK: Layout & Radius
     static let windowCornerRadius: CGFloat = 26
@@ -31,20 +31,25 @@ enum Chrome {
     }
 
     // MARK: Animation & Physics
-    static var hover: Animation { .easeOut(duration: 0.1) }
+    static var hover: Animation? {
+        EditorSettings.shared.performanceMode ? nil : .easeOut(duration: 0.1)
+    }
 
-    static var panelSlide: Animation {
-        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    static var panelSlide: Animation? {
+        if EditorSettings.shared.performanceMode { return nil }
+        return NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
             ? .easeOut(duration: 0.18)
             : .spring(response: 0.32, dampingFraction: 0.9)
     }
 
-    static var softAppear: Animation { .smooth(duration: 0.32) }
+    static var softAppear: Animation? {
+        EditorSettings.shared.performanceMode ? nil : .smooth(duration: 0.32)
+    }
 }
 
 // MARK: - Cards & Sections
 
-/// A rounded, subtle card container matching Droppy Code's Settings cards.
+/// A rounded, subtle card container for settings sections.
 struct ChromeCard<Content: View>: View {
     @ViewBuilder var content: Content
 
@@ -124,7 +129,7 @@ struct ChromeRowDivider: View {
     }
 }
 
-/// A native macOS switch toggle matching Droppy Code's `SettingsSwitch`.
+/// A native macOS switch toggle.
 struct SettingsSwitch: View {
     @Binding var isOn: Bool
 
@@ -136,7 +141,7 @@ struct SettingsSwitch: View {
     }
 }
 
-/// A search field capsule matching Droppy Code's `SidebarSearchField`.
+/// A search field capsule for sidebar navigation.
 struct SidebarSearchField: View {
     @Binding var text: String
     var prompt = "Search"

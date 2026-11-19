@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings (⌘,), completely redesigned to match Droppy Code's architecture, typography,
+/// Settings (⌘,), with sidebar layout, typography,
 /// metrics, native switch toggles, and centered detail content.
 struct SettingsView: View {
     enum Pane: String, CaseIterable, Identifiable {
@@ -28,7 +28,7 @@ struct SettingsView: View {
 
         var keywords: [String] {
             switch self {
-            case .general: ["appearance", "theme", "dark", "light", "background", "translucent", "opaque", "glass", "restore", "tabs", "command line", "silica", "update"]
+            case .general: ["appearance", "theme", "dark", "light", "background", "translucent", "opaque", "glass", "performance", "restore", "tabs", "command line", "silica", "update"]
             case .fontsAndColors: ["font", "size", "colors", "syntax", "theme", "sidebar", "family", "monospaced", "code"]
             case .editor: ["lines", "line numbers", "indent", "guides", "minimap", "wrap", "tab width", "spaces"]
             case .about: ["version", "build", "license", "acknowledgements", "copyright", "sparkle", "ghostty"]
@@ -52,7 +52,7 @@ struct SettingsView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Sidebar matching Droppy Code's SettingsSidebar
+            // Sidebar navigation
             VStack(alignment: .leading, spacing: 0) {
                 // Room for window traffic lights
                 Color.clear
@@ -126,7 +126,7 @@ struct SettingsView: View {
             Divider()
                 .opacity(0.4)
 
-            // Centered Settings Detail Pane matching Droppy Code's SettingsDetail
+            // Centered Settings Detail Pane
             ScrollView {
                 VStack(alignment: .leading, spacing: Chrome.sectionSpacing) {
                     Text(verbatim: pane.title)
@@ -166,7 +166,7 @@ struct SettingsView: View {
     }
 }
 
-/// One row of the Settings page list matching Droppy Code's `SettingsNavRow`:
+/// One row of the Settings page list:
 /// 8pt continuous corner radius, 32pt height, and smooth hover fill.
 struct SettingsNavRow<Icon: View>: View {
     static var iconSize: CGFloat { 15 }
@@ -247,6 +247,10 @@ private struct GeneralSettingsPane: View {
                         .fixedSize()
                     }
                     ChromeRowDivider()
+                    ChromeRow(title: "Performance Mode", detail: "Disable window transparency, blurs, glows and background effects for lowest GPU usage") {
+                        SettingsSwitch(isOn: $settings.performanceMode)
+                    }
+                    ChromeRowDivider()
                     ChromeRow(title: "Window background", detail: "Translucent vibrancy or solid backdrop") {
                         Picker("Background", selection: $settings.windowBackground) {
                             Text("Translucent").tag(EditorSettings.WindowBackground.translucent)
@@ -256,11 +260,15 @@ private struct GeneralSettingsPane: View {
                         .tabsPickerStyle()
                         .fixedSize()
                     }
+                    .disabled(settings.performanceMode)
+                    .opacity(settings.performanceMode ? 0.5 : 1)
                     if #available(macOS 26.0, *) {
                         ChromeRowDivider()
                         ChromeRow(title: "Glass effect", detail: "Liquid Glass behind cards, tabs and buttons") {
                             SettingsSwitch(isOn: $settings.usesGlassEffect)
                         }
+                        .disabled(settings.performanceMode)
+                        .opacity(settings.performanceMode ? 0.5 : 1)
                     }
                 }
             }

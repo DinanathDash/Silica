@@ -1,14 +1,12 @@
 import AppKit
 import SwiftUI
 
-/// Every theme Droppy Code offers: the system look plus the palettes the big
-/// coding agents ship (Catppuccin, Dracula, Tokyo Night, Nord, Gruvbox,
-/// One Dark, Everforest, Kanagawa, Rosé Pine, Solarized, GitHub, Ayu,
-/// Night Owl, Monokai, Claude, Codex, Cursor, Matrix).
+/// Available themes: the system look plus developer palettes (Catppuccin,
+/// Dracula, Tokyo Night, Nord, Gruvbox, One Dark, Everforest, Kanagawa,
+/// Rosé Pine, Solarized, GitHub, Ayu, Night Owl, Monokai, Claude, Codex,
+/// Cursor, Matrix).
 ///
-/// Hexes follow the canonical upstream palettes (matching what OpenCode's
-/// desktop themes, Gemini CLI's `/theme` list and the Claude Code community
-/// themes use), so a theme feels like its namesake.
+/// Hexes follow canonical upstream palettes so each theme matches its namesake.
 enum AppTheme: String, Codable, CaseIterable, Identifiable, Sendable {
     case system
     case light
