@@ -52,7 +52,8 @@ final class TextController: NSObject, NSTextViewDelegate {
         textView.font = Self.font(ofSize: fontSize)
         textView.textColor = .labelColor
         textView.textContainerInset = NSSize(width: 8, height: 12)
-
+        textView.insertionPointColor = Self.cursorColor()
+        
         textView.string = text
         textView.language = language
         textView.lineEnding = Self.lineEnding(of: text)
@@ -312,6 +313,10 @@ final class TextController: NSObject, NSTextViewDelegate {
 
     private static func font(ofSize size: CGFloat) -> NSFont {
         EditorSettings.shared.editorFont(ofSize: size)
+    }
+    
+    private static func cursorColor() -> NSColor {
+        SyntaxTheme.cursor
     }
 
     /// Line spacing, plus tab stops every `EditorTextView.tabWidth` columns of the

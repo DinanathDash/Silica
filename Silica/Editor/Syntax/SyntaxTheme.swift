@@ -35,6 +35,7 @@ nonisolated enum SyntaxTheme: String, CaseIterable, Identifiable, Sendable {
     /// lose contrast on the glass card.
     static let lineNumber = dynamic(light: 0x9A9AA0, dark: 0x9C9CA2)
     static let currentLineNumber = dynamic(light: 0x3C3C43, dark: 0xF2F2F7)
+    static let cursor = dynamic(light: 0x000000, dark: 0xFFFFFF)
 
     /// Indent guides: a faint line that reads on the glass card in both appearances.
     static let indentGuide = NSColor(name: nil) { appearance in
