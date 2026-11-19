@@ -20,36 +20,27 @@ enum Chrome {
     // MARK: Colors & Materials
     static let primaryText = Color(nsColor: .labelColor)
     static let secondaryText = primaryText.opacity(0.70)
-    static var accent: Color { ThemeManager.spec.accent ?? Color(nsColor: .controlAccentColor) }
-    static var surface: Color { ThemeManager.spec.surface }
-    static var success: Color { ThemeManager.spec.success }
-    static var warning: Color { ThemeManager.spec.warning }
-    static var danger: Color { ThemeManager.spec.danger }
+    static let accent = Color(nsColor: .controlAccentColor)
 
     static func overlay(_ opacity: Double) -> Color {
         primaryText.opacity(opacity)
     }
 
     // MARK: Animation & Physics
-    static var hover: Animation? {
-        EditorSettings.shared.performanceMode ? nil : .easeOut(duration: 0.1)
-    }
+    static var hover: Animation { .easeOut(duration: 0.1) }
 
-    static var panelSlide: Animation? {
-        if EditorSettings.shared.performanceMode { return nil }
-        return NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    static var panelSlide: Animation {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
             ? .easeOut(duration: 0.18)
             : .spring(response: 0.32, dampingFraction: 0.9)
     }
 
-    static var softAppear: Animation? {
-        EditorSettings.shared.performanceMode ? nil : .smooth(duration: 0.32)
-    }
+    static var softAppear: Animation { .smooth(duration: 0.32) }
 }
 
 // MARK: - Cards & Sections
 
-/// A rounded, subtle card container for settings sections.
+/// A rounded, subtle card container for settings rows.
 struct ChromeCard<Content: View>: View {
     @ViewBuilder var content: Content
 

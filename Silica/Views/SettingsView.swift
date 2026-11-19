@@ -28,7 +28,7 @@ struct SettingsView: View {
 
         var keywords: [String] {
             switch self {
-            case .general: ["appearance", "theme", "dark", "light", "background", "translucent", "opaque", "glass", "performance", "restore", "tabs", "command line", "silica", "update"]
+            case .general: ["appearance", "theme", "dark", "light", "background", "translucent", "opaque", "glass", "restore", "tabs", "command line", "silica", "update"]
             case .fontsAndColors: ["font", "size", "colors", "syntax", "theme", "sidebar", "family", "monospaced", "code"]
             case .editor: ["lines", "line numbers", "indent", "guides", "minimap", "wrap", "tab width", "spaces"]
             case .about: ["version", "build", "license", "acknowledgements", "copyright", "sparkle", "ghostty"]
@@ -226,16 +226,6 @@ private struct GeneralSettingsPane: View {
         VStack(alignment: .leading, spacing: Chrome.sectionSpacing) {
             ChromeSection(title: "Appearance") {
                 ChromeCard {
-                    ChromeRow(title: "Theme", detail: settings.theme.subtitle) {
-                        Picker("Theme", selection: $settings.theme) {
-                            ForEach(AppTheme.allCases) { theme in
-                                Text(theme.displayName).tag(theme)
-                            }
-                        }
-                        .labelsHidden()
-                        .fixedSize()
-                    }
-                    ChromeRowDivider()
                     ChromeRow(title: "Appearance", detail: "Overall color scheme of the application") {
                         Picker("Appearance", selection: $settings.appearance) {
                             Text("System").tag(EditorSettings.Appearance.system)
@@ -247,10 +237,6 @@ private struct GeneralSettingsPane: View {
                         .fixedSize()
                     }
                     ChromeRowDivider()
-                    ChromeRow(title: "Performance Mode", detail: "Disable window transparency, blurs, glows and background effects for lowest GPU usage") {
-                        SettingsSwitch(isOn: $settings.performanceMode)
-                    }
-                    ChromeRowDivider()
                     ChromeRow(title: "Window background", detail: "Translucent vibrancy or solid backdrop") {
                         Picker("Background", selection: $settings.windowBackground) {
                             Text("Translucent").tag(EditorSettings.WindowBackground.translucent)
@@ -260,15 +246,11 @@ private struct GeneralSettingsPane: View {
                         .tabsPickerStyle()
                         .fixedSize()
                     }
-                    .disabled(settings.performanceMode)
-                    .opacity(settings.performanceMode ? 0.5 : 1)
                     if #available(macOS 26.0, *) {
                         ChromeRowDivider()
                         ChromeRow(title: "Glass effect", detail: "Liquid Glass behind cards, tabs and buttons") {
                             SettingsSwitch(isOn: $settings.usesGlassEffect)
                         }
-                        .disabled(settings.performanceMode)
-                        .opacity(settings.performanceMode ? 0.5 : 1)
                     }
                 }
             }

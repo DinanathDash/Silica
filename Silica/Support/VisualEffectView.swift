@@ -32,20 +32,11 @@ struct VisualEffectView: NSViewRepresentable {
 }
 
 /// The background of a project or welcome window: translucent or opaque, as chosen
-/// in Settings, washed with the active theme. In performance mode, paints a solid
-/// background to minimize GPU overhead.
+/// in Settings. Open windows follow the setting as it changes.
 struct WindowBackgroundView: View {
     private var settings: EditorSettings { .shared }
 
     var body: some View {
-        if settings.performanceMode || settings.windowBackground == .opaque {
-            Color(nsColor: .windowBackgroundColor)
-        } else {
-            ZStack {
-                VisualEffectView(settings.windowBackground.material)
-                ThemeManager.spec.surface
-                    .opacity(0.12)
-            }
-        }
+        VisualEffectView(settings.windowBackground.material)
     }
 }
