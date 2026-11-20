@@ -216,6 +216,15 @@ struct GitChangesView: View {
                     ProgressView().controlSize(.mini)
                 }
                 Spacer(minLength: 0)
+                // A connection that has died would otherwise keep the panel
+                // busy until Silica quits.
+                if git.canCancel {
+                    Button("Cancel") { git.cancelActivity() }
+                        .buttonStyle(.plain)
+                        .font(.caption)
+                        .foregroundStyle(.tint)
+                        .help("Stop the push, pull or fetch that’s under way")
+                }
                 // Why Fetch, Pull and Push are waiting, when nobody pressed anything.
                 if git.isFetchingQuietly {
                     HStack(spacing: 4) {

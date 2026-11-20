@@ -410,6 +410,64 @@ nonisolated enum GitStatus {
     }
 }
 
+/// Lets whoever started git commands stop them: the one running is ended and
+/// none after it starts. It reaches the commands through the task they run in.
+nonisolated final class GitCancellation: @unchecked Sendable {
+    @TaskLocal static var current: GitCancellation?
+
+    private let lock = NSLock()
+    private var process: Process?
+    private var cancelled = false
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        let running = process
+        lock.unlock()
+        if let running, running.isRunning { running.terminate() }
+    }
+
+    /// Takes note of a command that has started; ends it if this was cancelled
+    /// just before.
+    fileprivate func started(_ process: Process) {
+        lock.lock()
+        self.process = process
+        let stop = cancelled
+        lock.unlock()
+        if stop, process.isRunning { process.terminate() }
+    }
+
+    fileprivate func finished() {
+        lock.lock()
+        process = nil
+        lock.unlock()
+    }
+}
+
+/// What a command has written so far, gathered as it comes.
+private nonisolated final class GitOutput: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func append(_ chunk: Data) {
+        lock.lock()
+        data.append(chunk)
+        lock.unlock()
+    }
+
+    var value: Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return data
+    }
+}
+
 /// Runs the git command line tool.
 nonisolated enum Git {
     /// `/usr/bin/git` is a stub that puts up the system's "install the command
@@ -481,7 +539,28 @@ nonisolated enum Git {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = output
         process.standardError = mergingErrors ? output : FileHandle.nullDevice
-        do { try process.run() } catch { return nil }
+        let cancellation = GitCancellation.current
+        guard cancellation?.isCancelled != true else { return nil }
+        // Read as it comes: a long status fills the pipe, and git would block on
+        // it forever.
+        let collected = GitOutput()
+        let reachedEnd = DispatchSemaphore(value: 0)
+        let reading = output.fileHandleForReading
+        reading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty {
+                handle.readabilityHandler = nil
+                reachedEnd.signal()
+            } else {
+                collected.append(chunk)
+            }
+        }
+        do { try process.run() } catch {
+            reading.readabilityHandler = nil
+            return nil
+        }
+        cancellation?.started(process)
+        defer { cancellation?.finished() }
         // For what nobody is waiting on: a connection that never answers shouldn't
         // keep git, and what waits for it, going without end.
         var deadline: DispatchWorkItem?
@@ -491,10 +570,12 @@ nonisolated enum Git {
             deadline = stop
         }
         defer { deadline?.cancel() }
-        // Read to the end before waiting: a long status fills the pipe, and git
-        // would block on it forever.
-        let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        // git is done when it has exited, not when the pipe closes: something it
+        // started (a hook, a connection being torn down after a cancel) can hold
+        // the pipe open long after. What's left in it comes at once.
+        if reachedEnd.wait(timeout: .now() + 0.5) == .timedOut { reading.readabilityHandler = nil }
+        let data = collected.value
         status?.pointee = process.terminationStatus
         return mergingErrors || success.contains(process.terminationStatus) ? data : nil
     }

@@ -67,8 +67,9 @@ final class EditorBuffer: Identifiable {
     /// or the unstaged ones.
     private(set) var shownComparison = GitDiff.Request.Comparison.all
     /// Makes the index hold this content for the file at this path in the
-    /// project, after saving the file if it has unsaved edits.
-    @ObservationIgnored var setIndexContent: ((String, Data) -> Void)?
+    /// project. With `true`, the content has the tab's unsaved edits in it, so
+    /// the file is saved first.
+    @ObservationIgnored var setIndexContent: ((String, Data, Bool) -> Void)?
     /// Created the first time the changes are shown, then kept with the tab.
     @ObservationIgnored private(set) var changesPreview: GitDiffPreview?
     /// Opens a project file a preview link points to.
@@ -417,10 +418,22 @@ final class EditorBuffer: Identifiable {
 
     // MARK: Conflicts
 
-    /// The conflicts git has marked in the text.
+    /// Goes up with every edit to the text, for what is worked out from the
+    /// text and shouldn't be worked out again when only the cursor has moved.
+    var textRevision = 0
+    @ObservationIgnored private var foundConflicts: (revision: Int, length: Int, regions: [ConflictMarkers.Region])?
+
+    /// The conflicts git has marked in the text. Found once per edit: a file
+    /// that ends up in conflict is often a long one (a lock file, a project file).
     var conflicts: [ConflictMarkers.Region] {
         guard let controller = textController else { return [] }
-        return ConflictMarkers.regions(in: controller.textView.string as NSString)
+        let text = controller.textView.string as NSString
+        let revision = textRevision
+        if let found = foundConflicts, found.revision == revision, found.length == text.length { return found.regions }
+        // Most of the time there are none, which one search can tell.
+        let regions = text.range(of: "<<<<<<<").location == NSNotFound ? [] : ConflictMarkers.regions(in: text)
+        foundConflicts = (revision, text.length, regions)
+        return regions
     }
 
     /// The conflict the cursor is in, or else the next one below it, or the first.
@@ -435,7 +448,7 @@ final class EditorBuffer: Identifiable {
     func resolveConflict(taking choice: ConflictMarkers.Choice) {
         guard let controller = textController else { return }
         let text = controller.textView.string as NSString
-        let regions = ConflictMarkers.regions(in: text)
+        let regions = conflicts
         guard let index = conflictAtCursor(in: regions) else { return }
         let replacement = ConflictMarkers.resolution(of: regions[index], in: text, taking: choice)
         controller.textView.insertText(replacement, replacementRange: regions[index].whole)
@@ -448,7 +461,7 @@ final class EditorBuffer: Identifiable {
     func showConflict(offsetBy offset: Int) {
         guard let controller = textController else { return }
         let text = controller.textView.string as NSString
-        let regions = ConflictMarkers.regions(in: text)
+        let regions = conflicts
         guard var index = conflictAtCursor(in: regions) else { return }
         let cursor = controller.textView.selectedRange().location
         // From inside a conflict, "next" is the one after it. From between two,
@@ -511,11 +524,14 @@ final class EditorBuffer: Identifiable {
         // index gets the file with that change made, or taken back, and no other.
         preview.onChangeAction = { [weak self] number, diff, request in
             guard let self, diff.canRewrite else { return }
-            // What's shown includes any unsaved edits, and the file should too:
-            // whoever takes this saves it first, asking as any save does if
-            // another app has changed the file meanwhile.
-            let text = diff.text(applying: request.comparison == .unstaged, change: number)
-            self.setIndexContent?(request.path, Data(text.utf8))
+            // Staging takes the change from the editor's text, unsaved edits
+            // included, and the file should have them too: whoever takes this
+            // saves it first, asking as any save does if another app has changed
+            // the file meanwhile. Unstaging only puts back what the last commit
+            // has, and leaves the tab's edits unsaved as they were.
+            let isStaging = request.comparison == .unstaged
+            let text = diff.text(applying: isStaging, change: number)
+            self.setIndexContent?(request.path, Data(text.utf8), isStaging)
         }
         // The changes are read-only; typing goes back to the text and lands there.
         if let controller = textController {

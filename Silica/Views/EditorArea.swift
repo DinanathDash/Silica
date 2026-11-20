@@ -701,8 +701,7 @@ private struct ConflictBar: View {
     let workspace: WorkspaceModel
 
     var body: some View {
-        // Read so that the count follows the text as it's edited.
-        let _ = buffer.cursor
+        // Follows the text as it's edited, not the cursor as it moves.
         let count = buffer.conflicts.count
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")

@@ -94,6 +94,25 @@ final class GitModel {
     func stop() {
         fetchTask?.cancel()
         fetchTask = nil
+        // git doesn't go on pushing or fetching for a window that's gone.
+        cancellation?.cancel()
+        quietFetchCancellation?.cancel()
+    }
+
+    /// For the operation under way, and for the periodic fetch.
+    @ObservationIgnored private var cancellation: GitCancellation?
+    @ObservationIgnored private var quietFetchCancellation: GitCancellation?
+
+    /// Whether what git is doing can be called off: talking to a remote, which
+    /// can take long or never end on a connection that has died.
+    var canCancel: Bool {
+        activity == .pushing || activity == .pulling || activity == .fetching
+    }
+
+    /// Stops the push, pull or fetch under way. Nothing is said of its failing.
+    func cancelActivity() {
+        guard canCancel else { return }
+        cancellation?.cancel()
     }
 
     @ObservationIgnored private var fetchTask: Task<Void, Never>?
@@ -110,11 +129,16 @@ final class GitModel {
         isFetchingQuietly = true
         let root = rootURL
         let remote = branch.upstream == nil ? branch.remote : nil
+        let cancellation = GitCancellation()
+        quietFetchCancellation = cancellation
         Task { [weak self] in
             // Given up on after a minute: Fetch, Pull and Push wait for this.
             _ = await Task.detached(priority: .utility) {
-                Git.perform(["fetch"] + (remote.map { [$0] } ?? []), in: root, timeout: Self.quietFetchTimeout)
+                GitCancellation.$current.withValue(cancellation) {
+                    Git.perform(["fetch"] + (remote.map { [$0] } ?? []), in: root, timeout: Self.quietFetchTimeout)
+                }
             }.value
+            self?.quietFetchCancellation = nil
             self?.isFetchingQuietly = false
             self?.refresh()
         }
@@ -467,12 +491,15 @@ final class GitModel {
         }
         self.activity = activity
         let root = rootURL
+        let cancellation = GitCancellation()
+        self.cancellation = cancellation
         Task { [weak self] in
             let (outcome, snapshot) = await Task.detached(priority: .userInitiated) {
-                let outcome = operation.run(in: root)
+                let outcome = GitCancellation.$current.withValue(cancellation) { operation.run(in: root) }
                 return (outcome, GitStatus.load(root: root))
             }.value
             guard let self else { return }
+            self.cancellation = nil
             // The snapshot can come out the same after a real change: a file that
             // was partly staged still is with more of it staged. Whoever shows
             // what's in the index has to look again all the same.
@@ -480,7 +507,8 @@ final class GitModel {
             self.activity = nil
             if outcome.succeeded {
                 onSuccess?()
-            } else if reportsFailure {
+            } else if reportsFailure, !cancellation.isCancelled {
+                // Called off, it didn't fail: there's nothing to tell.
                 self.onFailure?(Failure(title: title, details: outcome.output))
             }
             // What a refresh already under way read may be from before this.
