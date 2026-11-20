@@ -101,34 +101,12 @@ struct SourceControlView: View {
                 } label: {
                     Image(systemName: "arrow.clockwise")
                         .font(.system(size: 11, weight: .medium))
+                        .rotationEffect(.degrees(model.isLoading ? 360 : 0))
+                        .animation(model.isLoading ? .linear(duration: 0.8).repeatForever(autoreverses: false) : .default, value: model.isLoading)
                 }
                 .buttonStyle(.titleBarIcon)
                 .help("Refresh Status")
                 .disabled(model.isLoading)
-
-                Menu {
-                    Button {
-                        Task { await model.pull() }
-                    } label: {
-                        Label("Pull", systemImage: "arrow.down")
-                    }
-                    Button {
-                        Task { await model.push() }
-                    } label: {
-                        Label("Push", systemImage: "arrow.up")
-                    }
-                    Button {
-                        Task { await model.fetch() }
-                    } label: {
-                        Label("Fetch", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .menuStyle(.borderlessButton)
-                .frame(width: 20, height: 20)
-                .help("Remote Actions")
             }
 
             Button {
@@ -145,17 +123,17 @@ struct SourceControlView: View {
     // MARK: - Native 2-Row Tab Selector
 
     private var nativeTabSegmentedControl: some View {
-        HStack(spacing: 3) {
+        HStack(spacing: 4) {
             ForEach(Tab.allCases) { tab in
                 let isSelected = selectedTab == tab
                 Button {
-                    withAnimation(.snappy(duration: 0.16)) {
+                    withAnimation(.snappy(duration: 0.18)) {
                         selectedTab = tab
                     }
                 } label: {
-                    VStack(spacing: 4) {
+                    VStack(spacing: 3) {
                         Image(systemName: tab.icon)
-                            .font(.system(size: 14, weight: isSelected ? .semibold : .regular))
+                            .font(.system(size: 15, weight: isSelected ? .semibold : .regular))
                             .frame(height: 18)
 
                         Text(tab.rawValue)
@@ -164,23 +142,16 @@ struct SourceControlView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 6)
-                    .background {
-                        if isSelected {
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(Color(nsColor: .controlAccentColor).opacity(0.14))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                        .stroke(Color(nsColor: .controlAccentColor).opacity(0.3), lineWidth: 0.5)
-                                )
-                        } else {
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(Color.primary.opacity(0.04))
-                        }
-                    }
-                    .contentShape(Rectangle())
+                    .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                    .background(
+                        Color.primary.opacity(!isSelected ? 0.03 : 0),
+                        in: .rect(cornerRadius: 8, style: .continuous)
+                    )
+                    // Selected tab sits on native Liquid Glass like EditorTab and TerminalTab
+                    .glassSurface(isSelected, in: .rect(cornerRadius: 8, style: .continuous))
+                    .contentShape(.rect(cornerRadius: 8, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
             }
         }
     }
