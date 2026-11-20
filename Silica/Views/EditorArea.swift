@@ -20,7 +20,11 @@ struct EditorArea: View {
                 }
                 EditorTabBar(workspace: workspace)
                 Spacer(minLength: 0)
-                if let buffer = workspace.activeBuffer, let format = buffer.previewFormat {
+                if let buffer = workspace.activeBuffer, buffer.isShowingChanges || workspace.hasChanges(buffer) {
+                    ChangesToggle(buffer: buffer, workspace: workspace)
+                }
+                // The changes cover the source and the preview alike.
+                if let buffer = workspace.activeBuffer, let format = buffer.previewFormat, !buffer.isShowingChanges {
                     PreviewModeToggle(buffer: buffer, format: format)
                 }
                 // Last, so it stays in place whatever the tab has beside it.
@@ -631,6 +635,15 @@ private struct BufferView: View {
     let workspace: WorkspaceModel
 
     var body: some View {
+        if buffer.isShowingChanges, let changes = buffer.changesPreview {
+            GitDiffHost(preview: changes)
+        } else {
+            content
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         switch buffer.content {
         case .text(let controller):
             if buffer.isShowingPreview, let preview = buffer.preview {
@@ -638,12 +651,17 @@ private struct BufferView: View {
             } else {
                 // The status bar floats over the text's bottom corner rather than
                 // taking a strip of the card, left of the minimap when it's shown.
-                TextViewHost(controller: controller)
-                    .overlay(alignment: .bottomTrailing) {
-                        StatusBar(buffer: buffer, workspace: workspace)
-                            .padding(4)
-                            .padding(.trailing, EditorSettings.shared.showsMinimap ? MinimapView.width : 0)
+                VStack(spacing: 0) {
+                    if workspace.isConflicted(buffer) {
+                        ConflictBar(buffer: buffer, workspace: workspace)
                     }
+                    TextViewHost(controller: controller)
+                        .overlay(alignment: .bottomTrailing) {
+                            StatusBar(buffer: buffer, workspace: workspace)
+                                .padding(4)
+                                .padding(.trailing, EditorSettings.shared.showsMinimap ? MinimapView.width : 0)
+                        }
+                }
             }
         case .image(let file):
             ImagePreview(file: file)
@@ -673,6 +691,53 @@ private struct BufferView: View {
     }
 }
 
+// MARK: - Conflicts
+
+/// Over a file git couldn't merge: how many conflicts are left in it, buttons to
+/// step through them and to settle the one at the cursor with the text on the
+/// current branch, the text coming in, or both; then to mark the file resolved.
+private struct ConflictBar: View {
+    let buffer: EditorBuffer
+    let workspace: WorkspaceModel
+
+    var body: some View {
+        // Read so that the count follows the text as it's edited.
+        let _ = buffer.cursor
+        let count = buffer.conflicts.count
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .symbolRenderingMode(.multicolor)
+            if count == 0 {
+                Text("No conflicts left in this file.")
+                Spacer(minLength: 8)
+                Button("Save and Stage") { workspace.markResolved(buffer) }
+                    .help("Tells git this file’s conflicts are settled")
+            } else {
+                Text(count == 1 ? "1 conflict" : "\(count.formatted()) conflicts")
+                Button { buffer.showConflict(offsetBy: -1) } label: { Image(systemName: "chevron.up") }
+                    .help("Previous Conflict")
+                    .accessibilityLabel("Previous Conflict")
+                Button { buffer.showConflict(offsetBy: 1) } label: { Image(systemName: "chevron.down") }
+                    .help("Next Conflict")
+                    .accessibilityLabel("Next Conflict")
+                Spacer(minLength: 8)
+                Button("Accept Current") { buffer.resolveConflict(taking: .current) }
+                    .help("Keep the text above the ======= line: what the current branch has")
+                Button("Accept Incoming") { buffer.resolveConflict(taking: .incoming) }
+                    .help("Keep the text below the ======= line: what is being merged in")
+                Button("Accept Both") { buffer.resolveConflict(taking: .both) }
+                    .help("Keep both, the current text first")
+            }
+        }
+        .font(.caption)
+        .controlSize(.small)
+        .lineLimit(1)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Color.orange.opacity(0.12))
+    }
+}
+
 // MARK: - Status bar
 
 /// Cursor position, indentation, encoding, line endings and language, in a small
@@ -683,11 +748,23 @@ private struct StatusBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
+            if let branch = workspace.git.snapshot?.branch {
+                Button(action: workspace.showChanges) {
+                    Label(branch.name ?? "Detached", systemImage: "arrow.triangle.branch")
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.plain)
+                .help("Source Control (⌃⇧G)")
+                .accessibilityLabel("Branch: \(branch.name ?? "Detached")")
+            }
             Button(action: workspace.showGoToLine) {
                 Text(position)
             }
             .buttonStyle(.plain)
             .help("Go to Line (⌘L)")
+            if EditorSettings.shared.showsLineBlame, workspace.git.isRepository, !buffer.isUntitled {
+                blame
+            }
             Text(buffer.indentation.usesTabs ? "Tabs" : "Spaces: \(buffer.indentation.width)")
             Text(buffer.encodingName)
             Text(buffer.lineEndingName)
@@ -701,6 +778,37 @@ private struct StatusBar: View {
         .padding(.vertical, 4)
         .glassSurface(in: .capsule)
         .fixedSize()
+    }
+
+    /// Who last changed the line the cursor is on. Read again when the file is
+    /// saved or the branch moves; with unsaved edits the lines no longer match
+    /// the file that was blamed, so nothing is said.
+    @ViewBuilder
+    private var blame: some View {
+        let line = buffer.isDirty ? nil : buffer.blame.flatMap { $0.indices.contains(buffer.cursor.line - 1) ? $0[buffer.cursor.line - 1] : nil }
+        Button {
+            workspace.showFileHistory(buffer.url)
+        } label: {
+            if let line {
+                Text(line.isUncommitted ? "Not committed yet" : "\(line.author), \(line.date.formatted(.relative(presentation: .named)))")
+            } else {
+                Text(buffer.isDirty ? "Save to see blame" : "Blame…")
+            }
+        }
+        .buttonStyle(.plain)
+        .help(line.map { $0.isUncommitted ? "This line has changed since the last commit" : "\($0.hash.prefix(7)) · \($0.summary)" } ?? "Show File History")
+        .accessibilityLabel("Blame")
+        .task(id: BlameKey(url: buffer.url, head: workspace.git.snapshot?.branch.head, isDirty: buffer.isDirty)) {
+            guard !buffer.isDirty else { return }
+            buffer.blame = await workspace.git.blame(of: workspace.relativePath(of: buffer.url))
+        }
+    }
+
+    /// What the blame read depends on.
+    private struct BlameKey: Equatable {
+        var url: URL
+        var head: String?
+        var isDirty: Bool
     }
 
     private var position: String {
@@ -744,6 +852,68 @@ private struct PreviewModeToggle: View {
             }
         }
         .help(help)
+    }
+}
+
+/// Switches a changed file's tab between the file and what changed in it since
+/// the last commit, in the style of the Source / Preview switch.
+private struct ChangesToggle: View {
+    let buffer: EditorBuffer
+    let workspace: WorkspaceModel
+
+    var body: some View {
+        HStack(spacing: 6) {
+            // Whose changes these are, when they aren't the ones since the last commit.
+            if buffer.isShowingChanges, buffer.shownCommit == nil, buffer.shownComparison != .all {
+                Text(buffer.shownComparison == .staged ? "Staged" : "Unstaged")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .help(buffer.shownComparison == .staged ? "Showing what is staged in this file" : "Showing what isn’t staged in this file")
+            }
+            if let commit = buffer.shownCommit {
+                Text(commit.shortHash)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .help("Showing what “\(commit.subject)” changed in this file")
+            }
+            if buffer.isShowingChanges {
+                let settings = EditorSettings.shared
+                Button {
+                    settings.showsChangesSideBySide.toggle()
+                } label: {
+                    Image(systemName: "rectangle.split.2x1")
+                        .frame(width: 26, height: 22)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(settings.showsChangesSideBySide ? .primary : .secondary)
+                .background {
+                    if settings.showsChangesSideBySide {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(.primary.opacity(0.08))
+                    }
+                }
+                .help(settings.showsChangesSideBySide ? "Show Changes in One Column" : "Show Changes Side by Side")
+                .accessibilityLabel("Side by Side")
+            }
+            Button(action: workspace.toggleChanges) {
+                Image(systemName: "plus.forwardslash.minus")
+                    .frame(width: 26, height: 22)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(buffer.isShowingChanges ? .primary : .secondary)
+            .background {
+                if buffer.isShowingChanges {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(.primary.opacity(0.08))
+                }
+            }
+            .help(buffer.isShowingChanges ? "Hide Changes" : "Show Changes")
+            .accessibilityLabel("Changes")
+        }
     }
 }
 

@@ -25,6 +25,17 @@ Silica needs macOS 15 or later. The Liquid Glass look needs macOS 26; earlier ve
 - **Projects.** Open a folder to get a window with a file tree. Files and folders
   your `.gitignore` excludes are dimmed, and the tree updates as files change on disk.
   Create, rename and move files to the Trash right in the tree, and filter it as you type.
+- **Git.** In a git repository, changed files carry a letter in the tree
+  (M for modified, U for untracked and so on) and the status bar names the branch.
+  The Source Control panel lists every changed file; select one to see its changes
+  inline or side by side, with the words that changed marked. Stage whole files or
+  single changes, write a message and commit (or amend or undo the last commit),
+  then fetch, pull and push. The branch name opens a list you can search to switch,
+  create, merge, rename or delete branches, and changes can be discarded or stashed.
+  When a merge or rebase stops for conflicts, the panel offers to continue or abort
+  and the editor offers to accept either side. Below the changes is the branch's
+  history, or one file's: open a commit to see its files and what it did to each.
+  Line Blame in the View menu shows who last changed the line you're on.
 - **A file tree that keeps its bearings.** Scrolled deep into a project, the folders
   that contain the rows you're looking at stay pinned at the top. Folders show their
   Finder icons, so custom icons and packages such as `.xcodeproj` look like what they are.

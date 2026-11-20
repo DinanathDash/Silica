@@ -133,6 +133,7 @@ private struct GeneralSettingsPane: View {
             Section("Projects") {
                 Toggle("Reopen a project’s tabs where you left them", isOn: $settings.restoresTabs)
                 Toggle("Keep parent folders in view while scrolling the file tree", isOn: $settings.pinsParentFolders)
+                Toggle("Fetch from a project’s git remote every few minutes", isOn: $settings.fetchesAutomatically)
             }
 
             Section {

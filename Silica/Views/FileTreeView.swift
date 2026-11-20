@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The sidebar: a header on the title bar row, then the file tree or, in search
-/// mode, Find in Project.
+/// The sidebar: a header on the title bar row, then the file tree, Find in Project
+/// or the changed files.
 struct FileTreeView: View {
     @Bindable var workspace: WorkspaceModel
     @State private var pinnedFolders = PinnedFolderTracker()
@@ -34,6 +34,8 @@ struct FileTreeView: View {
                     }
             case .search:
                 ProjectSearchView(workspace: workspace, model: workspace.search)
+            case .changes:
+                GitChangesView(workspace: workspace, git: workspace.git)
             }
         }
         .onChange(of: workspace.selection) { old, new in
@@ -57,25 +59,60 @@ struct FileTreeView: View {
 
     private var header: some View {
         HStack(spacing: 0) {
-            if workspace.sidebarMode == .search {
+            switch workspace.sidebarMode {
+            case .explorer:
+                ProjectTitle(workspace: workspace)
+            case .search:
                 Text("Search")
                     .font(.headline)
-            } else {
-                ProjectTitle(workspace: workspace)
+                    .lineLimit(1)
+            case .changes:
+                Text("Changes")
+                    .font(.headline)
+                    .lineLimit(1)
             }
 
             Spacer(minLength: 8)
 
-            if workspace.sidebarMode == .explorer {
+            if workspace.git.isRepository {
+                Button {
+                    if workspace.sidebarMode == .changes { workspace.showExplorer() } else { workspace.showChanges() }
+                } label: {
+                    Image(systemName: "arrow.triangle.branch")
+                        .foregroundStyle(workspace.sidebarMode == .changes ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                }
+                .help(workspace.sidebarMode == .changes ? "Show Explorer (⇧⌘E)" : "Source Control (⌃⇧G)")
+                .accessibilityLabel("Source Control")
+            }
+
+            // One place for each mode's own button, so the buttons on either side
+            // stay under the pointer when a click on them changes the mode.
+            switch workspace.sidebarMode {
+            case .explorer:
                 Button {
                     withAnimation { workspace.collapseAll() }
                 } label: {
                     Image(systemName: "rectangle.compress.vertical")
                 }
                 .help("Collapse Folders")
+            case .changes:
+                Button {
+                    workspace.refresh()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .help("Refresh (⇧⌘R)")
+            case .search:
+                // Nothing for search, which only needs the room when there's a
+                // Source Control button to keep in place.
+                if workspace.git.isRepository {
+                    Image(systemName: "rectangle.compress.vertical")
+                        .frame(width: 26, height: 22)
+                        .hidden()
+                        .accessibilityHidden(true)
+                }
             }
 
-            // Last, so it stays in place when the Collapse button hides in search mode.
             Button {
                 if workspace.sidebarMode == .search { workspace.showExplorer() } else { workspace.showSearch() }
             } label: {
@@ -663,12 +700,29 @@ private struct FileNodeRow: View {
                     .frame(width: 7, height: 7)
                     .help("Unsaved changes")
             }
+            gitBadge
         }
         .padding(.leading, Self.leadingPadding(depth: depth))
         .font(.system(size: EditorSettings.shared.sidebarFontSize))
         .tag(node.url)
         .listRowBackground(SelectionHighlight(isSelected: workspace.selection == node.url))
         .contextMenu { FileNodeMenu(node: node, workspace: workspace) }
+    }
+
+    /// The file's git status as a letter, as in other editors; a folder gets a dot
+    /// for the changes inside it.
+    @ViewBuilder
+    private var gitBadge: some View {
+        if let status = workspace.git.snapshot?.files[node.relativePath] {
+            GitStatusLetter(status: status)
+        } else if node.isDirectory, let status = workspace.git.snapshot?.folders[node.relativePath] {
+            Circle()
+                .fill(status.color)
+                .frame(width: 6, height: 6)
+                .frame(width: 12)
+                .help("Contains changed files")
+                .accessibilityLabel("Contains changed files")
+        }
     }
 
     /// A smaller chevron than the system outline's; files get the same width of space.
@@ -717,6 +771,10 @@ private struct FileNodeMenu: View {
         Button("Show in Finder") { Finder.reveal(node.url) }
         Button("Copy Path") { Finder.copyPath(node.url) }
         Button("Copy Relative Path") { Finder.copyPath(workspace.relativePath(of: node.url)) }
+        if workspace.git.isRepository, !node.isDirectory {
+            Divider()
+            Button("Show File History") { workspace.showFileHistory(node.url) }
+        }
     }
 }
 
