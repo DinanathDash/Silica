@@ -150,10 +150,10 @@ struct FileTreeView: View {
                 return .handled
             }
             .onKeyPress(.delete, phases: .down) { press in
-                guard press.modifiers == .command, workspace.treeEdit == nil,
-                      let selection = workspace.selection else { return .ignored }
-                workspace.moveToTrash(selection)
-                return .handled
+                handleDelete(press)
+            }
+            .onKeyPress(.deleteForward, phases: .down) { press in
+                handleDelete(press)
             }
             .contextMenu {
                 Button("New File…") { workspace.beginNewItem(isDirectory: false, in: workspace.rootURL) }
@@ -203,6 +203,19 @@ struct FileTreeView: View {
                 }
             }
         }
+    }
+
+    private func handleDelete(_ press: KeyPress) -> KeyPress.Result {
+        guard workspace.treeEdit == nil, let selection = workspace.selection else { return .ignored }
+        if press.modifiers == [.command, .option] {
+            workspace.deleteImmediately(selection)
+            return .handled
+        }
+        if press.modifiers == .command {
+            workspace.moveToTrash(selection)
+            return .handled
+        }
+        return .ignored
     }
 
     fileprivate struct TreeRow: Identifiable {
@@ -633,6 +646,42 @@ private struct FileNodeRow: View {
         node.isExpanded || workspace.isFilteringTree
     }
 
+    @State private var isHovered = false
+
+    /// Formats file or folder size into human readable string.
+    private var formattedSize: String? {
+        if node.isDirectory {
+            guard let enumerator = FileManager.default.enumerator(
+                at: node.url,
+                includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey],
+                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            ) else {
+                guard let count = (try? FileManager.default.contentsOfDirectory(atPath: node.url.path(percentEncoded: false)))?.count else { return nil }
+                return "\(count) item\(count == 1 ? "" : "s")"
+            }
+            var totalBytes: Int64 = 0
+            var count = 0
+            for case let fileURL as URL in enumerator {
+                count += 1
+                if count > 200 { break }
+                if let vals = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey]),
+                   vals.isDirectory != true,
+                   let size = vals.fileSize {
+                    totalBytes += Int64(size)
+                }
+            }
+            if totalBytes > 0 {
+                return ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)
+            }
+            guard let count = (try? FileManager.default.contentsOfDirectory(atPath: node.url.path(percentEncoded: false)))?.count else { return nil }
+            return "\(count) item\(count == 1 ? "" : "s")"
+        } else {
+            guard let values = try? node.url.resourceValues(forKeys: [.fileSizeKey]),
+                  let size = values.fileSize else { return nil }
+            return ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)
+        }
+    }
+
     /// The name, with the filter text in bold on a soft accent background.
     private var highlightedName: AttributedString {
         var name = AttributedString(node.name)
@@ -665,6 +714,16 @@ private struct FileNodeRow: View {
             // Dotfiles and gitignored items fade back but stay clickable.
             .opacity(node.isDimmed && !isRenaming ? 0.5 : 1)
             Spacer(minLength: 0)
+
+            // File or folder size shown on the right side when hovered or selected
+            if (isHovered || workspace.selection == node.url), !isRenaming, let formattedSize {
+                Text(formattedSize)
+                    .font(.system(size: max(EditorSettings.shared.sidebarFontSize - 1.5, 9), design: .monospaced))
+                    .foregroundStyle(.secondary.opacity(0.8))
+                    .lineLimit(1)
+                    .padding(.trailing, 2)
+            }
+
             if workspace.buffers[node.url]?.isDirty == true {
                 Circle()
                     .fill(.primary.opacity(0.6))
@@ -675,6 +734,7 @@ private struct FileNodeRow: View {
         .padding(.leading, Self.leadingPadding(depth: depth))
         .font(.system(size: EditorSettings.shared.sidebarFontSize))
         .tag(node.url)
+        .onHover { isHovered = $0 }
         .listRowBackground(SelectionHighlight(isSelected: workspace.selection == node.url))
         .contextMenu { FileNodeMenu(node: node, workspace: workspace) }
     }
@@ -721,6 +781,7 @@ private struct FileNodeMenu: View {
         Button("Rename…") { workspace.beginRename(node.url) }
         Button("Duplicate") { workspace.duplicate(node.url) }
         Button("Move to Trash") { workspace.moveToTrash(node.url) }
+        Button("Delete Immediately…") { workspace.deleteImmediately(node.url) }
         Divider()
         Button("Show in Finder") { Finder.reveal(node.url) }
         Button("Copy Path") { Finder.copyPath(node.url) }

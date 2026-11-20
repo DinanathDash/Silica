@@ -13,7 +13,6 @@ final class SourceControlModel {
     private(set) var unstagedFiles: [GitFileItem] = []
     private(set) var commits: [GitCommitItem] = []
     private(set) var branches: [GitBranchItem] = []
-    private(set) var stashes: [GitStashItem] = []
     private(set) var isLoading = false
     private(set) var errorMessage: String?
 
@@ -49,7 +48,6 @@ final class SourceControlModel {
             unstagedFiles = []
             commits = []
             branches = []
-            stashes = []
             branchName = nil
             return
         }
@@ -59,9 +57,8 @@ final class SourceControlModel {
         async let statusTask = loadStatus()
         async let branchesTask = loadBranches()
         async let commitsTask = loadCommits()
-        async let stashesTask = loadStashes()
 
-        _ = await (statusTask, branchesTask, commitsTask, stashesTask)
+        _ = await (statusTask, branchesTask, commitsTask)
     }
 
     // MARK: - Status & Diff Stats
@@ -201,22 +198,6 @@ final class SourceControlModel {
         self.commits = list
     }
 
-    private func loadStashes() async {
-        let result = await runner.run(arguments: ["stash", "list"], in: rootURL)
-        guard result.isSuccess else { return }
-
-        var list: [GitStashItem] = []
-        for line in result.stdout.split(separator: "\n") {
-            let lineStr = String(line)
-            let parts = lineStr.split(separator: ":", maxSplits: 2)
-            guard parts.count >= 2 else { continue }
-            let idx = String(parts[0]).trimmingCharacters(in: .whitespaces)
-            let msg = parts.count == 3 ? String(parts[2]).trimmingCharacters(in: .whitespaces) : String(parts[1]).trimmingCharacters(in: .whitespaces)
-            list.append(GitStashItem(index: idx, message: msg))
-        }
-        self.stashes = list
-    }
-
     // MARK: - Actions
 
     func stageFile(_ file: GitFileItem) async {
@@ -329,25 +310,6 @@ final class SourceControlModel {
             errorMessage = result.stderr
             return false
         }
-    }
-
-    func createStash(message: String?) async {
-        var args = ["stash", "push"]
-        if let message, !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            args += ["-m", message]
-        }
-        _ = await runner.run(arguments: args, in: rootURL)
-        await refresh()
-    }
-
-    func popStash(index: String) async {
-        _ = await runner.run(arguments: ["stash", "pop", index], in: rootURL)
-        await refresh()
-    }
-
-    func dropStash(index: String) async {
-        _ = await runner.run(arguments: ["stash", "drop", index], in: rootURL)
-        await refresh()
     }
 
     func initializeRepository() async {

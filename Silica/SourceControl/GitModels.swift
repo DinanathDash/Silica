@@ -99,10 +99,3 @@ struct GitCommitItem: Identifiable, Hashable, Sendable {
     let date: Date
     let summary: String
 }
-
-/// A git stash item.
-struct GitStashItem: Identifiable, Hashable, Sendable {
-    var id: String { index }
-    let index: String
-    let message: String
-}

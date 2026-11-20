@@ -494,15 +494,3 @@ private struct EditorSettingsPane: View {
         }
     }
 }
-
-private extension View {
-    @ViewBuilder
-    func tabsPickerStyle() -> some View {
-        if #available(macOS 27.0, *) {
-            pickerStyle(.tabs)
-                .buttonBorderShape(.capsule)
-        } else {
-            pickerStyle(.segmented)
-        }
-    }
-}

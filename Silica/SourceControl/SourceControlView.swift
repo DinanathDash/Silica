@@ -8,14 +8,12 @@ struct SourceControlView: View {
     @State private var selectedTab: Tab = .changes
     @State private var isShowingNewBranchPrompt = false
     @State private var newBranchName = ""
-    @State private var isShowingStashPrompt = false
-    @State private var newStashMessage = ""
+    @State private var refreshRotationAngle: Double = 0
 
     enum Tab: String, CaseIterable, Identifiable {
         case changes = "Changes"
         case history = "History"
         case branches = "Branches"
-        case stashes = "Stashes"
 
         var id: String { rawValue }
 
@@ -23,8 +21,7 @@ struct SourceControlView: View {
             switch self {
             case .changes: "arrow.triangle.branch"
             case .history: "clock.arrow.circlepath"
-            case .branches: "point.topleft.down.to.point.bottomright.filled"
-            case .stashes: "archivebox"
+            case .branches: "arrow.triangle.pull"
             }
         }
     }
@@ -43,11 +40,17 @@ struct SourceControlView: View {
             if !model.isGitRepository {
                 notRepositoryView
             } else {
-                // 2-row native tab switcher with big icon on row 1, label on row 2
-                nativeTabSegmentedControl
-                    .padding(.horizontal, 10)
-                    .padding(.top, 8)
-                    .padding(.bottom, 6)
+                // Native segmented tabs selector matching appearance picker
+                Picker("Section", selection: $selectedTab) {
+                    ForEach(Tab.allCases) { tab in
+                        Label(tab.rawValue, systemImage: tab.icon).tag(tab)
+                    }
+                }
+                .labelsHidden()
+                .tabsPickerStyle()
+                .padding(.horizontal, 10)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
 
                 Divider().opacity(0.2)
 
@@ -61,8 +64,6 @@ struct SourceControlView: View {
                             historyTab
                         case .branches:
                             branchesTab
-                        case .stashes:
-                            stashesTab
                         }
                     }
                     .padding(.horizontal, 10)
@@ -97,12 +98,17 @@ struct SourceControlView: View {
 
             if model.isGitRepository {
                 Button {
-                    Task { await model.refresh() }
+                    withAnimation(.easeInOut(duration: 0.6)) {
+                        refreshRotationAngle += 360
+                    }
+                    Task {
+                        try? await Task.sleep(nanoseconds: 200_000_000)
+                        await model.refresh()
+                    }
                 } label: {
                     Image(systemName: "arrow.clockwise")
                         .font(.system(size: 11, weight: .medium))
-                        .rotationEffect(.degrees(model.isLoading ? 360 : 0))
-                        .animation(model.isLoading ? .linear(duration: 0.8).repeatForever(autoreverses: false) : .default, value: model.isLoading)
+                        .rotationEffect(.degrees(refreshRotationAngle))
                 }
                 .buttonStyle(.titleBarIcon)
                 .help("Refresh Status")
@@ -117,42 +123,6 @@ struct SourceControlView: View {
             }
             .buttonStyle(.titleBarIcon)
             .help("Close Source Control")
-        }
-    }
-
-    // MARK: - Native 2-Row Tab Selector
-
-    private var nativeTabSegmentedControl: some View {
-        HStack(spacing: 4) {
-            ForEach(Tab.allCases) { tab in
-                let isSelected = selectedTab == tab
-                Button {
-                    withAnimation(.snappy(duration: 0.18)) {
-                        selectedTab = tab
-                    }
-                } label: {
-                    VStack(spacing: 3) {
-                        Image(systemName: tab.icon)
-                            .font(.system(size: 15, weight: isSelected ? .semibold : .regular))
-                            .frame(height: 18)
-
-                        Text(tab.rawValue)
-                            .font(.system(size: 10, weight: isSelected ? .medium : .regular))
-                            .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
-                    .foregroundStyle(isSelected ? Color.primary : Color.secondary)
-                    .background(
-                        Color.primary.opacity(!isSelected ? 0.03 : 0),
-                        in: .rect(cornerRadius: 8, style: .continuous)
-                    )
-                    // Selected tab sits on native Liquid Glass like EditorTab and TerminalTab
-                    .glassSurface(isSelected, in: .rect(cornerRadius: 8, style: .continuous))
-                    .contentShape(.rect(cornerRadius: 8, style: .continuous))
-                }
-                .buttonStyle(.plain)
-            }
         }
     }
 
@@ -225,15 +195,6 @@ struct SourceControlView: View {
                     }
 
                 HStack {
-                    Button("Commit") {
-                        Task { _ = await model.commit() }
-                    }
-                    .controlSize(.small)
-                    .glassButtonStyle(prominent: true)
-                    .disabled(model.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                    Spacer()
-
                     if !model.stagedFiles.isEmpty {
                         Button("Unstage All") {
                             Task { await model.unstageAll() }
@@ -247,6 +208,15 @@ struct SourceControlView: View {
                         .controlSize(.small)
                         .glassButtonStyle()
                     }
+
+                    Spacer()
+
+                    Button("Commit") {
+                        Task { _ = await model.commit() }
+                    }
+                    .controlSize(.small)
+                    .glassButtonStyle(prominent: true)
+                    .disabled(model.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
             .padding(10)
@@ -516,94 +486,6 @@ struct SourceControlView: View {
                 .background {
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
                         .fill(branch.isCurrent ? Color.accentColor.opacity(0.1) : Color.clear)
-                }
-            }
-        }
-    }
-
-    // MARK: - Stashes Tab
-
-    private var stashesTab: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("STASHES")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button {
-                    isShowingStashPrompt = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 11))
-                }
-                .buttonStyle(.plain)
-                .help("Stash working changes")
-            }
-
-            if isShowingStashPrompt {
-                HStack {
-                    TextField("Stash message (optional)", text: $newStashMessage)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 11))
-                    Button("Stash") {
-                        Task {
-                            await model.createStash(message: newStashMessage)
-                            newStashMessage = ""
-                            isShowingStashPrompt = false
-                        }
-                    }
-                    .controlSize(.small)
-                    Button("Cancel") {
-                        isShowingStashPrompt = false
-                    }
-                    .controlSize(.small)
-                }
-                .padding(.vertical, 4)
-            }
-
-            if model.stashes.isEmpty {
-                Text("No stashed changes")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 12)
-            } else {
-                ForEach(model.stashes) { stash in
-                    HStack(spacing: 8) {
-                        Image(systemName: "archivebox")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(stash.index)
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                            Text(stash.message)
-                                .font(.system(size: 11))
-                                .lineLimit(1)
-                        }
-
-                        Spacer()
-
-                        Button("Pop") {
-                            Task { await model.popStash(index: stash.index) }
-                        }
-                        .controlSize(.mini)
-                        .glassButtonStyle()
-
-                        Button {
-                            Task { await model.dropStash(index: stash.index) }
-                        } label: {
-                            Image(systemName: "trash")
-                                .font(.system(size: 10))
-                        }
-                        .buttonStyle(.plain)
-                        .help("Drop stash")
-                    }
-                    .padding(6)
-                    .background {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.3))
-                    }
                 }
             }
         }

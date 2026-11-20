@@ -50,6 +50,17 @@ extension View {
             self
         }
     }
+
+    /// Native selector tabs picker style conforming to system version.
+    @ViewBuilder
+    func tabsPickerStyle() -> some View {
+        if #available(macOS 27.0, *) {
+            pickerStyle(.tabs)
+                .buttonBorderShape(.capsule)
+        } else {
+            pickerStyle(.segmented)
+        }
+    }
 }
 
 private struct GlassSurface<S: Shape>: ViewModifier {

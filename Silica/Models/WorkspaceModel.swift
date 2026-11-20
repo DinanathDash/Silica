@@ -764,6 +764,21 @@ final class WorkspaceModel {
         refresh()
     }
 
+    /// Deletes the item permanently (⌘⌥⌫) bypassing the Trash.
+    func deleteImmediately(_ url: URL) {
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            NSAlert(error: error).runModal()
+            return
+        }
+        for tab in openTabs where Self.url(tab, isInside: url) && buffers[tab]?.isDirty != true {
+            closeTab(tab)
+        }
+        if let selection, Self.url(selection, isInside: url) { self.selection = nil }
+        refresh()
+    }
+
     /// Save As (⇧⌘S): writes the text to a new file, which takes the tab's place. The
     /// original file keeps what was last saved.
     func saveActiveAs() {

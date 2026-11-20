@@ -1019,7 +1019,7 @@ private struct EmptyEditorView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
+            Grid(alignment: .leading, horizontalSpacing: 36, verticalSpacing: 16) {
                 shortcut("Quick Open", keys: "⌘P")
                 shortcut("Open Another Project", keys: "⌘O")
                 shortcut("Toggle Sidebar", keys: "⌃⌘S")
@@ -1035,9 +1035,19 @@ private struct EmptyEditorView: View {
                 .foregroundStyle(.secondary)
                 .gridColumnAlignment(.trailing)
             Text(keys)
-                .monospaced()
-                .padding(.horizontal, 8)
-                .padding(.vertical, 2)
+                .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                .tracking(1.0)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .frame(minWidth: 42, minHeight: 22)
+                .background(
+                    Capsule()
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.65))
+                )
+                .overlay(
+                    Capsule()
+                        .strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5)
+                )
                 .glassSurface(in: .capsule)
         }
     }
