@@ -50,6 +50,10 @@ final class WorkspaceModel {
     private(set) var terminal: TerminalSession?
     private(set) var isTerminalVisible = false
 
+    /// Source control (Git) sidebar that slides in from the right edge.
+    let sourceControl: SourceControlModel
+    private(set) var isSourceControlVisible = false
+
     /// The project's window, to bring forward when a file is opened in it from outside.
     @ObservationIgnored weak var window: NSWindow?
     @ObservationIgnored private var isAccessingScope: Bool
@@ -74,6 +78,7 @@ final class WorkspaceModel {
         self.root = FileNode(root: rootURL)
         self.quickOpen = QuickOpenModel(rootURL: rootURL)
         self.search = ProjectSearchModel(rootURL: rootURL)
+        self.sourceControl = SourceControlModel(rootURL: rootURL)
         root.isExpanded = true
         root.loadChildrenIfNeeded()
         search.unsavedTexts = { [weak self] in
@@ -140,6 +145,29 @@ final class WorkspaceModel {
 
     func toggleSidebar() {
         withAnimation(.snappy) { isSidebarVisible.toggle() }
+    }
+
+    // MARK: Source Control
+
+    func toggleSourceControl() {
+        if isSourceControlVisible {
+            hideSourceControl()
+        } else {
+            showSourceControl()
+        }
+    }
+
+    func showSourceControl() {
+        withAnimation(.snappy(duration: 0.24)) {
+            isSourceControlVisible = true
+        }
+        Task { await sourceControl.refresh() }
+    }
+
+    func hideSourceControl() {
+        withAnimation(.snappy(duration: 0.24)) {
+            isSourceControlVisible = false
+        }
     }
 
     // MARK: Terminal
@@ -425,6 +453,9 @@ final class WorkspaceModel {
         // Files may have come or gone: filter a fresh list.
         treeFilterItems = nil
         if treeFilterResult != nil { scheduleTreeFilter(after: .milliseconds(300)) }
+        if isSourceControlVisible {
+            Task { await sourceControl.refresh() }
+        }
     }
 
     // MARK: Tree filter

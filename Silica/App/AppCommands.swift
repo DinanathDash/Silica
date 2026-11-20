@@ -145,6 +145,10 @@ struct AppCommands: Commands {
                 .keyboardShortcut("r", modifiers: [.command, .shift])
                 .disabled(workspace == nil)
 
+            Button("Source Control") { workspace?.toggleSourceControl() }
+                .keyboardShortcut("g", modifiers: [.control, .shift])
+                .disabled(workspace == nil)
+
             Divider()
 
             Button("Terminal") { workspace?.toggleTerminal() }

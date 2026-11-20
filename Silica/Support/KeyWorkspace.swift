@@ -38,6 +38,11 @@ final class KeyWorkspace: ObservableObject {
                 workspace.toggleSettings()
                 return nil
             }
+            // ⌃⇧G to toggle Source Control sidebar
+            if flags == [.control, .shift], event.charactersIgnoringModifiers?.lowercased() == "g", let workspace = self?.current {
+                workspace.toggleSourceControl()
+                return nil
+            }
             guard flags == [.command, .shift], let workspace = self?.current,
                   // Not while a sheet or alert is up.
                   event.window?.attachedSheet == nil, NSApp.modalWindow == nil,

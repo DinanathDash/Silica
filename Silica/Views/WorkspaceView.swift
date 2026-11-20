@@ -92,7 +92,9 @@ enum WorkspaceLayout {
 struct WorkspaceView: View {
     @Bindable var workspace: WorkspaceModel
     @AppStorage("sidebarWidth") private var sidebarWidth: Double = 260
+    @AppStorage("sourceControlWidth") private var sourceControlWidth: Double = 280
     @State private var dragStartWidth: Double?
+    @State private var dragStartSourceControlWidth: Double?
     @State private var windowWidth: CGFloat = 0
 
     var body: some View {
@@ -104,6 +106,14 @@ struct WorkspaceView: View {
                     .transition(.move(edge: .leading).combined(with: .opacity))
             }
             EditorArea(workspace: workspace)
+            if workspace.isSourceControlVisible {
+                HStack(spacing: 0) {
+                    sourceControlResizeHandle
+                    SourceControlView(workspace: workspace, model: workspace.sourceControl)
+                        .frame(width: shownSourceControlWidth)
+                }
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
         }
         .opacity(workspace.isSettingsVisible ? 0 : 1)
         .allowsHitTesting(!workspace.isSettingsVisible)
@@ -168,6 +178,33 @@ struct WorkspaceView: View {
                         sidebarWidth = min(max(proposed, WorkspaceLayout.sidebarWidthRange.lowerBound), widestSidebar)
                     }
                     .onEnded { _ in dragStartWidth = nil }
+            )
+    }
+
+    /// The clamped width of the right-side source control sidebar.
+    private var shownSourceControlWidth: Double {
+        let range = WorkspaceLayout.sidebarWidthRange
+        guard windowWidth > 0 else { return sourceControlWidth }
+        let maxAvailable = max(windowWidth - WorkspaceLayout.editorMinWidth - (workspace.isSidebarVisible ? shownSidebarWidth : 0), range.lowerBound)
+        return min(max(sourceControlWidth, range.lowerBound), min(maxAvailable, range.upperBound))
+    }
+
+    /// Resize handle for the source control sidebar on its leading edge.
+    private var sourceControlResizeHandle: some View {
+        Color.clear
+            .frame(width: 8)
+            .contentShape(.rect)
+            .offset(x: -4)
+            .pointerStyle(.frameResize(position: .leading))
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .onChanged { value in
+                        let start = dragStartSourceControlWidth ?? shownSourceControlWidth
+                        dragStartSourceControlWidth = start
+                        let proposed = start - value.translation.width
+                        sourceControlWidth = min(max(proposed, WorkspaceLayout.sidebarWidthRange.lowerBound), WorkspaceLayout.sidebarWidthRange.upperBound)
+                    }
+                    .onEnded { _ in dragStartSourceControlWidth = nil }
             )
     }
 }

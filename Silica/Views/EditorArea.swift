@@ -23,7 +23,8 @@ struct EditorArea: View {
                 if let buffer = workspace.activeBuffer, let format = buffer.previewFormat {
                     PreviewModeToggle(buffer: buffer, format: format)
                 }
-                // Last, so it stays in place whatever the tab has beside it.
+                // Source control and terminal toggles stay in place in the top right.
+                SourceControlToggleButton(workspace: workspace)
                 TerminalToggleButton(workspace: workspace)
                     .padding(.trailing, WorkspaceLayout.cardInset + 4)
             }
