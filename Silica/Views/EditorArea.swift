@@ -909,10 +909,6 @@ private struct PDFViewHost: NSViewRepresentable {
         pdfView.frame = container.bounds
         pdfView.autoresizingMask = [.width, .height]
         container.addSubview(pdfView)
-        // So the arrow keys, Page Up and Page Down scroll it straight away.
-        DispatchQueue.main.async { [pdfView] in
-            pdfView.window?.makeFirstResponder(pdfView)
-        }
     }
 }
 
@@ -973,7 +969,6 @@ private struct VideoPlayerHost: NSViewRepresentable {
         view.controlsStyle = .floating
         view.showsFullScreenToggleButton = true
         view.player = player
-        focus(view)
         return view
     }
 
@@ -982,20 +977,12 @@ private struct VideoPlayerHost: NSViewRepresentable {
         // Another video tab took the card: the one left behind stops playing.
         view.player?.pause()
         view.player = player
-        focus(view)
     }
 
     /// A tab that isn't shown doesn't keep playing.
     static func dismantleNSView(_ view: AVPlayerView, coordinator: ()) {
         view.player?.pause()
         view.player = nil
-    }
-
-    private func focus(_ view: AVPlayerView) {
-        // So Space plays and pauses, and the arrow keys step, straight away.
-        DispatchQueue.main.async {
-            view.window?.makeFirstResponder(view)
-        }
     }
 }
 

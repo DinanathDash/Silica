@@ -81,6 +81,8 @@ enum WorkspaceLayout {
     /// How much of the sidebar list's built-in top inset to hide.
     static let sidebarListTopTrim: CGFloat = 8
     static let sidebarWidthRange: ClosedRange<Double> = 220...480
+    static let sourceControlWidthRange: ClosedRange<Double> = 240...500
+    static let sourceControlCollapseThreshold: Double = 190
     static let editorMinWidth: CGFloat = 420
     /// Fits the narrowest sidebar beside the narrowest editor.
     static let windowMinWidth: CGFloat = sidebarWidthRange.lowerBound + editorMinWidth
@@ -138,7 +140,15 @@ struct WorkspaceView: View {
             }
         }
         .frame(minWidth: WorkspaceLayout.windowMinWidth, minHeight: 400)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { windowWidth = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { newWidth in
+            windowWidth = newWidth
+            if workspace.isSourceControlVisible && newWidth > 0 {
+                let maxAvailable = newWidth - WorkspaceLayout.editorMinWidth - (workspace.isSidebarVisible ? shownSidebarWidth : 0)
+                if maxAvailable < WorkspaceLayout.sourceControlCollapseThreshold {
+                    workspace.hideSourceControl()
+                }
+            }
+        }
         .containerBackground(for: .window) {
             WindowBackgroundView()
         }
@@ -177,16 +187,31 @@ struct WorkspaceView: View {
                         let start = dragStartWidth ?? shownSidebarWidth
                         dragStartWidth = start
                         let proposed = start + value.translation.width
+                        if proposed < WorkspaceLayout.sidebarWidthRange.lowerBound - 40 {
+                            workspace.toggleSidebar()
+                            dragStartWidth = nil
+                            sidebarWidth = max(start, WorkspaceLayout.sidebarWidthRange.lowerBound)
+                            return
+                        }
                         sidebarWidth = min(max(proposed, WorkspaceLayout.sidebarWidthRange.lowerBound), widestSidebar)
                     }
-                    .onEnded { _ in dragStartWidth = nil }
+                    .onEnded { value in
+                        if let start = dragStartWidth {
+                            let proposed = start + value.translation.width
+                            if proposed < WorkspaceLayout.sidebarWidthRange.lowerBound - 40 {
+                                workspace.toggleSidebar()
+                                sidebarWidth = max(start, WorkspaceLayout.sidebarWidthRange.lowerBound)
+                            }
+                        }
+                        dragStartWidth = nil
+                    }
             )
     }
 
     /// The clamped width of the right-side source control sidebar.
     private var shownSourceControlWidth: Double {
-        let range = WorkspaceLayout.sidebarWidthRange
-        guard windowWidth > 0 else { return sourceControlWidth }
+        let range = WorkspaceLayout.sourceControlWidthRange
+        guard windowWidth > 0 else { return max(sourceControlWidth, range.lowerBound) }
         let maxAvailable = max(windowWidth - WorkspaceLayout.editorMinWidth - (workspace.isSidebarVisible ? shownSidebarWidth : 0), range.lowerBound)
         return min(max(sourceControlWidth, range.lowerBound), min(maxAvailable, range.upperBound))
     }
@@ -204,9 +229,24 @@ struct WorkspaceView: View {
                         let start = dragStartSourceControlWidth ?? shownSourceControlWidth
                         dragStartSourceControlWidth = start
                         let proposed = start - value.translation.width
-                        sourceControlWidth = min(max(proposed, WorkspaceLayout.sidebarWidthRange.lowerBound), WorkspaceLayout.sidebarWidthRange.upperBound)
+                        if proposed < WorkspaceLayout.sourceControlCollapseThreshold {
+                            workspace.hideSourceControl()
+                            dragStartSourceControlWidth = nil
+                            sourceControlWidth = max(start, WorkspaceLayout.sourceControlWidthRange.lowerBound)
+                            return
+                        }
+                        sourceControlWidth = min(max(proposed, WorkspaceLayout.sourceControlWidthRange.lowerBound), WorkspaceLayout.sourceControlWidthRange.upperBound)
                     }
-                    .onEnded { _ in dragStartSourceControlWidth = nil }
+                    .onEnded { value in
+                        if let start = dragStartSourceControlWidth {
+                            let proposed = start - value.translation.width
+                            if proposed < WorkspaceLayout.sourceControlCollapseThreshold {
+                                workspace.hideSourceControl()
+                                sourceControlWidth = max(start, WorkspaceLayout.sourceControlWidthRange.lowerBound)
+                            }
+                        }
+                        dragStartSourceControlWidth = nil
+                    }
             )
     }
 }

@@ -498,8 +498,5 @@ struct PreviewHost: NSViewRepresentable {
         webView.frame = container.bounds
         webView.autoresizingMask = [.width, .height]
         container.addSubview(webView)
-        DispatchQueue.main.async {
-            webView.window?.makeFirstResponder(webView)
-        }
     }
 }

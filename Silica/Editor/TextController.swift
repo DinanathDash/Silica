@@ -485,8 +485,7 @@ struct TextViewHost: NSViewRepresentable {
             editorView.autoresizingMask = [.width, .height]
             addSubview(editorView)
             current = controller
-            DispatchQueue.main.async { [weak self] in
-                self?.window?.makeFirstResponder(controller.textView)
+            DispatchQueue.main.async {
                 controller.didAppear()
             }
         }
