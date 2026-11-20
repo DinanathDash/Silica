@@ -82,9 +82,11 @@ final class GitModel {
             // Soon after the project opens, then every few minutes.
             var wait = Duration.seconds(15)
             while !Task.isCancelled {
+                // Cancelling ends the sleep at once, and a fetch mustn't follow it:
+                // the window this was for has closed.
                 try? await Task.sleep(for: wait)
                 wait = .seconds(300)
-                guard let self else { return }
+                guard !Task.isCancelled, let self else { return }
                 self.fetchQuietly()
             }
         }

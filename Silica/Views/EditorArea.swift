@@ -721,12 +721,21 @@ private struct ConflictBar: View {
                     .help("Next Conflict")
                     .accessibilityLabel("Next Conflict")
                 Spacer(minLength: 8)
-                Button("Accept Current") { buffer.resolveConflict(taking: .current) }
-                    .help("Keep the text above the ======= line: what the current branch has")
-                Button("Accept Incoming") { buffer.resolveConflict(taking: .incoming) }
-                    .help("Keep the text below the ======= line: what is being merged in")
+                // In a rebase the sides are the other way round from a merge: above
+                // the ======= line is the commit being rebased onto, and below it
+                // the user's own commit being applied again. "Current" would then
+                // name the side that isn't theirs, so the buttons say whose each is.
+                let isRebase = workspace.git.snapshot?.pending?.kind == .rebase
+                Button(isRebase ? "Accept Upstream" : "Accept Current") { buffer.resolveConflict(taking: .current) }
+                    .help(isRebase
+                        ? "Keep the text above the ======= line: the commit you’re rebasing onto"
+                        : "Keep the text above the ======= line: what the current branch has")
+                Button(isRebase ? "Accept My Commit" : "Accept Incoming") { buffer.resolveConflict(taking: .incoming) }
+                    .help(isRebase
+                        ? "Keep the text below the ======= line: your own commit, being applied again"
+                        : "Keep the text below the ======= line: what is being merged in")
                 Button("Accept Both") { buffer.resolveConflict(taking: .both) }
-                    .help("Keep both, the current text first")
+                    .help("Keep both, the text above the ======= line first")
             }
         }
         .font(.caption)
