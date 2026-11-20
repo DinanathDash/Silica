@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Right-side Source Control sidebar inspired by athas, rendered with Silica's Liquid Glass.
+/// Right-side Source Control sidebar matching Silica appearance settings and liquid glass layout.
 struct SourceControlView: View {
     @Bindable var workspace: WorkspaceModel
     @Bindable var model: SourceControlModel
@@ -34,7 +34,8 @@ struct SourceControlView: View {
             // Header bar aligning with title bar height
             headerBar
                 .frame(height: WorkspaceLayout.titleBarHeight)
-                .padding(.horizontal, 10)
+                .padding(.leading, 12)
+                .padding(.trailing, 6)
                 .zIndex(2)
 
             Divider().opacity(0.3)
@@ -42,13 +43,15 @@ struct SourceControlView: View {
             if !model.isGitRepository {
                 notRepositoryView
             } else {
-                tabSelector
+                // 2-row native tab switcher with big icon on row 1, label on row 2
+                nativeTabSegmentedControl
                     .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
+                    .padding(.top, 8)
+                    .padding(.bottom, 6)
 
                 Divider().opacity(0.2)
 
-                // Main Tab Content
+                // Scrollable tab content
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         switch selectedTab {
@@ -62,18 +65,15 @@ struct SourceControlView: View {
                             stashesTab
                         }
                     }
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, 10)
                     .padding(.vertical, 10)
                 }
                 .scrollIndicators(.never)
+                .softVerticalScrollEdges()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
-            // Liquid Glass backdrop matching Silica styling
-            RoundedRectangle(cornerRadius: WorkspaceLayout.cardCornerRadius, style: .continuous)
-                .glassSurface(true, in: RoundedRectangle(cornerRadius: WorkspaceLayout.cardCornerRadius, style: .continuous))
-        }
+        .workspaceCard()
         .task {
             await model.refresh()
         }
@@ -96,7 +96,6 @@ struct SourceControlView: View {
             Spacer(minLength: 0)
 
             if model.isGitRepository {
-                // Refresh
                 Button {
                     Task { await model.refresh() }
                 } label: {
@@ -107,7 +106,6 @@ struct SourceControlView: View {
                 .help("Refresh Status")
                 .disabled(model.isLoading)
 
-                // Remotes actions menu (Pull, Push, Fetch)
                 Menu {
                     Button {
                         Task { await model.pull() }
@@ -133,7 +131,6 @@ struct SourceControlView: View {
                 .help("Remote Actions")
             }
 
-            // Close button
             Button {
                 workspace.hideSourceControl()
             } label: {
@@ -145,34 +142,46 @@ struct SourceControlView: View {
         }
     }
 
-    // MARK: - Tab Selector
+    // MARK: - Native 2-Row Tab Selector
 
-    private var tabSelector: some View {
-        HStack(spacing: 4) {
+    private var nativeTabSegmentedControl: some View {
+        HStack(spacing: 3) {
             ForEach(Tab.allCases) { tab in
+                let isSelected = selectedTab == tab
                 Button {
-                    selectedTab = tab
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: tab.icon)
-                            .font(.system(size: 10, weight: .medium))
-                        Text(tab.rawValue)
-                            .font(.system(size: 11, weight: selectedTab == tab ? .semibold : .regular))
+                    withAnimation(.snappy(duration: 0.16)) {
+                        selectedTab = tab
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: tab.icon)
+                            .font(.system(size: 14, weight: isSelected ? .semibold : .regular))
+                            .frame(height: 18)
+
+                        Text(tab.rawValue)
+                            .font(.system(size: 10, weight: isSelected ? .medium : .regular))
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
                     .background {
-                        if selectedTab == tab {
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(Color.primary.opacity(0.12))
+                        if isSelected {
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(Color(nsColor: .controlAccentColor).opacity(0.14))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                        .stroke(Color(nsColor: .controlAccentColor).opacity(0.3), lineWidth: 0.5)
+                                )
+                        } else {
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(Color.primary.opacity(0.04))
                         }
                     }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(selectedTab == tab ? Color.primary : Color.secondary)
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
             }
-            Spacer(minLength: 0)
         }
     }
 
@@ -194,7 +203,7 @@ struct SourceControlView: View {
                 Task { await model.initializeRepository() }
             }
             .controlSize(.small)
-            .buttonStyle(.borderedProminent)
+            .glassButtonStyle(prominent: true)
             Spacer()
         }
         .padding(20)
@@ -205,7 +214,7 @@ struct SourceControlView: View {
 
     private var changesTab: some View {
         VStack(alignment: .leading, spacing: 14) {
-            // Commit composer box
+            // Commit Composer card
             VStack(alignment: .leading, spacing: 8) {
                 if let branch = model.branchName {
                     HStack(spacing: 4) {
@@ -234,7 +243,7 @@ struct SourceControlView: View {
                     .padding(8)
                     .background {
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+                            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                                     .stroke(Color.secondary.opacity(0.2), lineWidth: 0.5)
@@ -249,7 +258,7 @@ struct SourceControlView: View {
                         Task { _ = await model.commit() }
                     }
                     .controlSize(.small)
-                    .buttonStyle(.borderedProminent)
+                    .glassButtonStyle(prominent: true)
                     .disabled(model.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                     Spacer()
@@ -259,13 +268,13 @@ struct SourceControlView: View {
                             Task { await model.unstageAll() }
                         }
                         .controlSize(.small)
-                        .buttonStyle(.bordered)
+                        .glassButtonStyle()
                     } else if !model.unstagedFiles.isEmpty {
                         Button("Stage All") {
                             Task { await model.stageAll() }
                         }
                         .controlSize(.small)
-                        .buttonStyle(.bordered)
+                        .glassButtonStyle()
                     }
                 }
             }
@@ -355,12 +364,16 @@ struct SourceControlView: View {
     }
 
     private func fileRow(file: GitFileItem) -> some View {
-        HStack(spacing: 6) {
+        let fileURL = workspace.rootURL.appending(path: file.relativePath)
+        return HStack(spacing: 6) {
             // File status badge
             Text(file.status.badgeLetter)
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundStyle(file.status.badgeColor)
                 .frame(width: 14)
+
+            // Real file icon from Silica
+            FileIcon(url: fileURL, width: 14)
 
             // File path and name
             VStack(alignment: .leading, spacing: 1) {
@@ -422,12 +435,11 @@ struct SourceControlView: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 4)
         .background {
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .fill(Color.primary.opacity(0.04))
         }
         .contentShape(Rectangle())
         .onTapGesture {
-            let fileURL = workspace.rootURL.appending(path: file.relativePath)
             workspace.open(fileURL)
             workspace.reveal(fileURL)
         }
@@ -525,6 +537,7 @@ struct SourceControlView: View {
                             Task { await model.checkout(branch: branch) }
                         }
                         .controlSize(.mini)
+                        .glassButtonStyle()
                     }
                 }
                 .padding(.horizontal, 6)
@@ -604,6 +617,7 @@ struct SourceControlView: View {
                             Task { await model.popStash(index: stash.index) }
                         }
                         .controlSize(.mini)
+                        .glassButtonStyle()
 
                         Button {
                             Task { await model.dropStash(index: stash.index) }

@@ -45,7 +45,8 @@ struct EditorArea: View {
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardsHeight = $0 }
             .padding(.leading, workspace.isSidebarVisible ? 0 : WorkspaceLayout.cardInset)
-            .padding([.trailing, .bottom], WorkspaceLayout.cardInset)
+            .padding(.trailing, workspace.isSourceControlVisible ? 0 : WorkspaceLayout.cardInset)
+            .padding(.bottom, WorkspaceLayout.cardInset)
         }
         .frame(minWidth: WorkspaceLayout.editorMinWidth)
     }

@@ -110,6 +110,7 @@ struct WorkspaceView: View {
                 HStack(spacing: 0) {
                     sourceControlResizeHandle
                     SourceControlView(workspace: workspace, model: workspace.sourceControl)
+                        .padding([.trailing, .bottom], WorkspaceLayout.cardInset)
                         .frame(width: shownSourceControlWidth)
                 }
                 .transition(.move(edge: .trailing).combined(with: .opacity))
