@@ -491,10 +491,13 @@ final class EditorBuffer: Identifiable {
     ) {
         guard !isUntitled, let projectURL else { return }
         let current: GitDiff.Request.Current
-        if let controller = textController {
-            current = .text(controller.textView.string)
-        } else if !FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
+        // Missing comes first: a file deleted while its tab was open still has
+        // its text in the editor, and that text against the last commit would
+        // show no change where every line is gone.
+        if isMissingOnDisk || !FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
             current = .missing
+        } else if let controller = textController {
+            current = .text(controller.textView.string)
         } else {
             current = .notText
         }
