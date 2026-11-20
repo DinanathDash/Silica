@@ -33,7 +33,13 @@ final class EditorBuffer: Identifiable {
     private(set) var isMissingOnDisk = false
     /// The file on disk as Silica last read or wrote it, to tell when another app
     /// changes it.
-    @ObservationIgnored private var diskSnapshot: DiskSnapshot?
+    @ObservationIgnored private var diskSnapshot: DiskSnapshot? {
+        didSet { diskRevision &+= 1 }
+    }
+    /// Goes up whenever the file on disk is read or written again, for what is
+    /// worked out from the file there (who last changed each line) and has to be
+    /// worked out again.
+    private(set) var diskRevision = 0
 
     /// Where the cursor is, for the status bar.
     struct CursorStatus: Equatable {
@@ -60,7 +66,8 @@ final class EditorBuffer: Identifiable {
     /// Which of the file's changes are shown: all of them, or only the staged
     /// or the unstaged ones.
     private(set) var shownComparison = GitDiff.Request.Comparison.all
-    /// Makes the index hold this content for the file at this path in the project.
+    /// Makes the index hold this content for the file at this path in the
+    /// project, after saving the file if it has unsaved edits.
     @ObservationIgnored var setIndexContent: ((String, Data) -> Void)?
     /// Created the first time the changes are shown, then kept with the tab.
     @ObservationIgnored private(set) var changesPreview: GitDiffPreview?
@@ -444,8 +451,10 @@ final class EditorBuffer: Identifiable {
         let regions = ConflictMarkers.regions(in: text)
         guard var index = conflictAtCursor(in: regions) else { return }
         let cursor = controller.textView.selectedRange().location
-        // From inside a conflict, "next" is the one after it.
-        if offset > 0, regions[index].whole.location > cursor { index -= 1 }
+        // From inside a conflict, "next" is the one after it. From between two,
+        // or from below the last (when the first stands in for "at the cursor"),
+        // it's the one that was found: stepping from the one before lands on it.
+        if offset > 0, regions[index].whole.location > cursor || NSMaxRange(regions[index].whole) <= cursor { index -= 1 }
         index = (index + offset + regions.count) % regions.count
         let first = text.lineRange(for: NSRange(location: regions[index].whole.location, length: 0))
         controller.reveal(NSRange(location: first.location, length: max(first.length - 1, 0)))
@@ -502,10 +511,9 @@ final class EditorBuffer: Identifiable {
         // index gets the file with that change made, or taken back, and no other.
         preview.onChangeAction = { [weak self] number, diff, request in
             guard let self, diff.canRewrite else { return }
-            if self.isDirty {
-                // What's shown includes the unsaved edits; the file should too.
-                do { try self.save() } catch { return }
-            }
+            // What's shown includes any unsaved edits, and the file should too:
+            // whoever takes this saves it first, asking as any save does if
+            // another app has changed the file meanwhile.
             let text = diff.text(applying: request.comparison == .unstaged, change: number)
             self.setIndexContent?(request.path, Data(text.utf8))
         }

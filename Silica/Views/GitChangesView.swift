@@ -216,6 +216,18 @@ struct GitChangesView: View {
                     ProgressView().controlSize(.mini)
                 }
                 Spacer(minLength: 0)
+                // Why Fetch, Pull and Push are waiting, when nobody pressed anything.
+                if git.isFetchingQuietly {
+                    HStack(spacing: 4) {
+                        ProgressView().controlSize(.mini)
+                        Text("Fetching…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .help("Checking the remote for new commits, as Silica does every few minutes. Fetch, Pull and Push are available again when it’s done.")
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Fetching in the background")
+                }
             }
             .padding(.horizontal, 4)
             if branch.canFetch {

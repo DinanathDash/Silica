@@ -886,8 +886,11 @@ final class WorkspaceModel {
     private func makeBuffer(for url: URL) -> EditorBuffer {
         let buffer = EditorBuffer(url: url)
         buffer.projectURL = rootURL
-        buffer.setIndexContent = { [weak self] path, content in
-            self?.git.setIndexContent(of: path, to: content)
+        buffer.setIndexContent = { [weak self, weak buffer] path, content in
+            // The same save as ⌘S: it asks before writing over a file another app
+            // has changed, and says so if it fails. No save, no staging.
+            guard let self, let buffer, !buffer.isDirty || self.save(buffer) else { return }
+            self.git.setIndexContent(of: path, to: content)
         }
         // Links in a preview open other project files here, like Quick Open.
         buffer.openFile = { [weak self] target in

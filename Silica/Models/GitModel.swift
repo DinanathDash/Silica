@@ -109,9 +109,12 @@ final class GitModel {
               snapshot?.pending == nil, let branch = snapshot?.branch else { return }
         isFetchingQuietly = true
         let root = rootURL
-        let operation = GitOperation.fetch(remote: branch.upstream == nil ? branch.remote : nil)
+        let remote = branch.upstream == nil ? branch.remote : nil
         Task { [weak self] in
-            _ = await Task.detached(priority: .utility) { operation.run(in: root) }.value
+            // Given up on after a minute: Fetch, Pull and Push wait for this.
+            _ = await Task.detached(priority: .utility) {
+                Git.perform(["fetch"] + (remote.map { [$0] } ?? []), in: root, timeout: Self.quietFetchTimeout)
+            }.value
             self?.isFetchingQuietly = false
             self?.refresh()
         }
@@ -119,6 +122,7 @@ final class GitModel {
 
     /// The periodic fetch is under way.
     private(set) var isFetchingQuietly = false
+    private nonisolated static let quietFetchTimeout: TimeInterval = 60
 
     /// Nothing the panel asked git for is still running.
     var isIdle: Bool { activity == nil }

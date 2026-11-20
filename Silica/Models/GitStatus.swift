@@ -437,12 +437,13 @@ nonisolated enum Git {
 
     /// Runs a command for what it does, not what it prints, in `root`. Paths in
     /// `arguments` are taken as they are: a file may be named "*.txt".
-    static func perform(_ arguments: [String], in root: URL) -> Outcome {
+    /// With `timeout`, git is stopped if it's still running after that many seconds.
+    static func perform(_ arguments: [String], in root: URL, timeout: TimeInterval? = nil) -> Outcome {
         guard let executable else { return Outcome(succeeded: false, output: "git isn’t installed.") }
         var status: Int32 = -1
         let data = run(
             executable, ["--literal-pathspecs", "-C", root.path(percentEncoded: false)] + arguments,
-            success: 0...0, mergingErrors: true, status: &status
+            success: 0...0, mergingErrors: true, status: &status, timeout: timeout
         )
         let output = String(decoding: data ?? Data(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         return Outcome(succeeded: status == 0, output: output)
@@ -470,7 +471,7 @@ nonisolated enum Git {
     /// and the output is returned however it ended.
     private static func run(
         _ executable: String, _ arguments: [String], success: ClosedRange<Int32> = 0...0,
-        mergingErrors: Bool = false, status: UnsafeMutablePointer<Int32>? = nil
+        mergingErrors: Bool = false, status: UnsafeMutablePointer<Int32>? = nil, timeout: TimeInterval? = nil
     ) -> Data? {
         let process = Process()
         process.executableURL = URL(filePath: executable)
@@ -481,6 +482,15 @@ nonisolated enum Git {
         process.standardOutput = output
         process.standardError = mergingErrors ? output : FileHandle.nullDevice
         do { try process.run() } catch { return nil }
+        // For what nobody is waiting on: a connection that never answers shouldn't
+        // keep git, and what waits for it, going without end.
+        var deadline: DispatchWorkItem?
+        if let timeout {
+            let stop = DispatchWorkItem { if process.isRunning { process.terminate() } }
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout, execute: stop)
+            deadline = stop
+        }
+        defer { deadline?.cancel() }
         // Read to the end before waiting: a long status fills the pipe, and git
         // would block on it forever.
         let data = output.fileHandleForReading.readDataToEndOfFile()

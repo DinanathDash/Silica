@@ -781,8 +781,8 @@ private struct StatusBar: View {
         .fixedSize()
     }
 
-    /// Who last changed the line the cursor is on. Read again when the file is
-    /// saved or the branch moves; with unsaved edits the lines no longer match
+    /// Who last changed the line the cursor is on. Read again when the file
+    /// changes on disk or the branch moves; with unsaved edits the lines no longer match
     /// the file that was blamed, so nothing is said.
     @ViewBuilder
     private var blame: some View {
@@ -799,17 +799,22 @@ private struct StatusBar: View {
         .buttonStyle(.plain)
         .help(line.map { $0.isUncommitted ? "This line has changed since the last commit" : "\($0.hash.prefix(7)) · \($0.summary)" } ?? "Show File History")
         .accessibilityLabel("Blame")
-        .task(id: BlameKey(url: buffer.url, head: workspace.git.snapshot?.branch.head, isDirty: buffer.isDirty)) {
+        .task(id: BlameKey(
+            url: buffer.url, head: workspace.git.snapshot?.branch.head, isDirty: buffer.isDirty,
+            diskRevision: buffer.diskRevision
+        )) {
             guard !buffer.isDirty else { return }
             buffer.blame = await workspace.git.blame(of: workspace.relativePath(of: buffer.url))
         }
     }
 
-    /// What the blame read depends on.
+    /// What the blame read depends on. The file can change with HEAD where it
+    /// was: a discard, a stash, a checkout of the file in a terminal.
     private struct BlameKey: Equatable {
         var url: URL
         var head: String?
         var isDirty: Bool
+        var diskRevision: Int
     }
 
     private var position: String {
