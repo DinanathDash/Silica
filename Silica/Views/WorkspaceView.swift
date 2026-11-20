@@ -81,8 +81,8 @@ enum WorkspaceLayout {
     /// How much of the sidebar list's built-in top inset to hide.
     static let sidebarListTopTrim: CGFloat = 8
     static let sidebarWidthRange: ClosedRange<Double> = 220...480
-    static let sourceControlWidthRange: ClosedRange<Double> = 240...500
-    static let sourceControlCollapseThreshold: Double = 190
+    static let sourceControlWidthRange: ClosedRange<Double> = 260...520
+    static let sourceControlCollapseThreshold: Double = 240
     static let editorMinWidth: CGFloat = 420
     /// Fits the narrowest sidebar beside the narrowest editor.
     static let windowMinWidth: CGFloat = sidebarWidthRange.lowerBound + editorMinWidth
@@ -94,7 +94,7 @@ enum WorkspaceLayout {
 struct WorkspaceView: View {
     @Bindable var workspace: WorkspaceModel
     @AppStorage("sidebarWidth") private var sidebarWidth: Double = 260
-    @AppStorage("sourceControlWidth") private var sourceControlWidth: Double = 280
+    @AppStorage("sourceControlWidth") private var sourceControlWidth: Double = 300
     @State private var dragStartWidth: Double?
     @State private var dragStartSourceControlWidth: Double?
     @State private var windowWidth: CGFloat = 0
@@ -113,7 +113,8 @@ struct WorkspaceView: View {
                     sourceControlResizeHandle
                     SourceControlView(workspace: workspace, model: workspace.sourceControl)
                         .padding(.top, 4)
-                        .padding([.trailing, .bottom], WorkspaceLayout.cardInset)
+                        .padding(.trailing, max(0, WorkspaceLayout.cardInset - 2))
+                        .padding(.bottom, WorkspaceLayout.cardInset)
                         .frame(width: shownSourceControlWidth)
                 }
                 .transition(.move(edge: .trailing).combined(with: .opacity))

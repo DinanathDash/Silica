@@ -35,8 +35,6 @@ struct SourceControlView: View {
                 .padding(.trailing, 6)
                 .zIndex(2)
 
-            Divider().opacity(0.3)
-
             if !model.isGitRepository {
                 notRepositoryView
             } else {
@@ -51,8 +49,6 @@ struct SourceControlView: View {
                 .padding(.horizontal, 10)
                 .padding(.top, 8)
                 .padding(.bottom, 6)
-
-                Divider().opacity(0.2)
 
                 // Scrollable tab content
                 ScrollView {
