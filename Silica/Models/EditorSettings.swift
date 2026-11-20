@@ -133,11 +133,14 @@ final class EditorSettings {
     }
 
     /// Asks a project's git remote for new commits every few minutes, so the
-    /// count of commits to pull is current without pressing Fetch.
+    /// count of commits to pull is current without pressing Fetch. Off unless
+    /// it's turned on: it goes to the network unasked, and where each use of an
+    /// SSH key is approved (1Password, Touch ID, a hardware key), it would ask
+    /// for that every time.
     var fetchesAutomatically: Bool {
         didSet {
             guard fetchesAutomatically != oldValue else { return }
-            store(fetchesAutomatically, Key.fetchesAutomatically, isDefault: fetchesAutomatically)
+            store(fetchesAutomatically, Key.fetchesAutomatically, isDefault: !fetchesAutomatically)
         }
     }
 
@@ -240,7 +243,7 @@ final class EditorSettings {
         showsIndentGuides = defaults.object(forKey: Key.showsIndentGuides) as? Bool ?? true
         showsMinimap = defaults.bool(forKey: Key.showsMinimap)
         showsChangesSideBySide = defaults.bool(forKey: Key.showsChangesSideBySide)
-        fetchesAutomatically = defaults.object(forKey: Key.fetchesAutomatically) as? Bool ?? true
+        fetchesAutomatically = defaults.bool(forKey: Key.fetchesAutomatically)
         showsLineBlame = defaults.bool(forKey: Key.showsLineBlame)
         syntaxTheme = defaults.string(forKey: Key.syntaxTheme).flatMap(SyntaxTheme.init(rawValue:)) ?? .default
         appearance = defaults.string(forKey: Key.appearance).flatMap(Appearance.init(rawValue:)) ?? .system

@@ -134,6 +134,7 @@ private struct GeneralSettingsPane: View {
                 Toggle("Reopen a project’s tabs where you left them", isOn: $settings.restoresTabs)
                 Toggle("Keep parent folders in view while scrolling the file tree", isOn: $settings.pinsParentFolders)
                 Toggle("Fetch from a project’s git remote every few minutes", isOn: $settings.fetchesAutomatically)
+                    .help("Keeps the count of commits to pull current without pressing Fetch. If you approve each use of your SSH key, you’d be asked each time.")
             }
 
             Section {
