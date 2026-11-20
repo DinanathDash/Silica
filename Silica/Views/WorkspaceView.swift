@@ -81,8 +81,9 @@ enum WorkspaceLayout {
     /// How much of the sidebar list's built-in top inset to hide.
     static let sidebarListTopTrim: CGFloat = 8
     static let sidebarWidthRange: ClosedRange<Double> = 220...480
-    static let sourceControlWidthRange: ClosedRange<Double> = 260...520
-    static let sourceControlCollapseThreshold: Double = 240
+    static let sourceControlWidthRange: ClosedRange<Double> = 290...540
+    static let sourceControlCollapseThreshold: Double = 290
+    static let sourceControlDefaultWidth: Double = 310
     static let editorMinWidth: CGFloat = 420
     /// Fits the narrowest sidebar beside the narrowest editor.
     static let windowMinWidth: CGFloat = sidebarWidthRange.lowerBound + editorMinWidth
@@ -94,7 +95,7 @@ enum WorkspaceLayout {
 struct WorkspaceView: View {
     @Bindable var workspace: WorkspaceModel
     @AppStorage("sidebarWidth") private var sidebarWidth: Double = 260
-    @AppStorage("sourceControlWidth") private var sourceControlWidth: Double = 300
+    @AppStorage("sourceControlWidth") private var sourceControlWidth: Double = WorkspaceLayout.sourceControlDefaultWidth
     @State private var dragStartWidth: Double?
     @State private var dragStartSourceControlWidth: Double?
     @State private var windowWidth: CGFloat = 0
@@ -233,7 +234,7 @@ struct WorkspaceView: View {
                         if proposed < WorkspaceLayout.sourceControlCollapseThreshold {
                             workspace.hideSourceControl()
                             dragStartSourceControlWidth = nil
-                            sourceControlWidth = max(start, WorkspaceLayout.sourceControlWidthRange.lowerBound)
+                            sourceControlWidth = max(start, WorkspaceLayout.sourceControlDefaultWidth)
                             return
                         }
                         sourceControlWidth = min(max(proposed, WorkspaceLayout.sourceControlWidthRange.lowerBound), WorkspaceLayout.sourceControlWidthRange.upperBound)
@@ -243,7 +244,7 @@ struct WorkspaceView: View {
                             let proposed = start - value.translation.width
                             if proposed < WorkspaceLayout.sourceControlCollapseThreshold {
                                 workspace.hideSourceControl()
-                                sourceControlWidth = max(start, WorkspaceLayout.sourceControlWidthRange.lowerBound)
+                                sourceControlWidth = max(start, WorkspaceLayout.sourceControlDefaultWidth)
                             }
                         }
                         dragStartSourceControlWidth = nil
