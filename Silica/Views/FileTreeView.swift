@@ -140,20 +140,9 @@ struct FileTreeView: View {
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
             .scrollIndicators(.never)
-            // ← / → collapse and expand folders, as the system outline did.
-            .onKeyPress(.rightArrow) { workspace.setSelectedFolderExpanded(true) ? .handled : .ignored }
-            .onKeyPress(.leftArrow) { workspace.setSelectedFolderExpanded(false) ? .handled : .ignored }
-            // Return renames and ⌘⌫ moves to the Trash, as in Finder.
-            .onKeyPress(.return) {
-                guard workspace.treeEdit == nil, let selection = workspace.selection else { return .ignored }
-                workspace.beginRename(selection)
-                return .handled
-            }
-            .onKeyPress(.delete, phases: .down) { press in
-                handleDelete(press)
-            }
-            .onKeyPress(.deleteForward, phases: .down) { press in
-                handleDelete(press)
+            // Navigation, rename, and deletion
+            .onKeyPress(phases: .down) { press in
+                handleKeyPress(press)
             }
             .contextMenu {
                 Button("New File…") { workspace.beginNewItem(isDirectory: false, in: workspace.rootURL) }
@@ -205,15 +194,27 @@ struct FileTreeView: View {
         }
     }
 
-    private func handleDelete(_ press: KeyPress) -> KeyPress.Result {
+    private func handleKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        if press.key == .rightArrow {
+            return workspace.setSelectedFolderExpanded(true) ? .handled : .ignored
+        }
+        if press.key == .leftArrow {
+            return workspace.setSelectedFolderExpanded(false) ? .handled : .ignored
+        }
         guard workspace.treeEdit == nil, let selection = workspace.selection else { return .ignored }
-        if press.modifiers == [.command, .option] {
-            workspace.deleteImmediately(selection)
+        if press.key == .return {
+            workspace.beginRename(selection)
             return .handled
         }
-        if press.modifiers == .command {
-            workspace.moveToTrash(selection)
-            return .handled
+        if press.key == .delete || press.key == .deleteForward {
+            if press.modifiers == [.command, .option] {
+                workspace.deleteImmediately(selection)
+                return .handled
+            }
+            if press.modifiers == .command {
+                workspace.moveToTrash(selection)
+                return .handled
+            }
         }
         return .ignored
     }
@@ -781,7 +782,9 @@ private struct FileNodeMenu: View {
         Button("Rename…") { workspace.beginRename(node.url) }
         Button("Duplicate") { workspace.duplicate(node.url) }
         Button("Move to Trash") { workspace.moveToTrash(node.url) }
+            .keyboardShortcut(.delete, modifiers: .command)
         Button("Delete Immediately…") { workspace.deleteImmediately(node.url) }
+            .keyboardShortcut(.delete, modifiers: [.command, .option])
         Divider()
         Button("Show in Finder") { Finder.reveal(node.url) }
         Button("Copy Path") { Finder.copyPath(node.url) }

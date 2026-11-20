@@ -102,17 +102,19 @@ struct SourceControlView: View {
                         refreshRotationAngle += 360
                     }
                     Task {
-                        try? await Task.sleep(nanoseconds: 200_000_000)
                         await model.refresh()
                     }
                 } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 11, weight: .medium))
-                        .rotationEffect(.degrees(refreshRotationAngle))
+                    ZStack {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 11, weight: .medium))
+                            .rotationEffect(.degrees(refreshRotationAngle))
+                    }
+                    .frame(width: 16, height: 16)
                 }
                 .buttonStyle(.titleBarIcon)
+                .frame(width: 26, height: 22)
                 .help("Refresh Status")
-                .disabled(model.isLoading)
             }
 
             Button {
@@ -120,8 +122,10 @@ struct SourceControlView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 11, weight: .medium))
+                    .frame(width: 16, height: 16)
             }
             .buttonStyle(.titleBarIcon)
+            .frame(width: 26, height: 22)
             .help("Close Source Control")
         }
     }

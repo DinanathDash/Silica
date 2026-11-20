@@ -43,6 +43,28 @@ final class KeyWorkspace: ObservableObject {
                 workspace.toggleSourceControl()
                 return nil
             }
+            // ⌘⌫ (Move to Trash) and ⌘⌥⌫ (Delete Immediately) for selected item in file tree
+            if (event.keyCode == 51 || event.keyCode == 117),
+               let workspace = self?.current,
+               let selection = workspace.selection,
+               workspace.treeEdit == nil,
+               workspace.sidebarMode == .explorer {
+                let firstResponder = event.window?.firstResponder
+                let isEditingField = (firstResponder as? NSTextView)?.isFieldEditor ?? false
+                let isEditorTextView = (firstResponder as? NSTextView) != nil &&
+                    (firstResponder === workspace.activeBuffer?.textController?.textView)
+                let isTerminalFocused = workspace.terminal?.isFocused == true
+
+                if !isEditingField && !isEditorTextView && !isTerminalFocused {
+                    if flags == [.command, .option] {
+                        workspace.deleteImmediately(selection)
+                        return nil
+                    } else if flags == .command {
+                        workspace.moveToTrash(selection)
+                        return nil
+                    }
+                }
+            }
             guard flags == [.command, .shift], let workspace = self?.current,
                   // Not while a sheet or alert is up.
                   event.window?.attachedSheet == nil, NSApp.modalWindow == nil,
