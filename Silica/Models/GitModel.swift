@@ -34,6 +34,9 @@ final class GitModel {
     var commitMessage = ""
     /// The current branch's latest commits, newest first.
     private(set) var history: [GitCommit] = []
+    /// The commit HEAD is at and the one before it, whatever `history` lists: with
+    /// one file's history shown, that isn't the branch's last commits.
+    private(set) var lastCommits: [GitCommit] = []
     /// The files of the commits that have been opened in the history, by hash.
     private(set) var commitFiles: [String: [GitCommitFile]] = [:]
     /// To list only the commits that changed one file: its path in the project.
@@ -97,13 +100,35 @@ final class GitModel {
 
     /// The periodic fetch: only while Silica is in front and nothing else is
     /// going on, and without a word if the remote can't be reached.
+    /// It isn't an `activity`: a fetch nobody asked for mustn't be why a click
+    /// on Stage or a confirmed Discard does nothing. It only changes what is known
+    /// of the remote, so the panel's other work can go on beside it; Fetch, Pull
+    /// and Push, which do the same, wait for it.
     private func fetchQuietly() {
         guard EditorSettings.shared.fetchesAutomatically, NSApp.isActive, canFetch,
               snapshot?.pending == nil, let branch = snapshot?.branch else { return }
-        perform(
-            .fetch(remote: branch.upstream == nil ? branch.remote : nil), as: .fetching,
-            failure: "", reportsFailure: false
-        )
+        isFetchingQuietly = true
+        let root = rootURL
+        let operation = GitOperation.fetch(remote: branch.upstream == nil ? branch.remote : nil)
+        Task { [weak self] in
+            _ = await Task.detached(priority: .utility) { operation.run(in: root) }.value
+            self?.isFetchingQuietly = false
+            self?.refresh()
+        }
+    }
+
+    /// The periodic fetch is under way.
+    private(set) var isFetchingQuietly = false
+
+    /// Nothing the panel asked git for is still running.
+    var isIdle: Bool { activity == nil }
+
+    /// Says that what was just asked for can't start yet.
+    func reportBusy() {
+        onFailure?(Failure(
+            title: "git is still busy.",
+            details: "Another git operation hasn’t finished. Try again when it has."
+        ))
     }
 
     /// Asks git again, after a short wait so a burst of changes (a build, a
@@ -128,11 +153,14 @@ final class GitModel {
         }
     }
 
-    private func apply(_ snapshot: GitStatus.Snapshot?) {
-        guard snapshot != self.snapshot else { return }
+    /// Returns whether the snapshot changed, in which case `onChange` was called.
+    @discardableResult
+    private func apply(_ snapshot: GitStatus.Snapshot?) -> Bool {
+        guard snapshot != self.snapshot else { return false }
         self.snapshot = snapshot
         reloadHistoryIfNeeded()
         onChange?()
+        return true
     }
 
     // MARK: History
@@ -183,6 +211,7 @@ final class GitModel {
         historyTask?.cancel()
         guard key.head != nil else {
             history = []
+            lastCommits = []
             return
         }
         let root = rootURL
@@ -190,10 +219,15 @@ final class GitModel {
         let isAhead = (key.ahead ?? 0) > 0
         let file = historyFile
         historyTask = Task { [weak self] in
-            let commits = await Task.detached(priority: .utility) {
-                GitHistory.load(root: root, limit: limit, markingUnpushed: isAhead, file: file)
+            let (commits, last) = await Task.detached(priority: .utility) {
+                let commits = GitHistory.load(root: root, limit: limit, markingUnpushed: isAhead, file: file)
+                // One file's commits say nothing of where the branch is.
+                let last = file == nil ? Array(commits.prefix(2))
+                    : GitHistory.load(root: root, limit: 2, markingUnpushed: isAhead)
+                return (commits, last)
             }.value
             guard let self, !Task.isCancelled, self.historyKey == key else { return }
+            if last != self.lastCommits { self.lastCommits = last }
             if commits != self.history { self.history = commits }
         }
     }
@@ -312,11 +346,11 @@ final class GitModel {
     /// Whether the last commit is already on the branch's upstream: changing it
     /// then leaves a branch that can't be pushed without forcing.
     var lastCommitIsPushed: Bool {
-        snapshot?.branch.upstream != nil && history.first?.isUnpushed == false
+        snapshot?.branch.upstream != nil && lastCommits.first?.isUnpushed == false
     }
 
     var canAmend: Bool {
-        guard let snapshot, activity == nil, snapshot.pending == nil, !history.isEmpty else { return false }
+        guard let snapshot, activity == nil, snapshot.pending == nil, !lastCommits.isEmpty else { return false }
         return !snapshot.staged.isEmpty || !commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -332,13 +366,13 @@ final class GitModel {
 
     /// The first commit of a repository has nothing before it to go back to.
     var canUndoCommit: Bool {
-        activity == nil && snapshot?.pending == nil && history.count >= 2
+        activity == nil && snapshot?.pending == nil && lastCommits.count >= 2
     }
 
     /// Takes the last commit back: its changes are staged again, and its message
     /// is in the field unless another has been begun.
     func undoLastCommit() {
-        guard canUndoCommit, let commit = history.first else { return }
+        guard canUndoCommit, let commit = lastCommits.first else { return }
         perform(.undoLastCommit, as: .committing, failure: "Couldn’t undo the commit.") { [weak self] in
             guard let self, self.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             self.commitMessage = commit.body.isEmpty ? commit.subject : commit.subject + "\n\n" + commit.body
@@ -347,7 +381,7 @@ final class GitModel {
 
     // MARK: Push
 
-    var canPush: Bool { activity == nil && snapshot?.branch.canPush == true }
+    var canPush: Bool { activity == nil && !isFetchingQuietly && snapshot?.branch.canPush == true }
 
     func push() {
         guard canPush, let branch = snapshot?.branch, let name = branch.name else { return }
@@ -361,7 +395,7 @@ final class GitModel {
 
     // MARK: Fetch and pull
 
-    var canFetch: Bool { activity == nil && snapshot?.branch.canFetch == true }
+    var canFetch: Bool { activity == nil && !isFetchingQuietly && snapshot?.branch.canFetch == true }
 
     /// Asks the remote what's new, which is what tells how far behind the branch is.
     func fetch() {
@@ -369,7 +403,7 @@ final class GitModel {
         perform(.fetch(remote: branch.upstream == nil ? branch.remote : nil), as: .fetching, failure: "Couldn’t fetch.")
     }
 
-    var canPull: Bool { activity == nil && snapshot?.branch.canPull == true }
+    var canPull: Bool { activity == nil && !isFetchingQuietly && snapshot?.branch.canPull == true }
 
     func pull() {
         guard canPull, let name = snapshot?.branch.name else { return }
@@ -421,7 +455,12 @@ final class GitModel {
         _ operation: GitOperation, as activity: Activity, failure title: String, reportsFailure: Bool = true,
         onSuccess: (() -> Void)? = nil
     ) {
-        guard self.activity == nil else { return }
+        guard self.activity == nil else {
+            // Not dropped without a word: this was asked for, perhaps in a sheet
+            // that was up while something else began.
+            if reportsFailure { reportBusy() }
+            return
+        }
         self.activity = activity
         let root = rootURL
         Task { [weak self] in
@@ -430,7 +469,10 @@ final class GitModel {
                 return (outcome, GitStatus.load(root: root))
             }.value
             guard let self else { return }
-            self.apply(snapshot)
+            // The snapshot can come out the same after a real change: a file that
+            // was partly staged still is with more of it staged. Whoever shows
+            // what's in the index has to look again all the same.
+            if !self.apply(snapshot) { self.onChange?() }
             self.activity = nil
             if outcome.succeeded {
                 onSuccess?()

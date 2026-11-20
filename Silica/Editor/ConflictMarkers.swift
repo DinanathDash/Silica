@@ -29,8 +29,16 @@ nonisolated enum ConflictMarkers {
         while location < text.length {
             let line = text.lineRange(for: NSRange(location: location, length: 0))
             defer { location = NSMaxRange(line) }
+            // git writes a marker as exactly seven characters, then the end of the
+            // line or a space and a name. A longer run, such as the "==========" under
+            // a heading, is the file's own text.
             func begins(_ marker: String) -> Bool {
-                line.length >= marker.count && text.substring(with: NSRange(location: line.location, length: marker.count)) == marker
+                guard line.length >= marker.count,
+                      text.substring(with: NSRange(location: line.location, length: marker.count)) == marker else { return false }
+                let rest = line.location + marker.count
+                guard rest < NSMaxRange(line) else { return true }
+                let next = text.character(at: rest)
+                return next == 0x20 || next == 0x0A || next == 0x0D
             }
             if begins("<<<<<<<") {
                 start = line.location

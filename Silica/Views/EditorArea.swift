@@ -711,6 +711,7 @@ private struct ConflictBar: View {
                 Text("No conflicts left in this file.")
                 Spacer(minLength: 8)
                 Button("Save and Stage") { workspace.markResolved(buffer) }
+                    .disabled(!workspace.git.isIdle)
                     .help("Tells git this file’s conflicts are settled")
             } else {
                 Text(count == 1 ? "1 conflict" : "\(count.formatted()) conflicts")

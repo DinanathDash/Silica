@@ -368,6 +368,12 @@ final class WorkspaceModel {
     }
 
     private func discard(tracked: [GitChange], untracked: [GitChange]) {
+        // All of it or none: not the untracked files to the Trash and then no
+        // room for git to undo the rest, if something began while the sheet was up.
+        guard git.isIdle else {
+            git.reportBusy()
+            return
+        }
         var failure: Error?
         for change in untracked {
             let url = url(forRelativePath: change.path)

@@ -220,12 +220,23 @@ nonisolated enum GitStatus {
         // Without optional locks, `status` leaves the index alone: rewriting it
         // would look like a change to the repository and start the next refresh.
         // Every untracked file is listed, not just its folder, so each has a path
-        // to match its row in the tree.
+        // to match its row in the tree. Only the project folder is looked at: in a
+        // folder of a larger repository (a home folder kept in git, a monorepo),
+        // the rest can be very many files.
         guard let output = Git.run([
             "--no-optional-locks", "-C", root.path(percentEncoded: false),
-            "status", "--porcelain=v2", "--branch", "--show-stash", "-z", "--untracked-files=all",
+            "status", "--porcelain=v2", "--branch", "--show-stash", "-z", "--untracked-files=all", "--", ".",
         ]) else { return nil }
         var report = parse(output, prefix: repository.prefix)
+        // What is staged elsewhere in the repository, which a commit takes along,
+        // is in the index: no files need looking at to count it.
+        if !repository.prefix.isEmpty, let staged = Git.run([
+            "--no-optional-locks", "-C", root.path(percentEncoded: false), "diff", "--cached", "--name-only", "-z",
+        ]) {
+            report.stagedElsewhere = staged.split(separator: 0).count {
+                !String(decoding: $0, as: UTF8.self).hasPrefix(repository.prefix)
+            }
+        }
         if report.branch.upstream == nil,
            let remotes = Git.run(["-C", root.path(percentEncoded: false), "remote"]) {
             let names = String(decoding: remotes, as: UTF8.self).split(whereSeparator: \.isNewline).map(String.init)
@@ -317,10 +328,7 @@ nonisolated enum GitStatus {
             default:
                 continue
             }
-            guard path.hasPrefix(prefix) else {
-                if staged != nil { report.stagedElsewhere += 1 }
-                continue
-            }
+            guard path.hasPrefix(prefix) else { continue }
             // A nested repository is listed as a folder, with a trailing slash.
             let relative = String(path.dropFirst(prefix.count)).trimmingTrailingSlash
             guard !relative.isEmpty else { continue }

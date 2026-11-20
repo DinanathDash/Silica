@@ -356,6 +356,7 @@ struct GitChangesView: View {
         .environment(\.sidebarRowSize, .small)
         .environment(\.defaultMinListRowHeight, EditorSettings.shared.sidebarFontSize + 11)
         .disabled(git.activity == .committing)
+        .environment(\.gitIsBusy, git.activity != nil)
     }
 
     private func rows(_ changes: [GitChange]) -> some View {
@@ -366,8 +367,16 @@ struct GitChangesView: View {
     }
 }
 
+extension EnvironmentValues {
+    /// git is doing something the panel asked for, so its buttons that would
+    /// start something else wait.
+    @Entry var gitIsBusy = false
+}
+
 /// "Staged Changes" or "Changes", how many, and buttons that act on them all.
 private struct GitSectionHeader: View {
+    @Environment(\.gitIsBusy) private var isBusy
+
     struct Action {
         let symbol: String
         let name: String
@@ -395,6 +404,7 @@ private struct GitSectionHeader: View {
                         .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
+                .disabled(isBusy)
                 .help(action.name)
                 .accessibilityLabel(action.name)
             }
@@ -406,6 +416,7 @@ private struct GitChangeRow: View {
     let change: GitChange
     let workspace: WorkspaceModel
     @State private var isHovered = false
+    @Environment(\.gitIsBusy) private var isBusy
 
     private var url: URL { workspace.url(forRelativePath: change.path) }
     private var stagingAction: String { change.isStaged ? "Unstage Changes" : "Stage Changes" }
@@ -450,6 +461,7 @@ private struct GitChangeRow: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(isHovered ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
+                .disabled(isBusy)
                 .help(discardAction)
                 .accessibilityLabel("\(discardAction): \(url.lastPathComponent)")
             }
@@ -461,6 +473,7 @@ private struct GitChangeRow: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(isHovered ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
+            .disabled(isBusy)
             .help(stagingAction)
             .accessibilityLabel("\(stagingAction): \(url.lastPathComponent)")
             GitStatusLetter(status: change.status)

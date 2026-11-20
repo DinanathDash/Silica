@@ -401,10 +401,26 @@ final class GitDiffPreview: NSObject, WKNavigationDelegate {
         // A link over a change: act on it, and stay on the page.
         if let url = navigationAction.request.url, url.scheme == Self.changeScheme,
            let number = Int(url.absoluteString.dropFirst(Self.changeScheme.count + 1)), let rendered {
-            onChangeAction?(number, rendered.diff, rendered.request)
+            act(onChange: number, of: rendered.diff, request: rendered.request)
         }
         // Only the pages loaded here; the code shown may hold anything.
         decisionHandler(navigationAction.navigationType == .other ? .allow : .cancel, preferences)
+    }
+
+    /// Staging or unstaging a change writes the index from the texts on the page,
+    /// so the page has to be what the index and the file hold now: it's compared
+    /// again first. If something has changed underneath (in a terminal, say), the
+    /// page is brought up to date instead and nothing is written.
+    private func act(onChange number: Int, of diff: GitDiff, request: GitDiff.Request) {
+        Task { [weak self] in
+            let result = await Task.detached(priority: .userInitiated) { GitDiff.load(request) }.value
+            guard let self, self.rendered?.diff.oldText == diff.oldText, self.rendered?.diff.newText == diff.newText else { return }
+            if case .diff(let current) = result, current.oldText == diff.oldText, current.newText == diff.newText {
+                self.onChangeAction?(number, current, request)
+            } else {
+                self.render(afterWaiting: false, keepingScroll: true)
+            }
+        }
     }
 
     // MARK: Page
