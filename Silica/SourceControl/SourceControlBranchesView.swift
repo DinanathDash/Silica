@@ -72,7 +72,7 @@ struct SourceControlBranchesView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 24)
             } else {
-                VStack(spacing: 2) {
+                LazyVStack(spacing: 2) {
                     ForEach(filteredBranches) { branch in
                         branchRow(branch: branch)
                     }
@@ -157,48 +157,48 @@ struct SourceControlBranchesView: View {
 
             Spacer(minLength: 4)
 
-            // Action buttons kept always in layout with opacity & hit testing to eliminate height wiggle
-            HStack(spacing: 2) {
-                // New branch from this
-                Button {
-                    baseBranchForNewBranch = branch
-                    isShowingCreateBranchDialog = true
-                } label: {
-                    SourceControlIcon(type: .fork, size: 12)
-                }
-                .buttonStyle(.titleBarIcon)
-                .frame(width: 20, height: 20)
-                .help("New branch from “\(branch.name)”")
-
-                // Compare with current branch
-                Button {
-                    // Wired later
-                } label: {
-                    SourceControlIcon(type: .compare, size: 12)
-                }
-                .buttonStyle(.titleBarIcon)
-                .frame(width: 20, height: 20)
-                .help("Compare “\(branch.name)” with current branch")
-
-                // Delete branch (hidden for current checked-out branch)
-                if !branch.isCurrent {
+            // Hover action buttons: only rendered for the hovered row to prevent memory and focus overhead
+            if isHovered {
+                HStack(spacing: 2) {
+                    // New branch from this
                     Button {
-                        branchToDelete = branch
-                        isShowingDeleteConfirmation = true
+                        baseBranchForNewBranch = branch
+                        isShowingCreateBranchDialog = true
                     } label: {
-                        SourceControlIcon(type: .trash, size: 12)
-                            .foregroundStyle(.red)
+                        SourceControlIcon(type: .fork, size: 12)
                     }
                     .buttonStyle(.titleBarIcon)
                     .frame(width: 20, height: 20)
-                    .help("Delete branch “\(branch.name)”")
-                } else {
-                    Color.clear
+                    .focusable(false)
+                    .help("New branch from “\(branch.name)”")
+
+                    // Compare with current branch
+                    Button {
+                        // Wired later
+                    } label: {
+                        SourceControlIcon(type: .compare, size: 12)
+                    }
+                    .buttonStyle(.titleBarIcon)
+                    .frame(width: 20, height: 20)
+                    .focusable(false)
+                    .help("Compare “\(branch.name)” with current branch")
+
+                    // Delete branch (omitted completely for current branch so buttons sit flush to the right)
+                    if !branch.isCurrent {
+                        Button {
+                            branchToDelete = branch
+                            isShowingDeleteConfirmation = true
+                        } label: {
+                            SourceControlIcon(type: .trash, size: 12)
+                                .foregroundStyle(.red)
+                        }
+                        .buttonStyle(.titleBarIcon)
                         .frame(width: 20, height: 20)
+                        .focusable(false)
+                        .help("Delete branch “\(branch.name)”")
+                    }
                 }
             }
-            .opacity(isHovered ? 1.0 : 0.0)
-            .allowsHitTesting(isHovered)
         }
         .padding(.horizontal, 6)
         .frame(height: 28) // Fixed height prevents any layout shift or hover jitter
@@ -376,19 +376,19 @@ struct CreateBranchDialog: View {
                 }
             }
 
-            HStack {
+            HStack(spacing: 8) {
                 Spacer()
 
                 Button("Cancel") {
                     isPresented = false
                 }
                 .keyboardShortcut(.cancelAction)
+                .controlSize(.regular)
 
                 Button("Create") {
                     submit()
                 }
-                .glassButtonStyle(prominent: true)
-                .controlSize(.small)
+                .controlSize(.regular)
                 .keyboardShortcut(.return, modifiers: .command)
                 .keyboardShortcut(.defaultAction)
                 .disabled(!isValid)

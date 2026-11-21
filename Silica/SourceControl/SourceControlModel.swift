@@ -215,12 +215,25 @@ final class SourceControlModel {
         let deletions: Int
     }
 
+    private(set) var historyBranch: String? = nil
+
+    func setHistoryBranch(_ branchName: String?) async {
+        guard historyBranch != branchName else { return }
+        historyBranch = branchName
+        currentCommitLimit = initialCommitLimit
+        await loadCommits()
+    }
+
     private func loadCommits() async {
         let fetchCount = currentCommitLimit + 1
-        let result = await runner.run(arguments: [
+        var args = [
             "log", "-n", "\(fetchCount)", "--diff-merges=1", "--shortstat",
             "--pretty=format:\u{1e}%H\u{1f}%h\u{1f}%P\u{1f}%an\u{1f}%ae\u{1f}%at\u{1f}%s\u{1f}%b\u{1f}"
-        ], in: rootURL)
+        ]
+        if let target = historyBranch, !target.isEmpty {
+            args.insert(target, at: 1)
+        }
+        let result = await runner.run(arguments: args, in: rootURL)
         guard result.isSuccess else { return }
 
         var rawList: [RawCommitData] = []

@@ -23,7 +23,9 @@ struct EditorArea: View {
                 if let buffer = workspace.activeBuffer, let format = buffer.previewFormat {
                     PreviewModeToggle(buffer: buffer, format: format)
                 }
-                // Source control and terminal toggles stay in place in the top right.
+                // Settings, find in project, source control, and terminal toggles in the top right.
+                SettingsToggleButton(workspace: workspace)
+                FindInProjectToggleButton(workspace: workspace)
                 SourceControlToggleButton(workspace: workspace)
                 TerminalToggleButton(workspace: workspace)
                     .padding(.trailing, WorkspaceLayout.cardInset + 4)
@@ -1037,5 +1039,41 @@ private struct EmptyEditorView: View {
                 )
                 .glassSurface(in: .capsule)
         }
+    }
+}
+
+/// Settings toggle button positioned in the top right toolbar to the left of Source Control.
+struct SettingsToggleButton: View {
+    let workspace: WorkspaceModel
+
+    var body: some View {
+        Button {
+            workspace.toggleSettings()
+        } label: {
+            Image(systemName: "gearshape")
+        }
+        .buttonStyle(.titleBarIcon)
+        .foregroundStyle(workspace.isSettingsVisible ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+        .help("Settings (⌘,)")
+    }
+}
+
+/// Find in Project toggle button positioned in the top right toolbar to the left of Source Control.
+struct FindInProjectToggleButton: View {
+    let workspace: WorkspaceModel
+
+    var body: some View {
+        Button {
+            if workspace.sidebarMode == .search {
+                workspace.showExplorer()
+            } else {
+                workspace.showSearch()
+            }
+        } label: {
+            Image(systemName: "magnifyingglass")
+        }
+        .buttonStyle(.titleBarIcon)
+        .foregroundStyle(workspace.sidebarMode == .search ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+        .help(workspace.sidebarMode == .search ? "Show Explorer (⇧⌘E)" : "Find in Project (⇧⌘F)")
     }
 }

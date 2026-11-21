@@ -25,8 +25,64 @@ struct SourceControlHistoryView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Search Input
-            searchBar
+            // Search Input & Branch Selector
+            HStack(spacing: 6) {
+                searchBar
+
+                Menu {
+                    Button {
+                        Task { await model.setHistoryBranch(nil) }
+                    } label: {
+                        HStack {
+                            Text("Current (\(model.branchName ?? "HEAD"))")
+                            if model.historyBranch == nil {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+
+                    if !model.branches.isEmpty {
+                        Divider()
+
+                        ForEach(model.branches) { branch in
+                            Button {
+                                Task { await model.setHistoryBranch(branch.name) }
+                            } label: {
+                                HStack {
+                                    Text(branch.name)
+                                    if model.historyBranch == branch.name {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        SourceControlIcon(type: .branch, size: 11)
+                            .foregroundStyle(Color.accentColor)
+                        Text(model.historyBranch ?? model.branchName ?? "Branch")
+                            .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 8))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(height: 28)
+                    .padding(.horizontal, 7)
+                    .background {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .stroke(Color.secondary.opacity(0.2), lineWidth: 0.5)
+                            )
+                    }
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize(horizontal: true, vertical: false)
+                .help("Select branch to inspect history")
+            }
 
             if model.commits.isEmpty {
                 VStack(spacing: 8) {
@@ -60,8 +116,8 @@ struct SourceControlHistoryView: View {
                         }
                     }
 
-                // Continuous Git Timeline Rows
-                VStack(alignment: .leading, spacing: 0) {
+                // Continuous Git Timeline Rows using LazyVStack for memory efficiency
+                LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(filteredCommits) { commit in
                         commitTimelineRow(commit: commit)
                     }
