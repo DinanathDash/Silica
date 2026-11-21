@@ -54,6 +54,7 @@ final class SourceControlModel {
         }
 
         isGitRepository = true
+        currentCommitLimit = initialCommitLimit
 
         async let statusTask = loadStatus()
         async let branchesTask = loadBranches()
@@ -182,6 +183,12 @@ final class SourceControlModel {
         self.branches = list
     }
 
+    private let initialCommitLimit = 50
+    private let commitPageStep = 20
+    private(set) var currentCommitLimit = 50
+    private(set) var hasMoreCommits = true
+    private(set) var isLoadingMoreCommits = false
+
     var maxHistoryLanes: Int {
         commits.map { $0.timelineNode.lane + 1 }.max() ?? 1
     }
@@ -201,16 +208,19 @@ final class SourceControlModel {
     }
 
     private func loadCommits() async {
+        let fetchCount = currentCommitLimit + 1
         let result = await runner.run(arguments: [
-            "log", "-n", "50", "--diff-merges=1", "--shortstat",
+            "log", "-n", "\(fetchCount)", "--diff-merges=1", "--shortstat",
             "--pretty=format:\u{1e}%H\u{1f}%h\u{1f}%P\u{1f}%an\u{1f}%ae\u{1f}%at\u{1f}%s\u{1f}%b\u{1f}"
         ], in: rootURL)
         guard result.isSuccess else { return }
 
         var rawList: [RawCommitData] = []
         let records = result.stdout.split(separator: "\u{1e}", omittingEmptySubsequences: true)
+        self.hasMoreCommits = records.count > currentCommitLimit
 
-        for record in records {
+        for (index, record) in records.enumerated() {
+            guard index < currentCommitLimit else { break }
             let fields = record.split(separator: "\u{1f}", omittingEmptySubsequences: false)
             guard fields.count >= 8 else { continue }
 
@@ -243,6 +253,23 @@ final class SourceControlModel {
         }
 
         self.commits = computeTimeline(from: rawList)
+    }
+
+    func loadMoreCommits() async {
+        guard !isLoadingMoreCommits && hasMoreCommits else { return }
+        isLoadingMoreCommits = true
+        defer { isLoadingMoreCommits = false }
+        currentCommitLimit += commitPageStep
+        await loadCommits()
+    }
+
+    func pruneExtraCommits() {
+        guard currentCommitLimit > initialCommitLimit else { return }
+        currentCommitLimit = initialCommitLimit
+        hasMoreCommits = true
+        if commits.count > initialCommitLimit {
+            commits = Array(commits.prefix(initialCommitLimit))
+        }
     }
 
     private func parseDiffStats(_ text: String) -> (files: Int, additions: Int, deletions: Int) {

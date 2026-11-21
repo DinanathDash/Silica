@@ -1,16 +1,33 @@
 import SwiftUI
 
-/// History tab in Source Control displaying the visual git timeline, compact commit messages, and commit details popover.
+/// History tab in Source Control displaying the visual git timeline, search filter, paging, and commit details popover.
 struct SourceControlHistoryView: View {
     @Bindable var model: SourceControlModel
 
+    @State private var searchQuery = ""
     @State private var activePopoverCommitID: String?
     @State private var isMouseInsidePopover = false
     @State private var hoverTask: Task<Void, Never>?
     @State private var dismissTask: Task<Void, Never>?
 
+    private var filteredCommits: [GitCommitItem] {
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return model.commits }
+        return model.commits.filter { commit in
+            commit.summary.localizedCaseInsensitiveContains(query) ||
+            commit.body.localizedCaseInsensitiveContains(query) ||
+            commit.authorName.localizedCaseInsensitiveContains(query) ||
+            commit.authorEmail.localizedCaseInsensitiveContains(query) ||
+            commit.shortHash.localizedCaseInsensitiveContains(query) ||
+            commit.hash.localizedCaseInsensitiveContains(query)
+        }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 10) {
+            // Search Input
+            searchBar
+
             if model.commits.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "clock")
@@ -22,9 +39,57 @@ struct SourceControlHistoryView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 24)
+            } else if filteredCommits.isEmpty {
+                VStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.secondary)
+                    Text("No commits matching \"\(searchQuery)\"")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
             } else {
-                ForEach(model.commits) { commit in
-                    commitTimelineRow(commit: commit)
+                // Top scroll anchor: dismiss extra loaded commits when user scrolls back to the top
+                Color.clear
+                    .frame(height: 1)
+                    .onAppear {
+                        if model.currentCommitLimit > 50 {
+                            model.pruneExtraCommits()
+                        }
+                    }
+
+                // Continuous Git Timeline Rows
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(filteredCommits) { commit in
+                        commitTimelineRow(commit: commit)
+                    }
+                }
+
+                // Paging button: loads 20 older commits at the bottom
+                if searchQuery.isEmpty && model.hasMoreCommits {
+                    Button {
+                        Task { await model.loadMoreCommits() }
+                    } label: {
+                        HStack(spacing: 6) {
+                            if model.isLoadingMoreCommits {
+                                ProgressView()
+                                    .controlSize(.mini)
+                            } else {
+                                Image(systemName: "arrow.down.circle")
+                                    .font(.system(size: 11))
+                            }
+                            Text(model.isLoadingMoreCommits ? "Loading older commits…" : "Load 20 More Commits")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .padding(.top, 6)
+                    .padding(.bottom, 12)
                 }
             }
         }
@@ -32,13 +97,52 @@ struct SourceControlHistoryView: View {
             hoverTask?.cancel()
             dismissTask?.cancel()
             activePopoverCommitID = nil
+            // Automatically dismiss extra older commits to free up memory when leaving view
+            model.pruneExtraCommits()
         }
     }
+
+    // MARK: - Search Bar
+
+    private var searchBar: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            TextField("Search history by title, author, hash…", text: $searchQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: 11))
+
+            if !searchQuery.isEmpty {
+                Button {
+                    searchQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.18), lineWidth: 0.5)
+                )
+        }
+    }
+
+    // MARK: - Timeline Row
 
     private func commitTimelineRow(commit: GitCommitItem) -> some View {
         let isCurrentPopover = activePopoverCommitID == commit.id
         // Dynamic row width: sizes tightly to the maximum active lane in this specific row, eliminating dead space
-        let rowCanvasWidth = CGFloat(commit.timelineNode.rowMaxLane + 1) * 11 + 4
+        let rowCanvasWidth = CGFloat(commit.timelineNode.rowMaxLane + 1) * 12 + 4
 
         return HStack(spacing: 5) {
             // Visual Git timeline graph with natural Bézier physics
@@ -135,14 +239,15 @@ struct SourceControlHistoryView: View {
 // MARK: - Git Timeline Components
 
 enum GitTimelineColors {
+    // Authentic Git graph palette: Royal Blue, Amber Orange, Sky Blue, Mint Green, Purple, Pink, Teal
     static let palette: [Color] = [
-        Color(nsColor: .systemBlue),
-        Color(nsColor: .systemPurple),
-        Color(nsColor: .systemOrange),
-        Color(nsColor: .systemTeal),
-        Color(nsColor: .systemIndigo),
-        Color(nsColor: .systemPink),
-        Color(nsColor: .systemGreen)
+        Color(red: 0.12, green: 0.45, blue: 0.88), // Royal Git Blue
+        Color(red: 0.96, green: 0.51, blue: 0.13), // Vibrant Git Orange / Amber
+        Color(red: 0.35, green: 0.65, blue: 0.98), // Sky Blue
+        Color(red: 0.18, green: 0.63, blue: 0.26), // Emerald / Mint Green
+        Color(red: 0.54, green: 0.34, blue: 0.90), // Purple / Violet
+        Color(red: 0.97, green: 0.47, blue: 0.73), // Coral / Pink
+        Color(red: 0.22, green: 0.77, blue: 0.73)  // Turquoise / Teal
     ]
 
     static func color(for lane: Int) -> Color {
@@ -150,13 +255,13 @@ enum GitTimelineColors {
     }
 }
 
-/// Renders visual git graph branches, merges, and commit nodes with smooth Bézier curves and round caps.
+/// Renders visual git graph branches, merges, and commit nodes with soft Bézier curves and round caps.
 struct GitTimelineCanvas: View {
     let node: GitTimelineNode
     let isMerge: Bool
 
     private func laneX(_ lane: Int) -> CGFloat {
-        CGFloat(lane) * 11 + 6
+        CGFloat(lane) * 12 + 7
     }
 
     var body: some View {
@@ -164,7 +269,7 @@ struct GitTimelineCanvas: View {
             let rowHeight: CGFloat = size.height
             let centerY: CGFloat = rowHeight / 2.0
             let nodeX = laneX(node.lane)
-            let strokeStyle = StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round)
+            let strokeStyle = StrokeStyle(lineWidth: 2.25, lineCap: .round, lineJoin: .round)
 
             // 1. Draw passing lines
             for passingLane in node.passingLanes {
@@ -183,7 +288,7 @@ struct GitTimelineCanvas: View {
                 context.stroke(path, with: .color(GitTimelineColors.color(for: node.lane)), style: strokeStyle)
             }
 
-            // 3. Draw outgoing connections (straight tracks and smooth sigmoid curves)
+            // 3. Draw outgoing connections (straight tracks and soft sigmoid curves)
             for conn in node.outgoingConnections {
                 let fromX = laneX(conn.fromLane)
                 let toX = laneX(conn.toLane)
@@ -194,11 +299,11 @@ struct GitTimelineCanvas: View {
                     path.addLine(to: CGPoint(x: toX, y: rowHeight))
                 } else {
                     let dy = rowHeight - centerY
-                    // Smooth S-curve sigmoid transition with vertical tangents at both endpoints
+                    // Soft S-curve transition with smooth vertical tangency at both ends
                     path.addCurve(
                         to: CGPoint(x: toX, y: rowHeight),
-                        control1: CGPoint(x: fromX, y: centerY + dy * 0.55),
-                        control2: CGPoint(x: toX, y: rowHeight - dy * 0.45)
+                        control1: CGPoint(x: fromX, y: centerY + dy * 0.6),
+                        control2: CGPoint(x: toX, y: rowHeight - dy * 0.4)
                     )
                 }
                 context.stroke(path, with: .color(GitTimelineColors.color(for: conn.toLane)), style: strokeStyle)
@@ -209,17 +314,17 @@ struct GitTimelineCanvas: View {
             let center = CGPoint(x: nodeX, y: centerY)
 
             if isMerge {
-                // Merge commit node: stylish hollow ring with inner core
-                let outerRect = CGRect(x: center.x - 4.25, y: center.y - 4.25, width: 8.5, height: 8.5)
+                // Merge commit node: authentic outer ring with inner dot
+                let outerRect = CGRect(x: center.x - 5.5, y: center.y - 5.5, width: 11, height: 11)
                 context.fill(Path(ellipseIn: outerRect.insetBy(dx: -1.0, dy: -1.0)), with: .color(Color(nsColor: .windowBackgroundColor)))
-                context.stroke(Path(ellipseIn: outerRect), with: .color(nodeColor), lineWidth: 1.75)
-                let innerRect = CGRect(x: center.x - 1.75, y: center.y - 1.75, width: 3.5, height: 3.5)
+                context.stroke(Path(ellipseIn: outerRect), with: .color(nodeColor), lineWidth: 2.0)
+                let innerRect = CGRect(x: center.x - 2.5, y: center.y - 2.5, width: 5.0, height: 5.0)
                 context.fill(Path(ellipseIn: innerRect), with: .color(nodeColor))
             } else {
                 // Normal commit node: solid dot with clear background knockout halo
-                let haloRect = CGRect(x: center.x - 4.25, y: center.y - 4.25, width: 8.5, height: 8.5)
+                let haloRect = CGRect(x: center.x - 4.5, y: center.y - 4.5, width: 9.0, height: 9.0)
                 context.stroke(Path(ellipseIn: haloRect), with: .color(Color(nsColor: .windowBackgroundColor)), lineWidth: 1.5)
-                let dotRect = CGRect(x: center.x - 3.0, y: center.y - 3.0, width: 6.0, height: 6.0)
+                let dotRect = CGRect(x: center.x - 3.75, y: center.y - 3.75, width: 7.5, height: 7.5)
                 context.fill(Path(ellipseIn: dotRect), with: .color(nodeColor))
             }
         }
@@ -297,7 +402,7 @@ struct CommitAuthorAvatarView: View {
                     return URL(string: "https://github.com/\(username).png?size=96")
                 }
             }
-            // If authorName is single word, query GitHub directly
+            // Use GitHub username directly if single word (no spaces)
             if !cleanName.isEmpty && !cleanName.contains(" ") {
                 return URL(string: "https://github.com/\(cleanName).png?size=96")
             }
