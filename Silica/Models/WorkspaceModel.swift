@@ -651,6 +651,64 @@ final class WorkspaceModel {
         }
     }
 
+    /// Closes all open tabs that don't have unsaved changes (⌘K W).
+    func closeAllSavedTabs() {
+        let savedTabs = openTabs.filter { url in
+            guard let buffer = buffers[url] else { return true }
+            return !buffer.needsSaving && !buffer.isDirty
+        }
+        for tab in savedTabs {
+            closeTab(tab)
+        }
+    }
+
+    // MARK: - Git Diff Presentation
+
+    struct DiffPresentation: Identifiable, Equatable {
+        let id = UUID()
+        let fileURL: URL
+        let relativePath: String
+        let commitHash: String?
+        let commitTitle: String?
+
+        var isCommitDiff: Bool { commitHash != nil }
+    }
+
+    var activeDiff: DiffPresentation?
+
+    func openDiff(for url: URL) {
+        let rel = relativePath(of: url)
+        activeDiff = DiffPresentation(fileURL: url, relativePath: rel, commitHash: nil, commitTitle: nil)
+        open(url)
+    }
+
+    func openCommitDiff(commitHash: String, commitTitle: String, relativePath: String) {
+        let fullURL = rootURL.appending(path: relativePath)
+        activeDiff = DiffPresentation(fileURL: fullURL, relativePath: relativePath, commitHash: commitHash, commitTitle: commitTitle)
+        open(fullURL)
+    }
+
+    func closeDiff() {
+        activeDiff = nil
+    }
+
+    func gitStatus(for url: URL) -> GitFileItem.Status? {
+        let rel = relativePath(of: url)
+        if let staged = sourceControl.stagedFiles.first(where: { $0.relativePath == rel }) {
+            return staged.status
+        }
+        if let unstaged = sourceControl.unstagedFiles.first(where: { $0.relativePath == rel }) {
+            return unstaged.status
+        }
+        let prefix = rel.isEmpty ? "" : (rel.hasSuffix("/") ? rel : rel + "/")
+        let hasChanges = sourceControl.stagedFiles.contains(where: { $0.relativePath.hasPrefix(prefix) }) ||
+                         sourceControl.unstagedFiles.contains(where: { $0.relativePath.hasPrefix(prefix) })
+        if hasChanges {
+            return .modified
+        }
+        return nil
+    }
+
     func closeTab(_ url: URL) {
         guard let index = openTabs.firstIndex(of: url) else { return }
         if let buffer = buffers[url], buffer.needsSaving, !confirmDiscardOrSave(buffer) {

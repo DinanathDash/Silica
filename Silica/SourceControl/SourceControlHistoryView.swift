@@ -2,6 +2,7 @@ import SwiftUI
 
 /// History tab in Source Control displaying the visual git timeline, search filter, paging, and commit details popover.
 struct SourceControlHistoryView: View {
+    let workspace: WorkspaceModel
     @Bindable var model: SourceControlModel
 
     private var settings: EditorSettings { .shared }
@@ -11,6 +12,9 @@ struct SourceControlHistoryView: View {
     @State private var isMouseInsidePopover = false
     @State private var hoverTask: Task<Void, Never>?
     @State private var dismissTask: Task<Void, Never>?
+    @State private var expandedCommitID: String?
+    @State private var commitFilesCache: [String: [CommitChangedFile]] = [:]
+    @State private var loadingCommitHashes: Set<String> = []
 
     private var filteredCommits: [GitCommitItem] {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -49,7 +53,7 @@ struct SourceControlHistoryView: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .controlSize(.regular)
-                .frame(height: 30)
+                .frame(height: 34)
                 .frame(maxWidth: 140)
                 .help("Select branch to inspect history")
             }
@@ -89,7 +93,12 @@ struct SourceControlHistoryView: View {
                         }
 
                     ForEach(filteredCommits) { commit in
-                        commitTimelineRow(commit: commit)
+                        VStack(alignment: .leading, spacing: 0) {
+                            commitTimelineRow(commit: commit)
+                            if expandedCommitID == commit.id {
+                                commitFilesList(commit: commit)
+                            }
+                        }
                     }
                 }
 
@@ -199,9 +208,9 @@ struct SourceControlHistoryView: View {
         .frame(height: rowHeight)
         .contentShape(Rectangle())
         .background {
-            if isCurrentPopover {
+            if isCurrentPopover || expandedCommitID == commit.id {
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.12))
+                    .fill(Color.accentColor.opacity(expandedCommitID == commit.id ? 0.16 : 0.12))
             }
         }
         .onHover { isHovering in
@@ -211,7 +220,9 @@ struct SourceControlHistoryView: View {
                 hoverTask = Task { @MainActor in
                     try? await Task.sleep(nanoseconds: 160_000_000)
                     guard !Task.isCancelled else { return }
-                    activePopoverCommitID = commit.id
+                    if expandedCommitID != commit.id {
+                        activePopoverCommitID = commit.id
+                    }
                 }
             } else {
                 hoverTask?.cancel()
@@ -228,11 +239,26 @@ struct SourceControlHistoryView: View {
         .onTapGesture {
             dismissTask?.cancel()
             hoverTask?.cancel()
-            activePopoverCommitID = commit.id
+            activePopoverCommitID = nil
+            withAnimation(.snappy(duration: 0.18)) {
+                if expandedCommitID == commit.id {
+                    expandedCommitID = nil
+                } else {
+                    expandedCommitID = commit.id
+                }
+            }
+            if expandedCommitID == commit.id && commitFilesCache[commit.hash] == nil {
+                loadingCommitHashes.insert(commit.hash)
+                Task {
+                    let files = await model.loadChangedFiles(for: commit.hash)
+                    commitFilesCache[commit.hash] = files
+                    loadingCommitHashes.remove(commit.hash)
+                }
+            }
         }
         .popover(
             isPresented: Binding(
-                get: { activePopoverCommitID == commit.id },
+                get: { activePopoverCommitID == commit.id && expandedCommitID != commit.id },
                 set: { isPresent in
                     if !isPresent && activePopoverCommitID == commit.id {
                         activePopoverCommitID = nil
@@ -261,6 +287,90 @@ struct SourceControlHistoryView: View {
                 }
             )
         }
+    }
+
+    // MARK: - Changed Files List
+
+    private func commitFilesList(commit: GitCommitItem) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if loadingCommitHashes.contains(commit.hash) {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text("Loading changed files…")
+                        .font(.system(size: max(settings.sidebarFontSize - 2, 9)))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.leading, 24)
+                .padding(.vertical, 4)
+            } else if let files = commitFilesCache[commit.hash] {
+                if files.isEmpty {
+                    Text("No files changed in this commit")
+                        .font(.system(size: max(settings.sidebarFontSize - 2, 9)))
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 24)
+                        .padding(.vertical, 3)
+                } else {
+                    ForEach(files) { file in
+                        let fileURL = workspace.rootURL.appending(path: file.relativePath)
+                        HStack(spacing: 6) {
+                            // Extreme left: Git badge (M, A, D, etc.)
+                            Text(file.status.badgeLetter)
+                                .font(.system(size: max(settings.sidebarFontSize - 2, 8), weight: .bold, design: .monospaced))
+                                .foregroundStyle(file.status.badgeColor)
+                                .frame(width: 14)
+
+                            // File icon
+                            FileIcon(url: fileURL, width: settings.sidebarIconWidth)
+
+                            // File name
+                            Text(file.fileName)
+                                .font(.system(size: settings.sidebarFontSize))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+
+                            if !file.directoryPath.isEmpty {
+                                Text(file.directoryPath)
+                                    .font(.system(size: max(settings.sidebarFontSize - 2, 8)))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+
+                            Spacer(minLength: 4)
+
+                            // Extreme right: Addition/deletion stats (+X -Y)
+                            if file.additions > 0 || file.deletions > 0 {
+                                HStack(spacing: 2) {
+                                    if file.additions > 0 {
+                                        Text("+\(file.additions)").foregroundStyle(.green)
+                                    }
+                                    if file.deletions > 0 {
+                                        Text("-\(file.deletions)").foregroundStyle(.red)
+                                    }
+                                }
+                                .font(.system(size: max(settings.sidebarFontSize - 2, 8), weight: .semibold, design: .monospaced))
+                            }
+                        }
+                        .padding(.leading, 22)
+                        .padding(.trailing, 6)
+                        .padding(.vertical, 3)
+                        .background {
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .fill(Color.primary.opacity(0.04))
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            workspace.openCommitDiff(
+                                commitHash: commit.hash,
+                                commitTitle: commit.summary,
+                                relativePath: file.relativePath
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 2)
     }
 }
 

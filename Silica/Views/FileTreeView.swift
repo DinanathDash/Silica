@@ -690,6 +690,10 @@ private struct FileNodeRow: View {
         return name
     }
 
+    private var gitStatus: GitFileItem.Status? {
+        workspace.gitStatus(for: node.url)
+    }
+
     var body: some View {
         HStack(spacing: 4) {
             disclosureChevron
@@ -705,11 +709,20 @@ private struct FileNodeRow: View {
                     Text(highlightedName)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                        .foregroundStyle(gitStatus?.badgeColor ?? Color.primary)
                 }
             }
             // Dotfiles and gitignored items fade back but stay clickable.
             .opacity(node.isDimmed && !isRenaming ? 0.5 : 1)
             Spacer(minLength: 0)
+
+            // Git change badge (M, U, A, D, etc.)
+            if let gitStatus, !isRenaming {
+                Text(gitStatus.badgeLetter)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundStyle(gitStatus.badgeColor)
+                    .padding(.trailing, 2)
+            }
 
             // File or folder size shown on the right side when hovered or selected
             if (isHovered || workspace.selections.contains(node.url)), !isRenaming, let formattedSize {

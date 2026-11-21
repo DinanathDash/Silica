@@ -9,6 +9,8 @@ final class KeyWorkspace: ObservableObject {
     private init() {}
 
     private var keyMonitor: Any?
+    private var pendingChord: String?
+    private var chordTimestamp: TimeInterval = 0
 
     /// ⇧⌘ shortcuts for the key workspace, handled here as well as in the menus
     /// because menu items bound to ⇧⌘ + a letter didn't reliably win over the plain
@@ -17,6 +19,26 @@ final class KeyWorkspace: ObservableObject {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+
+            // Chord handling: ⌘K then W (or ⌘W) closes all saved tabs
+            if let pending = self?.pendingChord, pending == "cmd+k" {
+                self?.pendingChord = nil
+                let elapsed = ProcessInfo.processInfo.systemUptime - (self?.chordTimestamp ?? 0)
+                if elapsed < 2.0, event.charactersIgnoringModifiers?.lowercased() == "w" {
+                    if let workspace = self?.current {
+                        DispatchQueue.main.async {
+                            workspace.closeAllSavedTabs()
+                        }
+                    }
+                    return nil
+                }
+            }
+
+            if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "k" {
+                self?.pendingChord = "cmd+k"
+                self?.chordTimestamp = ProcessInfo.processInfo.systemUptime
+                return nil
+            }
             // Quick Open's field takes focus a moment after the panel appears; keys typed
             // in between (⌘L then a quick "100") belong in the query, not the editor.
             if let workspace = self?.current, workspace.isQuickOpenVisible,

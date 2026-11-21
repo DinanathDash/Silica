@@ -23,6 +23,9 @@ struct EditorArea: View {
                 if let buffer = workspace.activeBuffer, let format = buffer.previewFormat {
                     PreviewModeToggle(buffer: buffer, format: format)
                 }
+                if let buffer = workspace.activeBuffer, (workspace.activeDiff != nil || workspace.gitStatus(for: buffer.url) != nil) {
+                    DiffModeToggle(workspace: workspace, bufferURL: buffer.url)
+                }
                 // Settings, find in project, source control, and terminal toggles in the top right.
                 SettingsToggleButton(workspace: workspace)
                 FindInProjectToggleButton(workspace: workspace)
@@ -83,7 +86,9 @@ struct EditorArea: View {
 
     private var editorCard: some View {
         Group {
-            if let buffer = workspace.activeBuffer {
+            if let diff = workspace.activeDiff {
+                GitDiffView(diff: diff, workspace: workspace, model: workspace.sourceControl)
+            } else if let buffer = workspace.activeBuffer {
                 BufferView(buffer: buffer, workspace: workspace)
             } else {
                 EmptyEditorView(workspace: workspace)
@@ -94,6 +99,39 @@ struct EditorArea: View {
         // next to the window's corners follow its radius minus the inset; the
         // others (under the tab bar) fall back to the minimum.
         .workspaceCard()
+    }
+}
+
+private struct DiffModeToggle: View {
+    let workspace: WorkspaceModel
+    let bufferURL: URL
+
+    private var isDiffActive: Bool {
+        workspace.activeDiff != nil
+    }
+
+    var body: some View {
+        Button {
+            withAnimation(.snappy) {
+                if isDiffActive {
+                    workspace.closeDiff()
+                } else {
+                    workspace.openDiff(for: bufferURL)
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: isDiffActive ? "pencil" : "arrow.triangle.swap")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(isDiffActive ? "Code" : "Diff")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(isDiffActive ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.06), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(isDiffActive ? "Switch back to Code editor" : "View Git Diff")
     }
 }
 
@@ -139,6 +177,7 @@ private struct EditorTabBar: View {
                             select: { workspace.activate(url) },
                             close: { withAnimation(.snappy) { workspace.closeTab(url) } },
                             closeOthers: { withAnimation(.snappy) { workspace.closeOtherTabs(than: url) } },
+                            closeSaved: { withAnimation(.snappy) { workspace.closeAllSavedTabs() } },
                             revealInTree: workspace.contains(url) ? { workspace.revealInTree(url) } : nil,
                             copyRelativePath: workspace.contains(url) ? { Finder.copyPath(workspace.relativePath(of: url)) } : nil,
                             drag: { handleDrag($0, of: url, proxy: proxy) }
@@ -549,6 +588,7 @@ private struct EditorTab: View {
     let select: () -> Void
     let close: () -> Void
     let closeOthers: () -> Void
+    let closeSaved: (() -> Void)?
     /// Shows the file in the tree; `nil` for a file the tree doesn't have.
     let revealInTree: (() -> Void)?
     /// Copies the path from the workspace root; `nil` for a file outside the workspace.
@@ -613,6 +653,9 @@ private struct EditorTab: View {
         .contextMenu {
             Button("Close", action: close)
             Button("Close Others", action: closeOthers)
+            if let closeSaved {
+                Button("Close Saved Tabs (⌘K W)", action: closeSaved)
+            }
             if !url.isUntitled {
                 Divider()
                 if let revealInTree {

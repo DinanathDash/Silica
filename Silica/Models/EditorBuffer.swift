@@ -404,6 +404,7 @@ final class EditorBuffer: Identifiable {
         diskSnapshot = Self.attributes(of: url).map { DiskSnapshot(attributes: $0, digest: Self.digest(of: data)) }
         isDirty = false
         isMissingOnDisk = false
+        controller.scheduleGitDiffUpdate(delay: .zero)
     }
 
     @ObservationIgnored private var autoSaveTask: Task<Void, Never>?

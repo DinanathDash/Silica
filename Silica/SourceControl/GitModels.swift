@@ -82,6 +82,33 @@ struct GitFileItem: Identifiable, Hashable, Sendable {
     }
 }
 
+/// A file modified, added, or deleted in a specific git commit.
+struct CommitChangedFile: Identifiable, Hashable, Sendable {
+    var id: String { relativePath }
+    let relativePath: String
+    let fileName: String
+    let directoryPath: String
+    let status: GitFileItem.Status
+    let additions: Int
+    let deletions: Int
+
+    init(relativePath: String, status: GitFileItem.Status, additions: Int = 0, deletions: Int = 0) {
+        self.relativePath = relativePath
+        self.status = status
+        self.additions = additions
+        self.deletions = deletions
+
+        let components = relativePath.split(separator: "/")
+        if let last = components.last {
+            self.fileName = String(last)
+            self.directoryPath = components.dropLast().joined(separator: "/")
+        } else {
+            self.fileName = relativePath
+            self.directoryPath = ""
+        }
+    }
+}
+
 import CryptoKit
 
 /// A git branch entry.

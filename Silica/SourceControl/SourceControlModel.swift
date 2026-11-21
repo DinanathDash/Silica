@@ -223,6 +223,78 @@ final class SourceControlModel {
         }
     }
 
+    // MARK: - Commit Files & Diff
+
+    func loadChangedFiles(for commitHash: String) async -> [CommitChangedFile] {
+        let numstatResult = await runner.run(arguments: ["show", "--numstat", "--format=", commitHash], in: rootURL)
+        let nameStatusResult = await runner.run(arguments: ["show", "--name-status", "--format=", commitHash], in: rootURL)
+
+        var statusMap: [String: GitFileItem.Status] = [:]
+        for line in nameStatusResult.stdout.split(separator: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+            let parts = trimmed.split(separator: "\t", maxSplits: 2)
+            guard parts.count >= 2 else { continue }
+            let statusCode = parts[0].first ?? "M"
+            let path = String(parts.last!)
+            statusMap[path] = mapStatus(code: statusCode)
+        }
+
+        var files: [CommitChangedFile] = []
+        for line in numstatResult.stdout.split(separator: "\n") {
+            let parts = line.split(separator: "\t", maxSplits: 2)
+            guard parts.count == 3 else { continue }
+            let add = Int(parts[0]) ?? 0
+            let del = Int(parts[1]) ?? 0
+            let rawPath = String(parts[2]).trimmingCharacters(in: .whitespaces)
+            let path = rawPath.hasPrefix("\"") && rawPath.hasSuffix("\"")
+                ? String(rawPath.dropFirst().dropLast())
+                : rawPath
+            let status = statusMap[path] ?? .modified
+            files.append(CommitChangedFile(
+                relativePath: path,
+                status: status,
+                additions: add,
+                deletions: del
+            ))
+        }
+        return files
+    }
+
+    func diffForFile(in commitHash: String?, relativePath: String) async -> String {
+        if let commitHash {
+            let res = await runner.run(arguments: ["show", commitHash, "--", relativePath], in: rootURL)
+            return res.stdout
+        } else {
+            let res = await runner.run(arguments: ["diff", "HEAD", "--", relativePath], in: rootURL)
+            if !res.stdout.isEmpty {
+                return res.stdout
+            }
+            let fullURL = rootURL.appending(path: relativePath)
+            if let content = try? String(contentsOf: fullURL, encoding: .utf8) {
+                let lines = content.components(separatedBy: .newlines)
+                return "--- /dev/null\n+++ b/\(relativePath)\n@@ -0,0 +1,\(lines.count) @@\n" + lines.map { "+" + $0 }.joined(separator: "\n")
+            }
+            return res.stdout
+        }
+    }
+
+    func stageFolder(_ path: String) async {
+        _ = await runner.run(arguments: ["add", "--", path], in: rootURL)
+        await loadStatus()
+    }
+
+    func unstageFolder(_ path: String) async {
+        _ = await runner.run(arguments: ["restore", "--staged", "--", path], in: rootURL)
+        await loadStatus()
+    }
+
+    func discardFolderChanges(_ path: String) async {
+        _ = await runner.run(arguments: ["restore", "--", path], in: rootURL)
+        _ = await runner.run(arguments: ["clean", "-fd", "--", path], in: rootURL)
+        await loadStatus()
+    }
+
     private func loadBranches() async {
         let result = await runner.run(arguments: ["branch", "-a", "--format=%(HEAD) %(refname) %(refname:short)"], in: rootURL)
         guard result.isSuccess else { return }

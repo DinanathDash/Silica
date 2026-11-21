@@ -1,5 +1,28 @@
 import SwiftUI
 
+/// Node representing a directory or file in the hierarchical changes tree.
+struct ChangeTreeNode: Identifiable {
+    let id: String
+    let name: String
+    let relativePath: String
+    let isDirectory: Bool
+    let file: GitFileItem?
+    let children: [ChangeTreeNode]
+
+    var allFiles: [GitFileItem] {
+        if let file { return [file] }
+        return children.flatMap { $0.allFiles }
+    }
+}
+
+/// A flattened row in the changes tree for non-recursive rendering.
+struct FlatChangeRow: Identifiable {
+    let id: String
+    let node: ChangeTreeNode
+    let depth: Int
+    let isStaged: Bool
+}
+
 /// Changes tab in Source Control for staging, unstaging, discarding, and committing changes.
 struct SourceControlChangesView: View {
     let workspace: WorkspaceModel
@@ -9,6 +32,8 @@ struct SourceControlChangesView: View {
     private var settings: EditorSettings { .shared }
 
     @State private var searchQuery = ""
+    @State private var collapsedNodes: Set<String> = []
+    @State private var hoveredNodeID: String? = nil
 
     private var displayedStagedFiles: [GitFileItem] {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -120,7 +145,7 @@ struct SourceControlChangesView: View {
 
             // Staged Files Section
             if !displayedStagedFiles.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 2) {
                     HStack {
                         Text("Staged changes (\(displayedStagedFiles.count))")
                             .font(.system(size: max(settings.sidebarFontSize - 1.5, 9), weight: .semibold))
@@ -135,16 +160,18 @@ struct SourceControlChangesView: View {
                         .buttonStyle(.plain)
                         .help("Unstage all changes")
                     }
+                    .padding(.horizontal, 4)
+                    .padding(.bottom, 2)
 
-                    ForEach(displayedStagedFiles) { file in
-                        fileRow(file: file)
+                    ForEach(visibleRows(for: displayedStagedFiles, isStaged: true)) { row in
+                        changeRow(for: row)
                     }
                 }
             }
 
             // Unstaged Changes Section
             if !displayedUnstagedFiles.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 2) {
                     HStack {
                         Text("Changes (\(displayedUnstagedFiles.count))")
                             .font(.system(size: max(settings.sidebarFontSize - 1.5, 9), weight: .semibold))
@@ -168,9 +195,11 @@ struct SourceControlChangesView: View {
                         .buttonStyle(.plain)
                         .help("Discard all changes")
                     }
+                    .padding(.horizontal, 4)
+                    .padding(.bottom, 2)
 
-                    ForEach(displayedUnstagedFiles) { file in
-                        fileRow(file: file)
+                    ForEach(visibleRows(for: displayedUnstagedFiles, isStaged: false)) { row in
+                        changeRow(for: row)
                     }
                 }
             }
@@ -237,35 +266,179 @@ struct SourceControlChangesView: View {
         }
     }
 
-    private func fileRow(file: GitFileItem) -> some View {
-        let fileURL = workspace.rootURL.appending(path: file.relativePath)
-        return HStack(spacing: 6) {
-            // File status badge
-            Text(file.status.badgeLetter)
-                .font(.system(size: max(settings.sidebarFontSize - 2, 8), weight: .bold, design: .monospaced))
-                .foregroundStyle(file.status.badgeColor)
-                .frame(width: 14)
+    // MARK: - Tree Row Rendering
 
-            // Real file icon from Silica
-            FileIcon(url: fileURL, width: settings.sidebarIconWidth)
+    private func visibleRows(for files: [GitFileItem], isStaged: Bool) -> [FlatChangeRow] {
+        let tree = buildChangeTree(from: files)
+        return flatten(nodes: tree, depth: 0, isStaged: isStaged)
+    }
 
-            // File path and name
-            VStack(alignment: .leading, spacing: 1) {
-                Text(file.fileName)
-                    .font(.system(size: settings.sidebarFontSize))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                if !file.directoryPath.isEmpty {
-                    Text(file.directoryPath)
-                        .font(.system(size: max(settings.sidebarFontSize - 1.5, 9)))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+    private func flatten(nodes: [ChangeTreeNode], depth: Int, isStaged: Bool) -> [FlatChangeRow] {
+        var rows: [FlatChangeRow] = []
+        for node in nodes {
+            let rowId = (isStaged ? "staged_" : "unstaged_") + node.id
+            rows.append(FlatChangeRow(id: rowId, node: node, depth: depth, isStaged: isStaged))
+            if node.isDirectory && !collapsedNodes.contains(node.id) {
+                rows.append(contentsOf: flatten(nodes: node.children, depth: depth + 1, isStaged: isStaged))
             }
+        }
+        return rows
+    }
+
+    @ViewBuilder
+    private func changeRow(for row: FlatChangeRow) -> some View {
+        if row.node.isDirectory {
+            folderRow(node: row.node, depth: row.depth, isStaged: row.isStaged)
+        } else if let file = row.node.file {
+            fileRow(file: file, depth: row.depth)
+        }
+    }
+
+    private func folderRow(node: ChangeTreeNode, depth: Int, isStaged: Bool) -> some View {
+        let isCollapsed = collapsedNodes.contains(node.id)
+        let isHovered = hoveredNodeID == node.id
+        let folderURL = workspace.rootURL.appending(path: node.relativePath)
+
+        return HStack(spacing: 5) {
+            if depth > 0 {
+                Spacer().frame(width: CGFloat(depth * 12))
+            }
+
+            Button {
+                withAnimation(.snappy(duration: 0.15)) {
+                    if isCollapsed {
+                        collapsedNodes.remove(node.id)
+                    } else {
+                        collapsedNodes.insert(node.id)
+                    }
+                }
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                    .frame(width: 12, height: 16)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            FileIcon(url: folderURL, isDirectory: true, isExpanded: !isCollapsed, width: settings.sidebarIconWidth)
+
+            Text(node.name)
+                .font(.system(size: settings.sidebarFontSize, weight: .medium))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
 
             Spacer(minLength: 4)
 
-            // Additions / Deletions
+            if isHovered {
+                if isStaged {
+                    Button {
+                        Task { await model.unstageFolder(node.relativePath) }
+                    } label: {
+                        Image(systemName: "minus")
+                            .font(.system(size: 10, weight: .bold))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Unstage folder")
+                } else {
+                    Button {
+                        Task { await model.stageFolder(node.relativePath) }
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 10, weight: .bold))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stage folder")
+
+                    Button {
+                        Task { await model.discardFolderChanges(node.relativePath) }
+                    } label: {
+                        Image(systemName: "arrow.uturn.backward")
+                            .font(.system(size: 10))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Discard folder changes")
+                }
+            }
+
+            Text("\(node.allFiles.count)")
+                .font(.system(size: max(settings.sidebarFontSize - 2.5, 8), weight: .medium, design: .monospaced))
+                .foregroundStyle(.secondary.opacity(0.8))
+                .padding(.trailing, 2)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, max(3, (settings.sidebarFontSize - 7) / 2))
+        .background {
+            if isHovered {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(Color.primary.opacity(0.04))
+            }
+        }
+        .contentShape(Rectangle())
+        .onHover { isHovering in
+            hoveredNodeID = isHovering ? node.id : (hoveredNodeID == node.id ? nil : hoveredNodeID)
+        }
+        .onTapGesture {
+            withAnimation(.snappy(duration: 0.15)) {
+                if isCollapsed {
+                    collapsedNodes.remove(node.id)
+                } else {
+                    collapsedNodes.insert(node.id)
+                }
+            }
+        }
+    }
+
+    private func fileRow(file: GitFileItem, depth: Int) -> some View {
+        let fileURL = workspace.rootURL.appending(path: file.relativePath)
+        let isHovered = hoveredNodeID == file.id
+
+        return HStack(spacing: 5) {
+            if depth > 0 {
+                Spacer().frame(width: CGFloat(depth * 12))
+            }
+
+            Color.clear
+                .frame(width: 12, height: 16)
+
+            FileIcon(url: fileURL, width: settings.sidebarIconWidth)
+
+            Text(file.fileName)
+                .font(.system(size: settings.sidebarFontSize))
+                .foregroundStyle(file.status.badgeColor)
+                .lineLimit(1)
+
+            Spacer(minLength: 4)
+
+            if isHovered {
+                Button {
+                    Task {
+                        if file.isStaged {
+                            await model.unstageFile(file)
+                        } else {
+                            await model.stageFile(file)
+                        }
+                    }
+                } label: {
+                    Image(systemName: file.isStaged ? "minus" : "plus")
+                        .font(.system(size: 10, weight: .bold))
+                }
+                .buttonStyle(.plain)
+                .help(file.isStaged ? "Unstage changes" : "Stage changes")
+
+                if !file.isStaged {
+                    Button {
+                        Task { await model.discardChanges(for: file) }
+                    } label: {
+                        Image(systemName: "arrow.uturn.backward")
+                            .font(.system(size: 10))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Discard changes")
+                }
+            }
+
             if file.additions > 0 || file.deletions > 0 {
                 HStack(spacing: 2) {
                     if file.additions > 0 {
@@ -278,44 +451,114 @@ struct SourceControlChangesView: View {
                 .font(.system(size: max(settings.sidebarFontSize - 2, 8), weight: .semibold, design: .monospaced))
             }
 
-            // Quick stage/unstage button
-            Button {
-                Task {
-                    if file.isStaged {
-                        await model.unstageFile(file)
-                    } else {
-                        await model.stageFile(file)
-                    }
-                }
-            } label: {
-                Image(systemName: file.isStaged ? "minus" : "plus")
-                    .font(.system(size: 10, weight: .bold))
-            }
-            .buttonStyle(.plain)
-            .help(file.isStaged ? "Unstage changes" : "Stage changes")
-
-            // Discard button for unstaged changes
-            if !file.isStaged {
-                Button {
-                    Task { await model.discardChanges(for: file) }
-                } label: {
-                    Image(systemName: "arrow.uturn.backward")
-                        .font(.system(size: 10))
-                }
-                .buttonStyle(.plain)
-                .help("Discard changes")
-            }
+            // Extreme right: Git change badge (M, U, A, D)
+            Text(file.status.badgeLetter)
+                .font(.system(size: max(settings.sidebarFontSize - 2, 8), weight: .bold, design: .monospaced))
+                .foregroundStyle(file.status.badgeColor)
+                .frame(width: 14)
         }
         .padding(.horizontal, 6)
         .padding(.vertical, max(3, (settings.sidebarFontSize - 7) / 2))
         .background {
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(Color.primary.opacity(0.04))
+            if isHovered {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(Color.primary.opacity(0.04))
+            }
         }
         .contentShape(Rectangle())
+        .onHover { isHovering in
+            hoveredNodeID = isHovering ? file.id : (hoveredNodeID == file.id ? nil : hoveredNodeID)
+        }
         .onTapGesture {
-            workspace.open(fileURL)
-            workspace.reveal(fileURL)
+            workspace.openDiff(for: fileURL)
+        }
+        .contextMenu {
+            Button("Open Diff") { workspace.openDiff(for: fileURL) }
+            Button("Open File") {
+                workspace.open(fileURL)
+                workspace.reveal(fileURL)
+            }
+            Divider()
+            if file.isStaged {
+                Button("Unstage Changes") { Task { await model.unstageFile(file) } }
+            } else {
+                Button("Stage Changes") { Task { await model.stageFile(file) } }
+                Button("Discard Changes") { Task { await model.discardChanges(for: file) } }
+            }
+            Divider()
+            Button("Show in Finder") { Finder.reveal(fileURL) }
+            Button("Copy Path") { Finder.copyPath(fileURL) }
+            Button("Copy Relative Path") { Finder.copyPath(file.relativePath) }
+        }
+    }
+
+    // MARK: - Tree Construction
+
+    private func buildChangeTree(from files: [GitFileItem]) -> [ChangeTreeNode] {
+        class MutableNode {
+            let name: String
+            let relativePath: String
+            let isDirectory: Bool
+            var file: GitFileItem?
+            var childrenMap: [String: MutableNode] = [:]
+
+            init(name: String, relativePath: String, isDirectory: Bool, file: GitFileItem? = nil) {
+                self.name = name
+                self.relativePath = relativePath
+                self.isDirectory = isDirectory
+                self.file = file
+            }
+
+            func toImmutable() -> ChangeTreeNode {
+                let sortedChildren = childrenMap.values.map { $0.toImmutable() }.sorted { a, b in
+                    if a.isDirectory != b.isDirectory {
+                        return a.isDirectory && !b.isDirectory
+                    }
+                    return a.name.localizedStandardCompare(b.name) == .orderedAscending
+                }
+                return ChangeTreeNode(
+                    id: relativePath,
+                    name: name,
+                    relativePath: relativePath,
+                    isDirectory: isDirectory,
+                    file: file,
+                    children: sortedChildren
+                )
+            }
+        }
+
+        let root = MutableNode(name: "", relativePath: "", isDirectory: true)
+
+        for item in files {
+            let components = item.relativePath.split(separator: "/").map(String.init)
+            var current = root
+            var currentPath = ""
+            for (index, comp) in components.enumerated() {
+                currentPath = currentPath.isEmpty ? comp : "\(currentPath)/\(comp)"
+                let isLast = index == components.count - 1
+                if let existing = current.childrenMap[comp] {
+                    if isLast {
+                        existing.file = item
+                    }
+                    current = existing
+                } else {
+                    let newNode = MutableNode(
+                        name: comp,
+                        relativePath: currentPath,
+                        isDirectory: !isLast,
+                        file: isLast ? item : nil
+                    )
+                    current.childrenMap[comp] = newNode
+                    current = newNode
+                }
+            }
+        }
+
+        return root.childrenMap.values.map { $0.toImmutable() }.sorted { a, b in
+            if a.isDirectory != b.isDirectory {
+                return a.isDirectory && !b.isDirectory
+            }
+            return a.name.localizedStandardCompare(b.name) == .orderedAscending
         }
     }
 }

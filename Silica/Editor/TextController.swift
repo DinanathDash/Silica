@@ -12,6 +12,7 @@ final class TextController: NSObject, NSTextViewDelegate {
     private var highlighter: SyntaxHighlighter?
     private var lineNumbers: LineNumberRulerView?
     private var minimap: MinimapView!
+    private var gitDiffTask: Task<Void, Never>?
 
     init(text: String, language: SyntaxLanguage?) {
         // Built by hand: `EditorTextView.scrollableTextView()` returned a TextKit 1 view,
@@ -185,6 +186,7 @@ final class TextController: NSObject, NSTextViewDelegate {
 
     /// Called when the editor appears in the card.
     func didAppear() {
+        scheduleGitDiffUpdate(delay: .zero)
         guard let line = pendingTopLine else { return }
         pendingTopLine = nil
         scroll(toLine: line)
@@ -370,6 +372,7 @@ final class TextController: NSObject, NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
         highlighter?.textDidChange()
         lineNumbers?.textDidChange()
+        scheduleGitDiffUpdate()
         if !isReplacingText {
             if buffer?.isDirty == false {
                 buffer?.isDirty = true
@@ -458,6 +461,87 @@ final class TextController: NSObject, NSTextViewDelegate {
             // Matches `topVisibleLine()`, so saving and restoring doesn't drift.
             textView.scroll(NSPoint(x: 0, y: fragment.layoutFragmentFrame.minY + textView.textContainerOrigin.y))
         }
+    }
+
+    // MARK: - Git Diff Gutter Markers
+
+    func scheduleGitDiffUpdate(delay: Duration = .milliseconds(250)) {
+        gitDiffTask?.cancel()
+        gitDiffTask = Task { @MainActor [weak self] in
+            if delay > .zero {
+                try? await Task.sleep(for: delay)
+            }
+            guard let self, !Task.isCancelled else { return }
+            guard let buffer = self.buffer, !buffer.isUntitled, let projectURL = buffer.projectURL else {
+                self.lineNumbers?.updateGitDiff(markers: [:])
+                return
+            }
+            let fileURL = buffer.url
+            let markers = await self.computeGitDiff(fileURL: fileURL, in: projectURL)
+            guard !Task.isCancelled else { return }
+            self.lineNumbers?.updateGitDiff(markers: markers)
+        }
+    }
+
+    private func computeGitDiff(fileURL: URL, in projectURL: URL) async -> [Int: LineNumberRulerView.LineDiffKind] {
+        let relativePath: String
+        let projectPath = projectURL.standardizedFileURL.path(percentEncoded: false)
+        let filePath = fileURL.standardizedFileURL.path(percentEncoded: false)
+        if filePath.hasPrefix(projectPath) {
+            let start = filePath.index(filePath.startIndex, offsetBy: projectPath.count)
+            var rel = String(filePath[start...])
+            if rel.hasPrefix("/") { rel.removeFirst() }
+            relativePath = rel
+        } else {
+            relativePath = fileURL.lastPathComponent
+        }
+
+        let res = await GitRunner.shared.run(arguments: ["diff", "-U0", "HEAD", "--", relativePath], in: projectURL)
+        if !res.stdout.isEmpty {
+            return Self.parseDiffOutput(res.stdout)
+        }
+
+        let statusRes = await GitRunner.shared.run(arguments: ["status", "--porcelain", "--", relativePath], in: projectURL)
+        if statusRes.stdout.trimmingCharacters(in: .whitespaces).hasPrefix("??") {
+            let count = self.lineNumbers?.lineCount ?? 1
+            var markers: [Int: LineNumberRulerView.LineDiffKind] = [:]
+            for i in 1...max(1, count) {
+                markers[i] = .added
+            }
+            return markers
+        }
+
+        return [:]
+    }
+
+    private static func parseDiffOutput(_ output: String) -> [Int: LineNumberRulerView.LineDiffKind] {
+        var markers: [Int: LineNumberRulerView.LineDiffKind] = [:]
+        for line in output.split(separator: "\n") {
+            guard line.hasPrefix("@@ ") else { continue }
+            let parts = line.split(separator: " ")
+            guard parts.count >= 3 else { continue }
+            let oldPart = parts[1]
+            let newPart = parts[2]
+            guard oldPart.hasPrefix("-"), newPart.hasPrefix("+") else { continue }
+            let oldNums = oldPart.dropFirst().split(separator: ",")
+            let newNums = newPart.dropFirst().split(separator: ",")
+            guard let newStart = Int(newNums[0]) else { continue }
+            let oldCount = oldNums.count > 1 ? (Int(oldNums[1]) ?? 1) : 1
+            let newCount = newNums.count > 1 ? (Int(newNums[1]) ?? 1) : 1
+
+            if oldCount == 0 {
+                for l in newStart..<(newStart + max(1, newCount)) {
+                    markers[l] = .added
+                }
+            } else if newCount == 0 {
+                markers[newStart] = .deleted
+            } else {
+                for l in newStart..<(newStart + newCount) {
+                    markers[l] = .modified
+                }
+            }
+        }
+        return markers
     }
 }
 

@@ -12,9 +12,23 @@ final class LineNumberRulerView: NSRulerView {
     private var lineStarts: [Int] = [0]
     private var lineStartsAreStale = true
 
+    enum LineDiffKind: Equatable {
+        case added
+        case modified
+        case deleted
+    }
+
+    private var diffMarkers: [Int: LineDiffKind] = [:]
+
     private var font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
     private let leadingPadding: CGFloat = 6
     private let trailingPadding: CGFloat = 6
+
+    func updateGitDiff(markers: [Int: LineDiffKind]) {
+        guard self.diffMarkers != markers else { return }
+        self.diffMarkers = markers
+        self.needsDisplay = true
+    }
 
     init(textView: NSTextView, scrollView: NSScrollView, editorFontSize: CGFloat) {
         self.textView = textView
@@ -132,6 +146,21 @@ final class LineNumberRulerView: NSRulerView {
                 let label = NSAttributedString(string: "\(index + 1)", attributes: index == currentLine ? current : normal)
                 let x = bounds.width - trailingPadding - label.size().width
                 label.draw(at: NSPoint(x: x, y: y))
+
+                // Gutter Git Diff Indicator (2.5pt vertical bar on extreme right edge of ruler)
+                if let diffKind = diffMarkers[index + 1] {
+                    let markerColor: NSColor
+                    switch diffKind {
+                    case .added: markerColor = .systemGreen
+                    case .modified: markerColor = .systemBlue
+                    case .deleted: markerColor = .systemRed
+                    }
+                    markerColor.setFill()
+                    let markerHeight = max(line.typographicBounds.height, font.pointSize + 4)
+                    let markerY = convert(NSPoint(x: 0, y: origin.y + frame.minY + line.typographicBounds.minY), from: textView).y
+                    let markerRect = NSRect(x: bounds.width - 2.5, y: markerY, width: 2.5, height: markerHeight)
+                    markerRect.fill()
+                }
             }
             return true
         }

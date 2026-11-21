@@ -61,7 +61,7 @@ struct SourceControlView: View {
                                 }
                             )
                         case .history:
-                            SourceControlHistoryView(model: model)
+                            SourceControlHistoryView(workspace: workspace, model: model)
                         case .branches:
                             SourceControlBranchesView(model: model)
                         }
