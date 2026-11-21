@@ -117,7 +117,7 @@ struct SourceControlHistoryView: View {
     private func commitTimelineRow(commit: GitCommitItem) -> some View {
         let isCurrentPopover = activePopoverCommitID == commit.id
         // Dynamic row width: sizes tightly to the maximum active lane in this specific row, eliminating dead space
-        let rowCanvasWidth = CGFloat(commit.timelineNode.rowMaxLane + 1) * 12 + 4
+        let rowCanvasWidth = CGFloat(commit.timelineNode.rowMaxLane + 1) * 12 + 6
 
         return HStack(spacing: 5) {
             // Visual Git timeline graph with natural Bézier physics
@@ -214,15 +214,17 @@ struct SourceControlHistoryView: View {
 // MARK: - Git Timeline Components
 
 enum GitTimelineColors {
-    // Authentic Git graph palette: Royal Blue, Amber Orange, Sky Blue, Mint Green, Purple, Pink, Teal
+    // Vibrant, high-contrast timeline palette matching Droppy Code & modern Git graphs:
+    // Electric Purple (main), Warm Amber, Bright Teal, Lilac, Sunflower Yellow, Hot Magenta, Sky Blue, Mint
     static let palette: [Color] = [
-        Color(red: 0.12, green: 0.45, blue: 0.88), // Royal Git Blue
-        Color(red: 0.96, green: 0.51, blue: 0.13), // Vibrant Git Orange / Amber
-        Color(red: 0.35, green: 0.65, blue: 0.98), // Sky Blue
-        Color(red: 0.18, green: 0.63, blue: 0.26), // Emerald / Mint Green
-        Color(red: 0.54, green: 0.34, blue: 0.90), // Purple / Violet
-        Color(red: 0.97, green: 0.47, blue: 0.73), // Coral / Pink
-        Color(red: 0.22, green: 0.77, blue: 0.73)  // Turquoise / Teal
+        Color(red: 0.62, green: 0.42, blue: 0.94), // Lane 0: Electric Purple / Indigo
+        Color(red: 0.92, green: 0.54, blue: 0.14), // Lane 1: Warm Amber / Orange
+        Color(red: 0.16, green: 0.74, blue: 0.68), // Lane 2: Bright Teal / Cyan
+        Color(red: 0.74, green: 0.40, blue: 0.96), // Lane 3: Lilac / Violet
+        Color(red: 0.96, green: 0.68, blue: 0.15), // Lane 4: Sunflower Yellow / Gold
+        Color(red: 0.95, green: 0.26, blue: 0.60), // Lane 5: Hot Magenta / Pink
+        Color(red: 0.32, green: 0.66, blue: 0.98), // Lane 6: Sky Blue
+        Color(red: 0.22, green: 0.78, blue: 0.42)  // Lane 7: Mint Green
     ]
 
     static func color(for lane: Int) -> Color {
@@ -230,13 +232,13 @@ enum GitTimelineColors {
     }
 }
 
-/// Renders visual git graph branches, merges, and commit nodes with soft Bézier curves and round caps.
+/// Renders visual git graph branches, merges, and commit nodes with orthogonal fillets and dashed branch tracks.
 struct GitTimelineCanvas: View {
     let node: GitTimelineNode
     let isMerge: Bool
 
     private func laneX(_ lane: Int) -> CGFloat {
-        CGFloat(lane) * 12 + 7
+        CGFloat(lane) * 12 + 8
     }
 
     var body: some View {
@@ -244,44 +246,62 @@ struct GitTimelineCanvas: View {
             let rowHeight: CGFloat = size.height
             let centerY: CGFloat = rowHeight / 2.0
             let nodeX = laneX(node.lane)
-            let strokeStyle = StrokeStyle(lineWidth: 2.25, lineCap: .round, lineJoin: .round)
+            let solidStyle = StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round)
+            let dashedStyle = StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round, dash: [3.5, 2.5])
 
-            // 1. Draw passing lines
+            // 1. Draw passing lines (continuous vertical tracks for active parallel branches)
             for passingLane in node.passingLanes {
                 let px = laneX(passingLane)
                 var path = Path()
                 path.move(to: CGPoint(x: px, y: 0))
                 path.addLine(to: CGPoint(x: px, y: rowHeight))
-                context.stroke(path, with: .color(GitTimelineColors.color(for: passingLane)), style: strokeStyle)
+                context.stroke(path, with: .color(GitTimelineColors.color(for: passingLane)), style: solidStyle)
             }
 
-            // 2. Draw incoming line to node
+            // 2. Draw incoming line to node (solid on main trunk, dashed between branch commits)
             if node.hasIncoming {
                 var path = Path()
                 path.move(to: CGPoint(x: nodeX, y: 0))
                 path.addLine(to: CGPoint(x: nodeX, y: centerY))
-                context.stroke(path, with: .color(GitTimelineColors.color(for: node.lane)), style: strokeStyle)
+                let style = node.lane > 0 ? dashedStyle : solidStyle
+                context.stroke(path, with: .color(GitTimelineColors.color(for: node.lane)), style: style)
             }
 
-            // 3. Draw outgoing connections (straight tracks and soft sigmoid curves)
+            // 3. Draw outgoing connections
             for conn in node.outgoingConnections {
                 let fromX = laneX(conn.fromLane)
                 let toX = laneX(conn.toLane)
+                let connColor = GitTimelineColors.color(for: conn.toLane)
                 var path = Path()
                 path.move(to: CGPoint(x: fromX, y: centerY))
 
                 if conn.fromLane == conn.toLane {
+                    // Straight track: dashed between commits on feature branch (lane > 0), solid on main (lane 0)
                     path.addLine(to: CGPoint(x: toX, y: rowHeight))
-                } else {
+                    let style = conn.fromLane > 0 ? dashedStyle : solidStyle
+                    context.stroke(path, with: .color(connColor), style: style)
+                } else if toX > fromX {
+                    // Branch-off curve: leaves the node horizontally to the right, then 90° circular fillet down to target lane
                     let dy = rowHeight - centerY
-                    // Pure smooth S-curve transition with smooth vertical tangency at both ends
+                    let r = min(7.5, (toX - fromX) * 0.7, dy * 0.8)
+                    path.addLine(to: CGPoint(x: toX - r, y: centerY))
+                    path.addArc(
+                        tangent1End: CGPoint(x: toX, y: centerY),
+                        tangent2End: CGPoint(x: toX, y: rowHeight),
+                        radius: r
+                    )
+                    path.addLine(to: CGPoint(x: toX, y: rowHeight))
+                    context.stroke(path, with: .color(connColor), style: solidStyle)
+                } else {
+                    // Merge-in curve: transitions from branch lane leftwards into parent lane with smooth tangent
+                    let dy = rowHeight - centerY
                     path.addCurve(
                         to: CGPoint(x: toX, y: rowHeight),
-                        control1: CGPoint(x: fromX, y: centerY + dy * 0.38),
-                        control2: CGPoint(x: toX, y: rowHeight - dy * 0.38)
+                        control1: CGPoint(x: fromX, y: centerY + dy * 0.6),
+                        control2: CGPoint(x: toX, y: rowHeight - dy * 0.6)
                     )
+                    context.stroke(path, with: .color(connColor), style: solidStyle)
                 }
-                context.stroke(path, with: .color(GitTimelineColors.color(for: conn.toLane)), style: strokeStyle)
             }
 
             // 4. Draw commit node
@@ -289,15 +309,15 @@ struct GitTimelineCanvas: View {
             let center = CGPoint(x: nodeX, y: centerY)
 
             if isMerge {
-                // Merge commit node: authentic outer ring with inner dot
+                // Merge commit node: concentric double-ring target (outer stroked ring + inner filled dot)
                 let outerRect = CGRect(x: center.x - 5.5, y: center.y - 5.5, width: 11, height: 11)
                 context.fill(Path(ellipseIn: outerRect.insetBy(dx: -1.0, dy: -1.0)), with: .color(Color(nsColor: .windowBackgroundColor)))
-                context.stroke(Path(ellipseIn: outerRect), with: .color(nodeColor), lineWidth: 2.0)
-                let innerRect = CGRect(x: center.x - 2.5, y: center.y - 2.5, width: 5.0, height: 5.0)
+                context.stroke(Path(ellipseIn: outerRect), with: .color(nodeColor), lineWidth: 1.75)
+                let innerRect = CGRect(x: center.x - 2.25, y: center.y - 2.25, width: 4.5, height: 4.5)
                 context.fill(Path(ellipseIn: innerRect), with: .color(nodeColor))
             } else {
-                // Normal commit node: solid dot with clear background knockout halo
-                let haloRect = CGRect(x: center.x - 4.5, y: center.y - 4.5, width: 9.0, height: 9.0)
+                // Normal commit node: solid filled circle with clear background knockout halo
+                let haloRect = CGRect(x: center.x - 4.75, y: center.y - 4.75, width: 9.5, height: 9.5)
                 context.stroke(Path(ellipseIn: haloRect), with: .color(Color(nsColor: .windowBackgroundColor)), lineWidth: 1.5)
                 let dotRect = CGRect(x: center.x - 3.75, y: center.y - 3.75, width: 7.5, height: 7.5)
                 context.fill(Path(ellipseIn: dotRect), with: .color(nodeColor))
