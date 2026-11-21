@@ -131,6 +131,8 @@ final class KeybindSettingsTests {
         (keybind("f", [.control, .command]), "Enter Full Screen"),
         (keybind("q", [.option, .command]), "Quit and Keep Windows"),
         (Keybind(key: .return, modifiers: .command)!, "Commit (in the commit message)"),
+        (Keybind(key: .space, modifiers: [.control, .command])!, "Emoji & Symbols"),
+        (keybind("/", [.shift, .command]), "Silica Help"),
     ])
     func editAndWindowMenuShortcutsConflict(keybind: Keybind, title: String) {
         #expect(throws: KeybindSettings.Error.commandConflict(keybind, title)) {

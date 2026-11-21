@@ -65,8 +65,8 @@ enum ConfigKeyCommand: String, KeyCommand {
 
 /// A shortcut that doesn't come from `AppCommands`, so it can't change: a menu item
 /// from macOS or from SwiftUI's `TextEditingCommands`, or a key a view handles itself.
-/// Listed so a keybind can't take its shortcut. Items bound only with the Globe key (the Window menu's tiling,
-/// Emoji & Symbols) are left out: the recorder can't record that key.
+/// Listed so a keybind can't take its shortcut. The Window menu's tiling items, bound
+/// only with the Globe key, are left out: the recorder can't record that key.
 enum SystemKeyCommand: String, CaseIterable, Identifiable {
     
     var id: String {
@@ -93,6 +93,7 @@ enum SystemKeyCommand: String, CaseIterable, Identifiable {
     case jumpToSelection
     case showSpellingAndGrammar
     case checkDocumentNow
+    case emojiAndSymbols
     // View menu
     case showAllTabs
     case enterFullScreen
@@ -105,6 +106,8 @@ enum SystemKeyCommand: String, CaseIterable, Identifiable {
     case lockScreen
     case logOut
     case logOutNow
+    // Help menu
+    case help
     // Handled by views, which get keys after the menus do.
     case commit
     
@@ -128,6 +131,8 @@ enum SystemKeyCommand: String, CaseIterable, Identifiable {
         case .jumpToSelection: "Jump to Selection"
         case .showSpellingAndGrammar: "Show Spelling and Grammar"
         case .checkDocumentNow: "Check Document Now"
+        // Shown as 🌐E, but ⌃⌘Space still works.
+        case .emojiAndSymbols: "Emoji & Symbols"
         case .showAllTabs: "Show All Tabs"
         // Shown as 🌐F, but ⌃⌘F still works.
         case .enterFullScreen: "Enter Full Screen"
@@ -138,6 +143,7 @@ enum SystemKeyCommand: String, CaseIterable, Identifiable {
         case .lockScreen: "Lock Screen"
         case .logOut: "Log Out"
         case .logOutNow: "Log Out Without Asking"
+        case .help: "Silica Help"
         case .commit: "Commit (in the commit message)"
         }
     }
@@ -162,6 +168,7 @@ enum SystemKeyCommand: String, CaseIterable, Identifiable {
         case .jumpToSelection: .init(key: "j", modifiers: .command)!
         case .showSpellingAndGrammar: .init(key: ":", modifiers: .command)!
         case .checkDocumentNow: .init(key: ";", modifiers: .command)!
+        case .emojiAndSymbols: .init(key: .space, modifiers: [.control, .command])!
         case .showAllTabs: .init(key: "\\", modifiers: [.shift, .command])!
         case .enterFullScreen: .init(key: "f", modifiers: [.control, .command])!
         case .minimize: .init(key: "m", modifiers: .command)!
@@ -171,6 +178,7 @@ enum SystemKeyCommand: String, CaseIterable, Identifiable {
         case .lockScreen: .init(key: "q", modifiers: [.control, .command])!
         case .logOut: .init(key: "q", modifiers: [.shift, .command])!
         case .logOutNow: .init(key: "q", modifiers: [.option, .shift, .command])!
+        case .help: .init(key: "?", modifiers: .command)!
         case .commit: .init(key: .return, modifiers: .command)!
         }
     }

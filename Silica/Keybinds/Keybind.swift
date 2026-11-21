@@ -186,15 +186,6 @@ extension Keybind {
             }
             self = mods
         }
-        
-        func asBindingModifiers() -> [KeybindFile.Binding.Modifier] {
-            var modifiers = [KeybindFile.Binding.Modifier]()
-            if contains(.command) { modifiers.append(.command) }
-            if contains(.option) { modifiers.append(.option) }
-            if contains(.control) { modifiers.append(.control) }
-            if contains(.shift) { modifiers.append(.shift) }
-            return modifiers
-        }
     }
 }
 
