@@ -15,6 +15,10 @@ struct SourceControlHistoryView: View {
     @State private var expandedCommitID: String?
     @State private var commitFilesCache: [String: [CommitChangedFile]] = [:]
     @State private var loadingCommitHashes: Set<String> = []
+    @State private var hoveredFileID: String?
+    @State private var isShowingCreateBranchSheet = false
+    @State private var branchCommitTarget: GitCommitItem?
+    @State private var newBranchName = ""
 
     private var filteredCommits: [GitCommitItem] {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -35,26 +39,41 @@ struct SourceControlHistoryView: View {
             HStack(spacing: 6) {
                 searchBar
 
-                Picker("", selection: Binding(
-                    get: { model.historyBranch ?? "" },
-                    set: { newBranch in
-                        let branch = newBranch.isEmpty ? nil : newBranch
-                        Task { await model.setHistoryBranch(branch) }
+                Menu {
+                    Button("Current (\(model.branchName ?? "HEAD"))") {
+                        Task { await model.setHistoryBranch(nil) }
                     }
-                )) {
-                    Text("Current (\(model.branchName ?? "HEAD"))").tag("")
                     if !model.branches.isEmpty {
                         Divider()
                         ForEach(model.branches) { branch in
-                            Text(branch.name).tag(branch.name)
+                            Button(branch.name) {
+                                Task { await model.setHistoryBranch(branch.name) }
+                            }
                         }
                     }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(model.historyBranch ?? "Current (\(model.branchName ?? "HEAD"))")
+                            .font(.system(size: settings.sidebarFontSize))
+                            .lineLimit(1)
+                        Spacer(minLength: 2)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 28)
+                    .frame(maxWidth: 145)
+                    .background {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .stroke(Color.secondary.opacity(0.2), lineWidth: 0.5)
+                            )
+                    }
                 }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .controlSize(.regular)
-                .frame(height: 34)
-                .frame(maxWidth: 140)
+                .menuStyle(.borderlessButton)
                 .help("Select branch to inspect history")
             }
             .padding(.bottom, 2)
@@ -134,6 +153,27 @@ struct SourceControlHistoryView: View {
             activePopoverCommitID = nil
             // Automatically dismiss extra older commits to free up memory when leaving view
             model.pruneExtraCommits()
+        }
+        .alert("Create Branch", isPresented: $isShowingCreateBranchSheet) {
+            TextField("Branch name", text: $newBranchName)
+            Button("Create") {
+                let name = newBranchName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !name.isEmpty, let target = branchCommitTarget {
+                    Task {
+                        _ = await model.createBranch(name: name, from: target.hash)
+                    }
+                }
+                newBranchName = ""
+                branchCommitTarget = nil
+            }
+            Button("Cancel", role: .cancel) {
+                newBranchName = ""
+                branchCommitTarget = nil
+            }
+        } message: {
+            if let target = branchCommitTarget {
+                Text("Create and switch to a new branch starting from commit \(target.shortHash) (“\(target.summary)”).")
+            }
         }
     }
 
@@ -287,90 +327,200 @@ struct SourceControlHistoryView: View {
                 }
             )
         }
+        .contextMenu {
+            Button("New Branch from this Commit…") {
+                branchCommitTarget = commit
+                newBranchName = ""
+                isShowingCreateBranchSheet = true
+            }
+
+            Button("Checkout Commit (\(commit.shortHash))") {
+                Task { await model.checkoutCommit(commit.hash) }
+            }
+
+            Button("Cherry-pick Commit") {
+                Task { await model.cherryPick(commitHash: commit.hash) }
+            }
+
+            if model.isDetachedHead || commit.hash != model.commits.first?.hash {
+                Divider()
+                Button("Return to Latest Commit (\(model.lastKnownBranch))") {
+                    Task { _ = await model.returnToLatestBranch() }
+                }
+            }
+
+            Divider()
+
+            Button("Copy SHA (\(commit.shortHash))") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(commit.hash, forType: .string)
+            }
+
+            Button("Copy Commit Message") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(commit.summary, forType: .string)
+            }
+        }
     }
 
     // MARK: - Changed Files List
 
+    private func continuingLanes(for commit: GitCommitItem) -> Set<Int> {
+        var lanes = Set(commit.timelineNode.passingLanes)
+        for conn in commit.timelineNode.outgoingConnections {
+            lanes.insert(conn.toLane)
+        }
+        if lanes.isEmpty {
+            lanes.insert(commit.timelineNode.lane)
+        }
+        return lanes
+    }
+
     private func commitFilesList(commit: GitCommitItem) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        let activeLanes = continuingLanes(for: commit)
+        let rowCanvasWidth = CGFloat(commit.timelineNode.rowMaxLane + 1) * 12 + 6
+        let fileRowHeight = max(22, settings.sidebarFontSize + 9)
+
+        return VStack(alignment: .leading, spacing: 0) {
             if loadingCommitHashes.contains(commit.hash) {
-                HStack(spacing: 6) {
+                HStack(spacing: 5) {
+                    TimelineContinuationTrack(lanes: activeLanes, width: rowCanvasWidth)
+                        .frame(width: rowCanvasWidth, height: fileRowHeight)
                     ProgressView()
                         .controlSize(.mini)
                     Text("Loading changed files…")
                         .font(.system(size: max(settings.sidebarFontSize - 2, 9)))
                         .foregroundStyle(.secondary)
+                    Spacer()
                 }
-                .padding(.leading, 24)
-                .padding(.vertical, 4)
+                .padding(.horizontal, 4)
+                .frame(height: fileRowHeight)
             } else if let files = commitFilesCache[commit.hash] {
                 if files.isEmpty {
-                    Text("No files changed in this commit")
-                        .font(.system(size: max(settings.sidebarFontSize - 2, 9)))
-                        .foregroundStyle(.secondary)
-                        .padding(.leading, 24)
-                        .padding(.vertical, 3)
+                    HStack(spacing: 5) {
+                        TimelineContinuationTrack(lanes: activeLanes, width: rowCanvasWidth)
+                            .frame(width: rowCanvasWidth, height: fileRowHeight)
+                        Text("No files changed in this commit")
+                            .font(.system(size: max(settings.sidebarFontSize - 2, 9)))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 4)
+                    .frame(height: fileRowHeight)
                 } else {
                     ForEach(files) { file in
-                        let fileURL = workspace.rootURL.appending(path: file.relativePath)
-                        HStack(spacing: 6) {
-                            // Extreme left: Git badge (M, A, D, etc.)
-                            Text(file.status.badgeLetter)
-                                .font(.system(size: max(settings.sidebarFontSize - 2, 8), weight: .bold, design: .monospaced))
-                                .foregroundStyle(file.status.badgeColor)
-                                .frame(width: 14)
-
-                            // File icon
-                            FileIcon(url: fileURL, width: settings.sidebarIconWidth)
-
-                            // File name
-                            Text(file.fileName)
-                                .font(.system(size: settings.sidebarFontSize))
-                                .foregroundStyle(.primary)
-                                .lineLimit(1)
-
-                            if !file.directoryPath.isEmpty {
-                                Text(file.directoryPath)
-                                    .font(.system(size: max(settings.sidebarFontSize - 2, 8)))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-
-                            Spacer(minLength: 4)
-
-                            // Extreme right: Addition/deletion stats (+X -Y)
-                            if file.additions > 0 || file.deletions > 0 {
-                                HStack(spacing: 2) {
-                                    if file.additions > 0 {
-                                        Text("+\(file.additions)").foregroundStyle(.green)
-                                    }
-                                    if file.deletions > 0 {
-                                        Text("-\(file.deletions)").foregroundStyle(.red)
-                                    }
-                                }
-                                .font(.system(size: max(settings.sidebarFontSize - 2, 8), weight: .semibold, design: .monospaced))
-                            }
-                        }
-                        .padding(.leading, 22)
-                        .padding(.trailing, 6)
-                        .padding(.vertical, 3)
-                        .background {
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .fill(Color.primary.opacity(0.04))
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            workspace.openCommitDiff(
-                                commitHash: commit.hash,
-                                commitTitle: commit.summary,
-                                relativePath: file.relativePath
-                            )
-                        }
+                        commitFileRow(
+                            file: file,
+                            commit: commit,
+                            activeLanes: activeLanes,
+                            rowCanvasWidth: rowCanvasWidth,
+                            fileRowHeight: fileRowHeight
+                        )
                     }
                 }
             }
         }
-        .padding(.vertical, 2)
+    }
+
+    private func commitFileRow(
+        file: CommitChangedFile,
+        commit: GitCommitItem,
+        activeLanes: Set<Int>,
+        rowCanvasWidth: CGFloat,
+        fileRowHeight: CGFloat
+    ) -> some View {
+        let fileURL = workspace.rootURL.appending(path: file.relativePath)
+        let isHovered = hoveredFileID == (commit.id + file.id)
+
+        return HStack(spacing: 5) {
+            // Unbroken timeline track continues through every file row at top z-axis
+            TimelineContinuationTrack(lanes: activeLanes, width: rowCanvasWidth)
+                .frame(width: rowCanvasWidth, height: fileRowHeight)
+
+            // Extreme left: Git badge (M, A, D, etc.)
+            Text(file.status.badgeLetter)
+                .font(.system(size: max(settings.sidebarFontSize - 2, 8), weight: .bold, design: .monospaced))
+                .foregroundStyle(file.status.badgeColor)
+                .frame(width: 14)
+
+            // File icon
+            FileIcon(url: fileURL, width: settings.sidebarIconWidth)
+
+            // File name
+            Text(file.fileName)
+                .font(.system(size: settings.sidebarFontSize))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+
+            if !file.directoryPath.isEmpty {
+                Text(file.directoryPath)
+                    .font(.system(size: max(settings.sidebarFontSize - 2, 8)))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 4)
+
+            // Extreme right: Addition/deletion stats (+X -Y)
+            if file.additions > 0 || file.deletions > 0 {
+                HStack(spacing: 2) {
+                    if file.additions > 0 {
+                        Text("+\(file.additions)").foregroundStyle(.green)
+                    }
+                    if file.deletions > 0 {
+                        Text("-\(file.deletions)").foregroundStyle(.red)
+                    }
+                }
+                .font(.system(size: max(settings.sidebarFontSize - 2, 8), weight: .semibold, design: .monospaced))
+            }
+        }
+        .padding(.horizontal, 4)
+        .frame(height: fileRowHeight)
+        .contentShape(Rectangle())
+        .background {
+            if isHovered {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(Color.primary.opacity(0.04))
+            }
+        }
+        .onHover { isHovering in
+            hoveredFileID = isHovering ? (commit.id + file.id) : nil
+        }
+        .onTapGesture {
+            workspace.openCommitDiff(
+                commitHash: commit.hash,
+                commitTitle: commit.summary,
+                relativePath: file.relativePath
+            )
+        }
+    }
+}
+
+/// Continuous vertical timeline track running through expanded commit file rows so the line never breaks.
+struct TimelineContinuationTrack: View {
+    let lanes: Set<Int>
+    let width: CGFloat
+
+    private func laneX(_ lane: Int) -> CGFloat {
+        CGFloat(lane) * 12 + 8
+    }
+
+    var body: some View {
+        Canvas { context, size in
+            let rowHeight = size.height
+            let solidStyle = StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round)
+            let dashedStyle = StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round, dash: [3.5, 2.5])
+
+            for lane in lanes.sorted() {
+                let x = laneX(lane)
+                var path = Path()
+                path.move(to: CGPoint(x: x, y: 0))
+                path.addLine(to: CGPoint(x: x, y: rowHeight))
+                let style = lane > 0 ? dashedStyle : solidStyle
+                context.stroke(path, with: .color(GitTimelineColors.color(for: lane)), style: style)
+            }
+        }
+        .frame(width: width)
     }
 }
 

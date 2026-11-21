@@ -60,13 +60,16 @@ struct GitDiffView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView([.horizontal, .vertical]) {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(parsedLines) { line in
-                            diffLineRow(line: line)
+                GeometryReader { geometry in
+                    ScrollView([.horizontal, .vertical]) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(parsedLines) { line in
+                                diffLineRow(line: line)
+                            }
                         }
+                        .frame(minWidth: geometry.size.width, alignment: .leading)
+                        .padding(.vertical, 8)
                     }
-                    .padding(.vertical, 8)
                 }
                 .font(.system(size: settings.fontSize, design: .monospaced))
                 .textSelection(.enabled)
@@ -150,17 +153,6 @@ struct GitDiffView: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .help("Switch to live code editor")
-
-            Button {
-                workspace.closeDiff()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20, height: 20)
-            }
-            .buttonStyle(.plain)
-            .help("Close Diff")
         }
     }
 
@@ -223,7 +215,7 @@ struct GitDiffView: View {
                 .padding(.vertical, 1)
             }
         }
-        .frame(minWidth: 400, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func lineNumberView(oldLine: Int?, newLine: Int?) -> some View {

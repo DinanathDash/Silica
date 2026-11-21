@@ -21,6 +21,7 @@ final class SourceControlModel {
 
     private(set) var isGitRepository = false
     private(set) var branchName: String?
+    private(set) var lastKnownBranch: String = "development"
     private(set) var remoteHostType: RemoteHostType = .unknown
     private(set) var stagedFiles: [GitFileItem] = []
     private(set) var unstagedFiles: [GitFileItem] = []
@@ -101,7 +102,12 @@ final class SourceControlModel {
     private func loadStatus() async {
         let branchResult = await runner.run(arguments: ["branch", "--show-current"], in: rootURL)
         let rawBranch = branchResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.branchName = rawBranch.isEmpty ? "HEAD" : rawBranch
+        if !rawBranch.isEmpty {
+            self.branchName = rawBranch
+            self.lastKnownBranch = rawBranch
+        } else {
+            self.branchName = "HEAD"
+        }
 
         let remoteResult = await runner.run(arguments: ["config", "--get", "remote.origin.url"], in: rootURL)
         let remoteStr = remoteResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -916,6 +922,56 @@ final class SourceControlModel {
             return true
         } else {
             let alert = parseGitError(result.stderr, fallbackTitle: "Create Branch Failed", fallbackMessage: "Failed to create branch “\(trimmed)”.")
+            errorMessage = alert.message
+            activeAlert = alert
+            return false
+        }
+    }
+
+    var isDetachedHead: Bool {
+        branchName == "HEAD" || branchName == nil
+    }
+
+    @discardableResult
+    func checkoutCommit(_ commitHash: String) async -> (success: Bool, error: String?) {
+        let result = await runner.run(arguments: ["checkout", commitHash], in: rootURL)
+        if result.isSuccess {
+            errorMessage = nil
+            await refresh()
+            return (true, nil)
+        } else {
+            let alert = parseGitError(result.stderr, fallbackTitle: "Checkout Failed", fallbackMessage: "Could not checkout commit “\(commitHash)”.")
+            errorMessage = alert.message
+            activeAlert = alert
+            return (false, result.stderr)
+        }
+    }
+
+    @discardableResult
+    func cherryPick(commitHash: String) async -> (success: Bool, error: String?) {
+        let result = await runner.run(arguments: ["cherry-pick", commitHash], in: rootURL)
+        if result.isSuccess {
+            errorMessage = nil
+            await refresh()
+            return (true, nil)
+        } else {
+            let alert = parseGitError(result.stderr, fallbackTitle: "Cherry-pick Failed", fallbackMessage: "Could not cherry-pick commit “\(commitHash)”.")
+            errorMessage = alert.message
+            activeAlert = alert
+            return (false, result.stderr)
+        }
+    }
+
+    @discardableResult
+    func returnToLatestBranch() async -> Bool {
+        let target = lastKnownBranch.isEmpty ? "development" : lastKnownBranch
+        let result = await runner.run(arguments: ["checkout", target], in: rootURL)
+        if result.isSuccess {
+            errorMessage = nil
+            await refresh()
+            return true
+        } else {
+            let alert = parseGitError(result.stderr, fallbackTitle: "Switch Branch Failed", fallbackMessage: "Could not return to branch “\(target)”.")
             errorMessage = alert.message
             activeAlert = alert
             return false

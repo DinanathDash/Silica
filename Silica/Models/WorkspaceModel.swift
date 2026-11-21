@@ -718,10 +718,15 @@ final class WorkspaceModel {
         openTabs.remove(at: index)
         buffers[url] = nil
 
+        if activeDiff?.fileURL == url {
+            activeDiff = nil
+        }
+
         if activeTab == url {
             if openTabs.isEmpty {
                 activeTab = nil
                 selection = nil
+                activeDiff = nil
             } else {
                 activate(openTabs[min(index, openTabs.count - 1)])
             }

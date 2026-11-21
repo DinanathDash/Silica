@@ -86,7 +86,7 @@ struct EditorArea: View {
 
     private var editorCard: some View {
         Group {
-            if let diff = workspace.activeDiff {
+            if let diff = workspace.activeDiff, diff.fileURL == workspace.activeTab {
                 GitDiffView(diff: diff, workspace: workspace, model: workspace.sourceControl)
             } else if let buffer = workspace.activeBuffer {
                 BufferView(buffer: buffer, workspace: workspace)
