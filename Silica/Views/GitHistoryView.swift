@@ -6,6 +6,8 @@ import SwiftUI
 struct GitHistorySection: View {
     let workspace: WorkspaceModel
     @Bindable var git: GitModel
+    /// The list's selection, for the rows to know a click on the selected one.
+    let selection: String?
 
     var body: some View {
         Section(isExpanded: $git.isHistoryExpanded) {
@@ -14,7 +16,7 @@ struct GitHistorySection: View {
                     .tag(GitHistorySection.id(of: commit))
                 if git.expandedCommits.contains(commit.hash) {
                     GitCommitDetails(commit: commit)
-                    GitCommitFiles(commit: commit, workspace: workspace)
+                    GitCommitFiles(commit: commit, workspace: workspace, selection: selection)
                 }
             }
             if git.hasMoreHistory {
@@ -94,6 +96,7 @@ struct GitStashSection: View {
     let workspace: WorkspaceModel
     let git: GitModel
     let stashes: [GitStash]
+    let selection: String?
 
     var body: some View {
         Section {
@@ -105,7 +108,7 @@ struct GitStashSection: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .padding(.leading, 34)
-                    GitCommitFiles(commit: stash.commit, workspace: workspace)
+                    GitCommitFiles(commit: stash.commit, workspace: workspace, selection: selection)
                 }
             }
         } header: {
@@ -177,6 +180,7 @@ private struct GitStashRow: View {
 private struct GitCommitFiles: View {
     let commit: GitCommit
     let workspace: WorkspaceModel
+    let selection: String?
 
     var body: some View {
         if let files = workspace.git.commitFiles[commit.hash] {
@@ -184,7 +188,7 @@ private struct GitCommitFiles: View {
                 note("No files changed in this folder")
             }
             ForEach(files) { file in
-                GitCommitFileRow(file: file, workspace: workspace)
+                GitCommitFileRow(file: file, workspace: workspace, isSelected: selection == file.id)
                     .tag(file.id)
             }
         } else {
@@ -272,6 +276,7 @@ private struct GitCommitDetails: View {
 private struct GitCommitFileRow: View {
     let file: GitCommitFile
     let workspace: WorkspaceModel
+    let isSelected: Bool
 
     private var url: URL { workspace.url(forRelativePath: file.path) }
 
@@ -298,8 +303,11 @@ private struct GitCommitFileRow: View {
         .font(.system(size: EditorSettings.shared.sidebarFontSize))
         .padding(.leading, 30)
         .contentShape(.rect)
-        // As in the list of changes: a click on the selected row shows it again.
-        .simultaneousGesture(TapGesture().onEnded { _ = GitHistorySection.select(file.id, in: workspace) })
+        // As in the list of changes: a click on the row already selected shows
+        // it again; one that selects it is acted on as a selection.
+        .simultaneousGesture(TapGesture().onEnded {
+            if isSelected { _ = GitHistorySection.select(file.id, in: workspace) }
+        })
         .contextMenu {
             Button("Show File History") { workspace.showFileHistory(url) }
             Button("Copy Relative Path") { Finder.copyPath(file.path) }

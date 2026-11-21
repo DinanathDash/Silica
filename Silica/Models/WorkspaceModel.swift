@@ -454,6 +454,10 @@ final class WorkspaceModel {
     /// about first.
     func stage(_ change: GitChange) {
         let url = url(forRelativePath: change.path)
+        // What's staged is the file on disk, and so is what's checked for
+        // markers: a conflict settled in the tab but not saved yet is saved
+        // first, as the conflict bar's own Save and Stage does.
+        if change.status == .conflicted, let buffer = buffers[url], buffer.isDirty, !save(buffer) { return }
         guard change.status == .conflicted,
               let data = try? Data(contentsOf: url),
               !ConflictMarkers.regions(in: String(decoding: data, as: UTF8.self) as NSString).isEmpty else {

@@ -29,11 +29,15 @@ struct GitChangesView: View {
             list(snapshot)
         }
         .padding(.top, 2)
+        // Whatever changes the selection, a click or the arrow keys, opens what
+        // is selected. A click on the row already selected changes nothing, and
+        // is the row's own to act on.
         .onChange(of: selection) { _, id in
             guard let id, !GitHistorySection.select(id, in: workspace),
                   let change = (snapshot.staged + snapshot.unstaged).first(where: { $0.id == id }) else { return }
             workspace.openChanges(change)
         }
+
     }
 
     // MARK: Merge or rebase in progress
@@ -332,6 +336,7 @@ struct GitChangesView: View {
 
     // MARK: Files
 
+
     private func list(_ snapshot: GitStatus.Snapshot) -> some View {
         List(selection: $selection) {
             if snapshot.staged.isEmpty, snapshot.unstaged.isEmpty {
@@ -365,10 +370,10 @@ struct GitChangesView: View {
                 }
             }
             if !snapshot.stashes.isEmpty {
-                GitStashSection(workspace: workspace, git: git, stashes: snapshot.stashes)
+                GitStashSection(workspace: workspace, git: git, stashes: snapshot.stashes, selection: selection)
             }
             if !git.history.isEmpty || git.historyFile != nil {
-                GitHistorySection(workspace: workspace, git: git)
+                GitHistorySection(workspace: workspace, git: git, selection: selection)
             }
         }
         .listStyle(.sidebar)
@@ -382,7 +387,7 @@ struct GitChangesView: View {
 
     private func rows(_ changes: [GitChange]) -> some View {
         ForEach(changes) { change in
-            GitChangeRow(change: change, workspace: workspace)
+            GitChangeRow(change: change, workspace: workspace, isSelected: selection == change.id)
                 .tag(change.id)
         }
     }
@@ -436,6 +441,8 @@ private struct GitSectionHeader: View {
 private struct GitChangeRow: View {
     let change: GitChange
     let workspace: WorkspaceModel
+    /// Whether this is the list's selected row, as of before a click on it.
+    let isSelected: Bool
     @State private var isHovered = false
     @Environment(\.gitIsBusy) private var isBusy
 
@@ -467,8 +474,12 @@ private struct GitChangeRow: View {
             }
             .contentShape(.rect)
             // A click on the row that's already selected changes no selection, so
-            // it's the click itself that shows the changes again.
-            .simultaneousGesture(TapGesture().onEnded { workspace.openChanges(change) })
+            // it's the click itself that shows the changes again. Only then: a
+            // click that selects the row is acted on once, as a selection. The
+            // click is seen here before the selection changes.
+            .simultaneousGesture(TapGesture().onEnded {
+                if isSelected { workspace.openChanges(change) }
+            })
             // Always there, faint until the pointer is on the row: a button shown
             // only under the pointer can't be reached from the keyboard or VoiceOver.
             if canDiscard {

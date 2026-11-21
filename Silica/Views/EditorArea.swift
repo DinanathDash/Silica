@@ -759,11 +759,15 @@ private struct StatusBar: View {
         HStack(spacing: 12) {
             if let branch = workspace.git.snapshot?.branch {
                 Button(action: workspace.showChanges) {
+                    // A branch's name can be any length, and the bar is as wide
+                    // as what's in it: it mustn't grow over the text it floats on.
                     Label(branch.name ?? "Detached", systemImage: "arrow.triangle.branch")
                         .labelStyle(.titleAndIcon)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: 160)
                 }
                 .buttonStyle(.plain)
-                .help("Source Control (⌃⇧G)")
+                .help((branch.name.map { "\($0) · " } ?? "") + "Source Control (⌃⇧G)")
                 .accessibilityLabel("Branch: \(branch.name ?? "Detached")")
             }
             Button(action: workspace.showGoToLine) {
@@ -798,11 +802,16 @@ private struct StatusBar: View {
         Button {
             workspace.showFileHistory(buffer.url)
         } label: {
-            if let line {
-                Text(line.isUncommitted ? "Not committed yet" : "\(line.author), \(line.date.formatted(.relative(presentation: .named)))")
-            } else {
-                Text(buffer.isDirty ? "Save to see blame" : "Blame…")
+            Group {
+                if let line {
+                    Text(line.isUncommitted ? "Not committed yet" : "\(line.author), \(line.date.formatted(.relative(presentation: .named)))")
+                } else {
+                    Text(buffer.isDirty ? "Save to see blame" : "Blame…")
+                }
             }
+            // An author's name has no length limit either.
+            .truncationMode(.middle)
+            .frame(maxWidth: 200)
         }
         .buttonStyle(.plain)
         .help(line.map { $0.isUncommitted ? "This line has changed since the last commit" : "\($0.hash.prefix(7)) · \($0.summary)" } ?? "Show File History")
