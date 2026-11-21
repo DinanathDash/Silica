@@ -751,6 +751,7 @@ final class WorkspaceModel {
     /// Moves the item to the Trash. Unedited tabs for it close; edited ones stay
     /// open, marked as deleted, so nothing typed is lost.
     func moveToTrash(_ url: URL) {
+        FileSizeCache.shared.invalidate(for: url)
         do {
             try FileManager.default.trashItem(at: url, resultingItemURL: nil)
         } catch {
@@ -766,6 +767,7 @@ final class WorkspaceModel {
 
     /// Deletes the item permanently (⌘⌥⌫) bypassing the Trash.
     func deleteImmediately(_ url: URL) {
+        FileSizeCache.shared.invalidate(for: url)
         do {
             try FileManager.default.removeItem(at: url)
         } catch {

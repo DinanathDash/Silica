@@ -649,16 +649,9 @@ private struct FileNodeRow: View {
 
     @State private var isHovered = false
 
-    /// Formats file or folder size into human readable string.
+    /// Formats file or folder size into human readable string using cached background provider.
     private var formattedSize: String? {
-        if node.isDirectory {
-            guard let count = (try? FileManager.default.contentsOfDirectory(atPath: node.url.path(percentEncoded: false)))?.count else { return nil }
-            return "\(count) item\(count == 1 ? "" : "s")"
-        } else {
-            guard let values = try? node.url.resourceValues(forKeys: [.fileSizeKey]),
-                  let size = values.fileSize else { return nil }
-            return ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)
-        }
+        FileSizeCache.shared.formattedSize(for: node, isHoveredOrSelected: isHovered || workspace.selection == node.url)
     }
 
     /// The name, with the filter text in bold on a soft accent background.
