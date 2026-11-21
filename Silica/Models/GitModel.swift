@@ -96,8 +96,10 @@ final class GitModel {
     func stop() {
         fetchTask?.cancel()
         fetchTask = nil
-        // git doesn't go on pushing or fetching for a window that's gone.
-        cancellation?.cancel()
+        // git doesn't go on pushing or fetching for a window that's gone. Only
+        // that: a commit waiting on its hook, a stash or a rebase step was asked
+        // for and is left to finish, not cut off halfway.
+        if canCancel { cancellation?.cancel() }
         quietFetchCancellation?.cancel()
     }
 

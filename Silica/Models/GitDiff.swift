@@ -176,9 +176,10 @@ nonisolated struct GitDiff: Sendable {
                 guard let (text, isUTF8) = text(of: data, encoding: request.encoding) else { return .notText }
                 oldText = text
                 canRewrite = canRewrite && isUTF8
-            } else if request.status == .conflicted {
-                // Both branches added the file: the last commit has none, and
-                // all of it is new.
+            } else if request.status == .conflicted, !isFromIndex {
+                // In conflict and not in the last commit (our side deleted it):
+                // all of it is new. Not so against the index, which has no one
+                // version of any file in conflict.
                 oldText = ""
             } else {
                 return .unavailable

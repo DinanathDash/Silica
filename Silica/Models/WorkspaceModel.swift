@@ -641,6 +641,13 @@ final class WorkspaceModel {
     private func refreshShownChanges() {
         // What a commit changed stays as it is.
         for (url, buffer) in buffers where buffer.isShowingChanges && buffer.shownCommit == nil {
+            // A file that has come into conflict has no staged or unstaged
+            // changes to show, only a conflict to settle, in the editor: as when
+            // it's selected in the Changes list.
+            if buffer.shownComparison != .all, git.snapshot?.files[relativePath(of: url)] == .conflicted {
+                buffer.hideChanges()
+                continue
+            }
             showChanges(in: url, comparison: buffer.shownComparison)
         }
     }
