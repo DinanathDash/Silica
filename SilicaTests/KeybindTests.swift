@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Foundation
 import SwiftUI
 import Testing
@@ -49,9 +50,9 @@ private struct FakeLayout: KeyboardLayout {
     let unshifted: [Character]
     let shifted: [Character]
 
-    func key(typing character: Character, withCommand: Bool) -> (keyCode: UInt16, shift: Bool)? {
-        if let index = unshifted.firstIndex(of: character) { return (UInt16(index), false) }
-        if let index = shifted.firstIndex(of: character) { return (UInt16(index), true) }
+    func key(typing character: Character, withCommand: Bool) -> (keyCode: UInt16, modifiers: Keybind.Modifiers)? {
+        if let index = unshifted.firstIndex(of: character) { return (UInt16(index), []) }
+        if let index = shifted.firstIndex(of: character) { return (UInt16(index), .shift) }
         return nil
     }
 
@@ -67,7 +68,7 @@ private struct FakeLayout: KeyboardLayout {
 
 @Suite("Keybind")
 struct KeybindTests {
-    @Test(.enabled(if: hasUSKeys, "needs a layout with U.S. key positions"))
+    @Test(.enabled("needs a layout with U.S. key positions") { await hasUSKeys })
     func eventsGiveTheUnshiftedKey() {
         // ⇧⌘1 is "1" with ⇧⌘, as presets write it, not "!".
         #expect(Keybind(event: keyDown(18, [.shift, .command])) == keybind("1", [.shift, .command]))
@@ -78,18 +79,18 @@ struct KeybindTests {
         #expect(Keybind(event: keyDown(24, [.shift, .command])) == keybind("+", .command))
     }
 
-    @Test(.enabled(if: hasUSKeys, "needs a layout with U.S. key positions"))
+    @Test(.enabled("needs a layout with U.S. key positions") { await hasUSKeys })
     func eventsWithoutCommandOptionOrControlAreNotKeybinds() {
         #expect(Keybind(event: keyDown(9, [])) == nil)
         #expect(Keybind(event: keyDown(9, .shift)) == nil)
     }
 
-    @Test(.enabled(if: hasUSKeys, "needs a layout with U.S. key positions"))
+    @Test(.enabled("needs a layout with U.S. key positions") { await hasUSKeys })
     func currentLayoutFindsKeys() {
         let layout = CurrentKeyboardLayout.shared
         #expect(layout.key(typing: "/", withCommand: true)?.keyCode == 44)
-        #expect(layout.key(typing: "/", withCommand: true)?.shift == false)
-        #expect(layout.key(typing: "?", withCommand: true)?.shift == true)
+        #expect(layout.key(typing: "/", withCommand: true)?.modifiers == [])
+        #expect(layout.key(typing: "?", withCommand: true)?.modifiers == .shift)
         #expect(layout.key(typing: "=", withCommand: false)?.keyCode == 24)
         // Not the keypad's "+": the menus' ⌘+ is ⇧ and the = key.
         #expect(layout.key(typing: "+", withCommand: true)?.keyCode == 24)
@@ -234,17 +235,21 @@ final class KeybindSettingsTests {
         }
     }
 
+    // Keys and modifiers as preset files write them: the arguments are built off the
+    // main actor, where Keybind can't be.
     @Test(arguments: [
-        (keybind("f", .command), "Find"),
-        (keybind("g", [.shift, .command]), "Find Previous"),
-        (keybind(";", [.shift, .command]), "Show Spelling and Grammar"),
-        (keybind("f", [.control, .command]), "Enter Full Screen"),
-        (keybind("q", [.option, .command]), "Quit and Keep Windows"),
-        (Keybind(key: .return, modifiers: .command)!, "Commit (in the commit message)"),
-        (Keybind(key: .space, modifiers: [.control, .command])!, "Emoji & Symbols"),
-        (keybind("/", [.shift, .command]), "Silica Help"),
+        ("f", ["cmd"], "Find"),
+        ("g", ["shift", "cmd"], "Find Previous"),
+        (";", ["shift", "cmd"], "Show Spelling and Grammar"),
+        ("f", ["ctrl", "cmd"], "Enter Full Screen"),
+        ("q", ["opt", "cmd"], "Quit and Keep Windows"),
+        ("⏎", ["cmd"], "Commit (in the commit message)"),
+        ("space", ["ctrl", "cmd"], "Emoji & Symbols"),
+        ("/", ["shift", "cmd"], "Silica Help"),
     ])
-    func editAndWindowMenuShortcutsConflict(keybind: Keybind, title: String) {
+    func editAndWindowMenuShortcutsConflict(key: String, mods: [String], title: String) throws {
+        let binding = KeybindFile.Binding(id: "", title: "", key: key, mods: mods.compactMap { .init(rawValue: $0) })
+        let keybind = try #require(binding.asKeybind())
         #expect(throws: KeybindSettings.Error.commandConflict(keybind, title)) {
             try settings().setKeybind(keybind, for: .goToLine)
         }
@@ -261,7 +266,7 @@ final class KeybindSettingsTests {
         #expect(settings.keybind(for: .selectNextTab) == controlTab)
     }
 
-    @Test(.enabled(if: hasUSKeys, "needs a layout with U.S. key positions"))
+    @Test(.enabled("needs a layout with U.S. key positions") { await hasUSKeys })
     func shiftedMenuKeysClashOnTheRealLayout() {
         // The ⌘ table ignores Shift, so ⌘+ and ⌘? have to come from the Shift table.
         let settings = settings(layout: CurrentKeyboardLayout.shared)
@@ -274,6 +279,66 @@ final class KeybindSettingsTests {
         #expect(throws: KeybindSettings.Error.commandConflict(keybind("1", [.shift, .command]), "Welcome Window")) {
             try settings.setKeybind(keybind("1", [.shift, .command]), for: .quickOpen)
         }
+    }
+
+    /// A layout macOS has installed, enabled or not.
+    private static func installed(_ id: String) throws -> KeyboardLayoutTable {
+        try #require(KeyboardLayoutTable(inputSourceID: "com.apple.keylayout.\(id)"))
+    }
+
+    @Test func realLayoutsPutKeysWhereTheyAre() throws {
+        // German: "/" is ⇧7 and "]" is ⌥6.
+        let german = settings(layout: try Self.installed("German"))
+        #expect(german.isSameKeystroke(keybind("/", .command), keybind("7", [.shift, .command])))
+        #expect(german.isSameKeystroke(keybind("]", .command), keybind("6", [.option, .command])))
+        #expect(throws: KeybindSettings.Error.commandConflict(keybind("6", [.option, .command]), "Indent")) {
+            try german.setKeybind(keybind("6", [.option, .command]), for: .quickOpen)
+        }
+        // French types digits with Shift, even with ⌘ held.
+        let french = settings(layout: try Self.installed("French"))
+        #expect(french.isSameKeystroke(keybind("1", .command), keybind("&", [.shift, .command])))
+        // "Dvorak – QWERTY ⌘": with ⌘ held the keys are QWERTY's, so ⌘: is ⇧⌘ and the
+        // QWERTY ; key, and not ⇧⌘Z (Redo).
+        let dvorak = settings(layout: try Self.installed("DVORAK-QWERTYCMD"))
+        #expect(dvorak.isSameKeystroke(keybind(":", .command), keybind(";", [.shift, .command])))
+        #expect(!dvorak.isSameKeystroke(keybind(":", .command), keybind("z", [.shift, .command])))
+    }
+
+    @Test func aPresetsOwnClashesAreNotFlagged() throws {
+        // On German, ` needs Shift, so Toggle Terminal's ⌃` and New Terminal's ⌃⇧` are
+        // one keystroke, as they are in the editors the presets follow.
+        let german = settings(layout: try Self.installed("German"))
+        #expect(german.isKeybind(keybind("`", [.control, .shift]), of: .toggleTerminal))
+        #expect(german.layoutClash(for: .toggleTerminal) == nil)
+        #expect(german.layoutClash(for: .newTerminal) == nil)
+        // Restoring one of them isn't blocked by the other.
+        try german.setKeybind(keybind("t", [.control, .command]), for: .toggleTerminal)
+        try german.setKeybind(nil, for: .toggleTerminal)
+        #expect(german.isDefaultKeybind(for: .toggleTerminal))
+        // A keybind someone records still can't take that keystroke.
+        #expect(throws: KeybindSettings.Error.self) {
+            try german.setKeybind(keybind("`", [.control, .shift]), for: .quickOpen)
+        }
+    }
+
+    @Test func noPresetIsFlaggedOnAnyInstalledLatinLayout() throws {
+        let filter = [kTISPropertyInputSourceType as String: kTISTypeKeyboardLayout as String] as CFDictionary
+        let sources = try #require(TISCreateInputSourceList(filter, true)?.takeRetainedValue() as? [TISInputSource])
+        var checked = 0
+        for source in sources {
+            let latin = TISGetInputSourceProperty(source, kTISPropertyInputSourceIsASCIICapable)
+                .map { CFBooleanGetValue(Unmanaged<CFBoolean>.fromOpaque($0).takeUnretainedValue()) } ?? false
+            guard latin, let layout = KeyboardLayoutTable(source: source) else { continue }
+            checked += 1
+            for preset in presets {
+                let settings = settings(layout: layout)
+                try settings.setActivePreset(id: preset.id)
+                let flagged = ConfigKeyCommand.allCases.filter { settings.layoutClash(for: $0) != nil }
+                #expect(flagged.isEmpty, "\(preset.id) on \(source)")
+                try settings.setActivePreset(id: "silica")
+            }
+        }
+        #expect(checked > 0)
     }
 
     @Test func aClashOnlyThisLayoutHasIsKeptAndShown() {

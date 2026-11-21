@@ -106,12 +106,6 @@ struct Keybind: Codable, Hashable {
         if flags.contains(.control) { modifiers.insert(.control) }
         if flags.contains(.shift) { modifiers.insert(.shift) }
 
-        // The unshifted character, so ⇧⌘1 is recorded as "1" with ⇧⌘, the way presets
-        // write it, not as "!". (`charactersIgnoringModifiers` keeps Shift.) ⌘ stays
-        // applied: layouts such as "Dvorak – QWERTY ⌘" switch keys while it's held, and
-        // the menus match key equivalents against that ⌘ layout. A dead key (` or ' on
-        // U.S. International) can translate to nothing, so fall back to the key's
-        // character as AppKit reports it.
         // On a non-Latin layout (Russian, Greek), keys without ⌘ type that layout's own
         // letters, but shortcuts are written in Latin ones: read the key on the Latin
         // layout macOS keeps beside it, as menus do.
@@ -121,6 +115,12 @@ struct Keybind: Codable, Hashable {
             self.init(key: String(latin), modifiers: modifiers)
             return
         }
+        // The unshifted character, so ⇧⌘1 is recorded as "1" with ⇧⌘, the way presets
+        // write it, not as "!". (`charactersIgnoringModifiers` keeps Shift.) ⌘ stays
+        // applied: layouts such as "Dvorak – QWERTY ⌘" switch keys while it's held, and
+        // the menus match key equivalents against that ⌘ layout. A dead key (` or ' on
+        // U.S. International) can translate to nothing, so fall back to the key's
+        // character as AppKit reports it.
         let translated = event.characters(byApplyingModifiers: flags.intersection(.command))
         guard let key = translated?.isEmpty == false ? translated : event.charactersIgnoringModifiers else {
             return nil
@@ -191,7 +191,7 @@ extension Keybind {
         let character = key.first!
         if SpecialKey.byCharacterMap[character] == nil,
            let found = layout.key(typing: character, withCommand: modifiers.contains(.command)) {
-            return Keystroke(key: .code(found.keyCode), modifiers: found.shift ? modifiers.union(.shift) : modifiers)
+            return Keystroke(key: .code(found.keyCode), modifiers: modifiers.union(found.modifiers))
         }
         return Keystroke(key: .character(stroke.key), modifiers: stroke.modifiers)
     }

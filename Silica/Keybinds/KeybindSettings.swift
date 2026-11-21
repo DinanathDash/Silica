@@ -30,7 +30,7 @@ final class KeybindSettings {
     /// Bumped when the user switches keyboard layouts, so views showing clashes that
     /// depend on the layout look again.
     private var layoutVersion = 0
-    @ObservationIgnored private var layoutObserver: Any?
+    @ObservationIgnored nonisolated(unsafe) private var layoutObserver: Any?
 
     var hasCustomKeybinds: Bool {
         !self.overrides.isEmpty
@@ -77,6 +77,10 @@ final class KeybindSettings {
             ConfigKeyCommand(rawValue: $0.key) != nil
         }
         dropOverridesThatNoLongerFit()
+    }
+    
+    deinit {
+        if let layoutObserver { NotificationCenter.default.removeObserver(layoutObserver) }
     }
     
     /// A saved keybind, or nil when it can't be read, so one bad entry doesn't lose the rest.
@@ -160,10 +164,13 @@ final class KeybindSettings {
     }
     
     /// The command that `command`'s keybind is also the keystroke of on the current
-    /// keyboard layout, if any: one recorded on another layout can clash here.
+    /// keyboard layout, if any: one recorded on another layout can clash here. Clashes
+    /// between two of the preset's own keybinds aren't reported; see `setKeybind`.
     func layoutClash(for command: ConfigKeyCommand) -> String? {
         _ = layoutVersion // Looked at again when the user switches layouts.
-        return commandTitle(boundTo: keybind(for: command), excluding: command)
+        let isCustom = !isDefaultKeybind(for: command)
+        return clashes(with: keybind(for: command), excluding: command)
+            .first { isCustom || $0.isCustom }?.title
     }
     
     /// Whether any command, system ones included, runs on `keybind`.
@@ -187,10 +194,13 @@ final class KeybindSettings {
         for command: ConfigKeyCommand
     ) throws {
         guard let keybind else {
-            // Another command may have taken the preset's keystroke in the meantime.
+            // Another command may have taken the preset's keystroke in the meantime. Only
+            // a keybind someone set counts: two of the preset's own keybinds can be one
+            // keystroke on some layouts (⌃` and ⌃⇧` on German, where ` needs Shift),
+            // as they are in the editor the preset follows.
             let preset = presetBinding(for: command).asKeybind()!
-            if let conflict = commandTitle(boundTo: preset, excluding: command) {
-                throw Error.commandConflict(preset, conflict)
+            if let clash = clashes(with: preset, excluding: command).first(where: \.isCustom) {
+                throw Error.commandConflict(preset, clash.title)
             }
             self.overrides.removeValue(forKey: command.id)
             save()
@@ -277,17 +287,33 @@ final class KeybindSettings {
         excluding excludedCommand: ConfigKeyCommand?,
         same: ((Keybind, Keybind) -> Bool)? = nil
     ) -> String? {
+        clashes(with: candidate, excluding: excludedCommand, same: same).first?.title
+    }
+    
+    /// A command that runs on a keystroke, and whether its keybind is one someone set.
+    private struct Clash {
+        let title: String
+        let isCustom: Bool
+    }
+    
+    /// Every command, system ones included, that `candidate` runs, other than
+    /// `excludedCommand`.
+    private func clashes(
+        with candidate: Keybind,
+        excluding excludedCommand: ConfigKeyCommand?,
+        same: ((Keybind, Keybind) -> Bool)? = nil
+    ) -> [Clash] {
         let same = same ?? { [unowned self] in isSameKeystroke($0, $1) }
-        if let system = SystemKeyCommand.allCases.first(where: { same($0.keybind, candidate) }) {
-            return system.title
-        }
-        if let fixed = FixedKeyCommand.allCases.first(where: { same(keybind(for: $0), candidate) }) {
-            return title(for: fixed)
-        }
-        let config = ConfigKeyCommand.allCases.first {
-            $0 != excludedCommand && same(keybind(for: $0), candidate)
-        }
-        return config.map { title(for: $0) }
+        let system = SystemKeyCommand.allCases
+            .filter { same($0.keybind, candidate) }
+            .map { Clash(title: $0.title, isCustom: false) }
+        let fixed = FixedKeyCommand.allCases
+            .filter { same(keybind(for: $0), candidate) }
+            .map { Clash(title: title(for: $0), isCustom: false) }
+        let config = ConfigKeyCommand.allCases
+            .filter { $0 != excludedCommand && same(keybind(for: $0), candidate) }
+            .map { Clash(title: title(for: $0), isCustom: !isDefaultKeybind(for: $0)) }
+        return system + fixed + config
     }
 
     private func save() {
