@@ -4,6 +4,8 @@ import SwiftUI
 struct SourceControlHistoryView: View {
     @Bindable var model: SourceControlModel
 
+    private var settings: EditorSettings { .shared }
+
     @State private var searchQuery = ""
     @State private var activePopoverCommitID: String?
     @State private var isMouseInsidePopover = false
@@ -24,65 +26,34 @@ struct SourceControlHistoryView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 4) {
             // Search Input & Branch Selector
             HStack(spacing: 6) {
                 searchBar
 
-                Menu {
-                    Button {
-                        Task { await model.setHistoryBranch(nil) }
-                    } label: {
-                        HStack {
-                            Text("Current (\(model.branchName ?? "HEAD"))")
-                            if model.historyBranch == nil {
-                                Image(systemName: "checkmark")
-                            }
-                        }
+                Picker("", selection: Binding(
+                    get: { model.historyBranch ?? "" },
+                    set: { newBranch in
+                        let branch = newBranch.isEmpty ? nil : newBranch
+                        Task { await model.setHistoryBranch(branch) }
                     }
-
+                )) {
+                    Text("Current (\(model.branchName ?? "HEAD"))").tag("")
                     if !model.branches.isEmpty {
                         Divider()
-
                         ForEach(model.branches) { branch in
-                            Button {
-                                Task { await model.setHistoryBranch(branch.name) }
-                            } label: {
-                                HStack {
-                                    Text(branch.name)
-                                    if model.historyBranch == branch.name {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
+                            Text(branch.name).tag(branch.name)
                         }
                     }
-                } label: {
-                    HStack(spacing: 4) {
-                        SourceControlIcon(type: .branch, size: 11)
-                            .foregroundStyle(Color.accentColor)
-                        Text(model.historyBranch ?? model.branchName ?? "Branch")
-                            .font(.system(size: 11, weight: .medium))
-                            .lineLimit(1)
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.system(size: 8))
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(height: 28)
-                    .padding(.horizontal, 7)
-                    .background {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .stroke(Color.secondary.opacity(0.2), lineWidth: 0.5)
-                            )
-                    }
                 }
-                .menuStyle(.borderlessButton)
-                .fixedSize(horizontal: true, vertical: false)
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .controlSize(.regular)
+                .frame(height: 30)
+                .frame(maxWidth: 140)
                 .help("Select branch to inspect history")
             }
+            .padding(.bottom, 2)
 
             if model.commits.isEmpty {
                 VStack(spacing: 8) {
@@ -90,7 +61,7 @@ struct SourceControlHistoryView: View {
                         .font(.system(size: 24))
                         .foregroundStyle(.secondary)
                     Text("No commit history")
-                        .font(.system(size: 12))
+                        .font(.system(size: settings.sidebarFontSize))
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity)
@@ -101,23 +72,22 @@ struct SourceControlHistoryView: View {
                         .font(.system(size: 20))
                         .foregroundStyle(.secondary)
                     Text("No commits matching \"\(searchQuery)\"")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: settings.sidebarFontSize, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 24)
             } else {
-                // Top scroll anchor: dismiss extra loaded commits when user scrolls back to the top
-                Color.clear
-                    .frame(height: 1)
-                    .onAppear {
-                        if model.currentCommitLimit > 50 {
-                            model.pruneExtraCommits()
-                        }
-                    }
-
                 // Continuous Git Timeline Rows using LazyVStack for memory efficiency
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    Color.clear
+                        .frame(height: 0)
+                        .onAppear {
+                            if model.currentCommitLimit > 50 {
+                                model.pruneExtraCommits()
+                            }
+                        }
+
                     ForEach(filteredCommits) { commit in
                         commitTimelineRow(commit: commit)
                     }
@@ -161,17 +131,44 @@ struct SourceControlHistoryView: View {
     // MARK: - Search Bar
 
     private var searchBar: some View {
-        NativeSearchField(
-            prompt: "Search history by message, author, hash…",
-            text: $searchQuery
-        )
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: max(settings.sidebarFontSize - 1, 10)))
+                .foregroundStyle(.secondary)
+
+            TextField("Search history by message, author, hash…", text: $searchQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: settings.sidebarFontSize))
+
+            if !searchQuery.isEmpty {
+                Button {
+                    searchQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: max(settings.sidebarFontSize - 1, 10)))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear search")
+            }
+        }
+        .padding(.horizontal, 8)
         .frame(height: 28)
+        .background {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.2), lineWidth: 0.5)
+                )
+        }
     }
 
     // MARK: - Timeline Row
 
     private func commitTimelineRow(commit: GitCommitItem) -> some View {
         let isCurrentPopover = activePopoverCommitID == commit.id
+        let rowHeight = max(24, settings.sidebarFontSize + 13)
         // Dynamic row width: sizes tightly to the maximum active lane in this specific row, eliminating dead space
         let rowCanvasWidth = CGFloat(commit.timelineNode.rowMaxLane + 1) * 12 + 6
 
@@ -181,11 +178,11 @@ struct SourceControlHistoryView: View {
                 node: commit.timelineNode,
                 isMerge: commit.isMerge
             )
-            .frame(width: rowCanvasWidth, height: 26)
+            .frame(width: rowCanvasWidth, height: rowHeight)
 
             // Commit summary with trailing dots for long messages
             Text(commit.summary)
-                .font(.system(size: 11, weight: .regular))
+                .font(.system(size: settings.sidebarFontSize, weight: .regular))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .foregroundStyle(Color.primary.opacity(isCurrentPopover ? 1.0 : 0.88))
@@ -194,12 +191,12 @@ struct SourceControlHistoryView: View {
 
             // Compact relative date
             Text(commit.compactRelativeDate)
-                .font(.system(size: 10))
+                .font(.system(size: max(settings.sidebarFontSize - 1.5, 9)))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
         .padding(.horizontal, 4)
-        .frame(height: 26)
+        .frame(height: rowHeight)
         .contentShape(Rectangle())
         .background {
             if isCurrentPopover {
@@ -671,54 +668,5 @@ struct CommitDetailsPopoverView: View {
             return attr
         }
         return AttributedString(text)
-    }
-}
-
-/// Native Apple macOS search bar wrapping NSSearchField.
-struct NativeSearchField: NSViewRepresentable {
-    var prompt: String
-    @Binding var text: String
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    func makeNSView(context: Context) -> NSSearchField {
-        let field = NSSearchField()
-        field.placeholderString = prompt
-        field.bezelStyle = .roundedBezel
-        field.controlSize = .regular
-        field.font = NSFont.systemFont(ofSize: 12)
-        field.lineBreakMode = .byTruncatingTail
-        field.delegate = context.coordinator
-        field.target = context.coordinator
-        field.action = #selector(Coordinator.action(_:))
-        return field
-    }
-
-    func updateNSView(_ nsView: NSSearchField, context: Context) {
-        if nsView.stringValue != text {
-            nsView.stringValue = text
-        }
-        if nsView.placeholderString != prompt {
-            nsView.placeholderString = prompt
-        }
-    }
-
-    class Coordinator: NSObject, NSSearchFieldDelegate {
-        var parent: NativeSearchField
-
-        init(_ parent: NativeSearchField) {
-            self.parent = parent
-        }
-
-        func controlTextDidChange(_ obj: Notification) {
-            guard let field = obj.object as? NSSearchField else { return }
-            parent.text = field.stringValue
-        }
-
-        @objc func action(_ sender: NSSearchField) {
-            parent.text = sender.stringValue
-        }
     }
 }

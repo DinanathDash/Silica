@@ -4,6 +4,8 @@ import SwiftUI
 struct SourceControlBranchesView: View {
     @Bindable var model: SourceControlModel
 
+    private var settings: EditorSettings { .shared }
+
     @State private var searchQuery = ""
     @State private var isShowingCreateBranchDialog = false
     @State private var baseBranchForNewBranch: GitBranchItem? = nil
@@ -33,11 +35,37 @@ struct SourceControlBranchesView: View {
         VStack(alignment: .leading, spacing: 8) {
             // Search bar & New Branch button (no "BRANCHES" text header)
             HStack(spacing: 6) {
-                NativeSearchField(
-                    prompt: "Search branches…",
-                    text: $searchQuery
-                )
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: max(settings.sidebarFontSize - 1, 10)))
+                        .foregroundStyle(.secondary)
+
+                    TextField("Search branches…", text: $searchQuery)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: settings.sidebarFontSize))
+
+                    if !searchQuery.isEmpty {
+                        Button {
+                            searchQuery = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: max(settings.sidebarFontSize - 1, 10)))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Clear search")
+                    }
+                }
+                .padding(.horizontal, 8)
                 .frame(height: 28)
+                .background {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .stroke(Color.secondary.opacity(0.2), lineWidth: 0.5)
+                        )
+                }
 
                 Button {
                     baseBranchForNewBranch = nil
@@ -55,7 +83,7 @@ struct SourceControlBranchesView: View {
                     SourceControlIcon(type: .branch, size: 28)
                         .foregroundStyle(.secondary)
                     Text("No branches found")
-                        .font(.system(size: 12))
+                        .font(.system(size: settings.sidebarFontSize))
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity)
@@ -66,7 +94,7 @@ struct SourceControlBranchesView: View {
                         .font(.system(size: 20))
                         .foregroundStyle(.secondary)
                     Text("No branches matching \"\(searchQuery)\"")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: settings.sidebarFontSize, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity)
@@ -108,6 +136,9 @@ struct SourceControlBranchesView: View {
             isPresented: $isShowingDirtySwitchAlert,
             presenting: pendingBranchToSwitch
         ) { branch in
+            Button("Stash & Switch") {
+                stashAndCheckout(branch: branch)
+            }
             Button("Switch Anyway") {
                 performCheckout(branch: branch)
             }
@@ -138,13 +169,13 @@ struct SourceControlBranchesView: View {
 
         return HStack(spacing: 8) {
             // Real Lucide vector SVG icon based on branch type and name
-            SourceControlIcon(type: branchIconType(for: branch), size: 13)
+            SourceControlIcon(type: branchIconType(for: branch), size: max(12, settings.sidebarIconWidth * 0.85))
                 .foregroundStyle(branch.isCurrent ? Color.accentColor : Color.secondary)
                 .frame(width: 14)
 
             // Branch name
             Text(branch.name)
-                .font(.system(size: 12, weight: branch.isCurrent ? .semibold : .regular))
+                .font(.system(size: settings.sidebarFontSize, weight: branch.isCurrent ? .semibold : .regular))
                 .foregroundStyle(branch.isCurrent ? Color.accentColor : Color.primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -201,7 +232,7 @@ struct SourceControlBranchesView: View {
             }
         }
         .padding(.horizontal, 6)
-        .frame(height: 28) // Fixed height prevents any layout shift or hover jitter
+        .frame(height: max(26, settings.sidebarFontSize + 14)) // Dynamic height scales with sidebar font size
         .background {
             RoundedRectangle(cornerRadius: 4, style: .continuous)
                 .fill(branch.isCurrent ? Color.accentColor.opacity(0.1) : (isHovered ? Color.primary.opacity(0.06) : Color.clear))
@@ -239,6 +270,15 @@ struct SourceControlBranchesView: View {
                 let formatted = parseCheckoutError(err, targetBranch: branch.name)
                 checkoutAlertData = CheckoutAlertData(title: formatted.title, message: formatted.message)
                 isShowingCheckoutErrorAlert = true
+            }
+        }
+    }
+
+    private func stashAndCheckout(branch: GitBranchItem) {
+        Task {
+            let stashed = await model.stash(message: "Auto-stash before switching to \(branch.name)")
+            if stashed {
+                performCheckout(branch: branch)
             }
         }
     }
@@ -388,6 +428,7 @@ struct CreateBranchDialog: View {
                 Button("Create") {
                     submit()
                 }
+                .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
                 .keyboardShortcut(.return, modifiers: .command)
                 .keyboardShortcut(.defaultAction)

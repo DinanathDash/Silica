@@ -2,6 +2,7 @@ import Foundation
 import Observation
 
 /// Coordinates git status, commits, branches, and worktree operations for a workspace.
+@MainActor
 @Observable
 final class SourceControlModel {
     let rootURL: URL
@@ -16,6 +17,9 @@ final class SourceControlModel {
     private(set) var branches: [GitBranchItem] = []
     private(set) var isLoading = false
     private(set) var errorMessage: String?
+    private(set) var stashCount: Int = 0
+    var activeAlertError: String?
+    private var isRefreshing = false
 
     var commitMessage = ""
 
@@ -31,6 +35,10 @@ final class SourceControlModel {
         stagedFiles.reduce(0) { $0 + $1.deletions } + unstagedFiles.reduce(0) { $0 + $1.deletions }
     }
 
+    var repositoryName: String {
+        rootURL.lastPathComponent
+    }
+
     init(rootURL: URL) {
         self.rootURL = rootURL
     }
@@ -38,6 +46,10 @@ final class SourceControlModel {
     // MARK: - Refresh Lifecycle
 
     func refresh() async {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
+
         isLoading = true
         defer { isLoading = false }
 
@@ -50,17 +62,17 @@ final class SourceControlModel {
             commits = []
             branches = []
             branchName = nil
+            stashCount = 0
             return
         }
 
         isGitRepository = true
         currentCommitLimit = initialCommitLimit
 
-        async let statusTask = loadStatus()
-        async let branchesTask = loadBranches()
-        async let commitsTask = loadCommits()
-
-        _ = await (statusTask, branchesTask, commitsTask)
+        await loadStatus()
+        await loadBranches()
+        await loadCommits()
+        await loadStashCount()
     }
 
     // MARK: - Status & Diff Stats
@@ -125,7 +137,10 @@ final class SourceControlModel {
             // Staged entry if index code is not blank or untracked
             if indexCode != " " && indexCode != "?" && indexCode != "!" {
                 let status = mapStatus(code: indexCode)
-                let stat = stagedStats[path] ?? (0, 0)
+                var stat = stagedStats[path] ?? (0, 0)
+                if status == .added && stat == (0, 0) {
+                    stat = (countFileLines(at: rootURL.appending(path: path)), 0)
+                }
                 newStaged.append(GitFileItem(
                     relativePath: path,
                     status: status,
@@ -138,7 +153,10 @@ final class SourceControlModel {
             // Unstaged entry if working tree code is modified or untracked
             if workTreeCode != " " {
                 let status = mapStatus(code: workTreeCode)
-                let stat = unstagedStats[path] ?? (0, 0)
+                var stat = unstagedStats[path] ?? (0, 0)
+                if (status == .untracked || status == .added) && stat == (0, 0) {
+                    stat = (countFileLines(at: rootURL.appending(path: path)), 0)
+                }
                 newUnstaged.append(GitFileItem(
                     relativePath: path,
                     status: status,
@@ -151,6 +169,23 @@ final class SourceControlModel {
 
         self.stagedFiles = newStaged
         self.unstagedFiles = newUnstaged
+    }
+
+    private func countFileLines(at url: URL) -> Int {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), !isDir.boolValue else {
+            return 0
+        }
+        guard let data = try? Data(contentsOf: url),
+              let content = String(data: data, encoding: .utf8) else {
+            return 0
+        }
+        if content.isEmpty { return 0 }
+        var lines = content.split(separator: "\n", omittingEmptySubsequences: false)
+        if lines.last?.isEmpty == true {
+            lines.removeLast()
+        }
+        return lines.count
     }
 
     private func mapStatus(code: Character) -> GitFileItem.Status {
@@ -457,6 +492,15 @@ final class SourceControlModel {
         await loadStatus()
     }
 
+    private func cleanErrorMessage(_ raw: String, fallback: String) -> String {
+        let clean = raw
+            .replacingOccurrences(of: "error:", with: "")
+            .replacingOccurrences(of: "fatal:", with: "")
+            .replacingOccurrences(of: "Aborting", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? fallback : clean
+    }
+
     func commit() async -> Bool {
         let trimmed = commitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
@@ -473,7 +517,9 @@ final class SourceControlModel {
             await refresh()
             return true
         } else {
-            errorMessage = result.stderr.isEmpty ? "Commit failed" : result.stderr
+            let msg = cleanErrorMessage(result.stderr, fallback: "Commit failed.")
+            errorMessage = msg
+            activeAlertError = msg
             return false
         }
     }
@@ -484,7 +530,9 @@ final class SourceControlModel {
             errorMessage = nil
             await refresh()
         } else {
-            errorMessage = result.stderr
+            let msg = cleanErrorMessage(result.stderr, fallback: "Push failed.")
+            errorMessage = msg
+            activeAlertError = msg
         }
     }
 
@@ -494,17 +542,99 @@ final class SourceControlModel {
             errorMessage = nil
             await refresh()
         } else {
-            errorMessage = result.stderr
+            let msg = cleanErrorMessage(result.stderr, fallback: "Pull failed.")
+            errorMessage = msg
+            activeAlertError = msg
         }
     }
 
-    func fetch() async {
-        let result = await runner.run(arguments: ["fetch"], in: rootURL)
+    func fetch(prune: Bool = false) async {
+        var args = ["fetch"]
+        if prune {
+            args.append("--prune")
+        }
+        let result = await runner.run(arguments: args, in: rootURL)
         if result.isSuccess {
             errorMessage = nil
             await refresh()
         } else {
-            errorMessage = result.stderr
+            let msg = cleanErrorMessage(result.stderr, fallback: "Fetch failed.")
+            errorMessage = msg
+            activeAlertError = msg
+        }
+    }
+
+    private func loadStashCount() async {
+        let result = await runner.run(arguments: ["stash", "list"], in: rootURL)
+        guard result.isSuccess else {
+            stashCount = 0
+            return
+        }
+        let lines = result.stdout.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        stashCount = lines.count
+    }
+
+    @discardableResult
+    func stash(message: String? = nil) async -> Bool {
+        var args = ["stash", "push", "-u"]
+        if let msg = message?.trimmingCharacters(in: .whitespacesAndNewlines), !msg.isEmpty {
+            args.append(contentsOf: ["-m", msg])
+        }
+        let result = await runner.run(arguments: args, in: rootURL)
+        if result.isSuccess {
+            errorMessage = nil
+            await refresh()
+            return true
+        } else {
+            let msg = cleanErrorMessage(result.stderr, fallback: "Stash failed.")
+            errorMessage = msg
+            activeAlertError = msg
+            return false
+        }
+    }
+
+    @discardableResult
+    func popStash() async -> Bool {
+        let result = await runner.run(arguments: ["stash", "pop"], in: rootURL)
+        if result.isSuccess {
+            errorMessage = nil
+            await refresh()
+            return true
+        } else {
+            let msg = cleanErrorMessage(result.stderr, fallback: "Pop stash failed.")
+            errorMessage = msg
+            activeAlertError = msg
+            return false
+        }
+    }
+
+    @discardableResult
+    func applyStash() async -> Bool {
+        let result = await runner.run(arguments: ["stash", "apply"], in: rootURL)
+        if result.isSuccess {
+            errorMessage = nil
+            await refresh()
+            return true
+        } else {
+            let msg = cleanErrorMessage(result.stderr, fallback: "Apply stash failed.")
+            errorMessage = msg
+            activeAlertError = msg
+            return false
+        }
+    }
+
+    @discardableResult
+    func dropStash() async -> Bool {
+        let result = await runner.run(arguments: ["stash", "drop"], in: rootURL)
+        if result.isSuccess {
+            errorMessage = nil
+            await refresh()
+            return true
+        } else {
+            let msg = cleanErrorMessage(result.stderr, fallback: "Drop stash failed.")
+            errorMessage = msg
+            activeAlertError = msg
+            return false
         }
     }
 
@@ -517,7 +647,8 @@ final class SourceControlModel {
             await refresh()
             return (true, nil)
         } else {
-            errorMessage = result.stderr
+            let msg = cleanErrorMessage(result.stderr, fallback: "Checkout failed.")
+            errorMessage = msg
             return (false, result.stderr)
         }
     }
@@ -535,7 +666,9 @@ final class SourceControlModel {
             await refresh()
             return true
         } else {
-            errorMessage = result.stderr
+            let msg = cleanErrorMessage(result.stderr, fallback: "Failed to create branch “\(trimmed)”.")
+            errorMessage = msg
+            activeAlertError = msg
             return false
         }
     }
@@ -566,7 +699,9 @@ final class SourceControlModel {
             await refresh()
             return true
         } else {
-            errorMessage = result.stderr
+            let msg = cleanErrorMessage(result.stderr, fallback: "Failed to delete branch “\(branch.name)”.")
+            errorMessage = msg
+            activeAlertError = msg
             return false
         }
     }
@@ -577,7 +712,9 @@ final class SourceControlModel {
             errorMessage = nil
             await refresh()
         } else {
-            errorMessage = result.stderr
+            let msg = cleanErrorMessage(result.stderr, fallback: "Failed to initialize repository.")
+            errorMessage = msg
+            activeAlertError = msg
         }
     }
 }

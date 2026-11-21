@@ -53,7 +53,13 @@ struct SourceControlView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         switch selectedTab {
                         case .changes:
-                            SourceControlChangesView(workspace: workspace, model: model)
+                            SourceControlChangesView(
+                                workspace: workspace,
+                                model: model,
+                                onSelectBranchesTab: {
+                                    selectedTab = .branches
+                                }
+                            )
                         case .history:
                             SourceControlHistoryView(model: model)
                         case .branches:
@@ -69,6 +75,20 @@ struct SourceControlView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .workspaceCard()
+        .alert(
+            "Git Error",
+            isPresented: Binding(
+                get: { model.activeAlertError != nil },
+                set: { if !$0 { model.activeAlertError = nil } }
+            ),
+            presenting: model.activeAlertError
+        ) { _ in
+            Button("OK", role: .cancel) {
+                model.activeAlertError = nil
+            }
+        } message: { error in
+            Text(error)
+        }
         .task {
             await model.refresh()
         }
@@ -108,6 +128,98 @@ struct SourceControlView: View {
                 .buttonStyle(.titleBarIcon)
                 .frame(width: 26, height: 22)
                 .help("Refresh Status")
+
+                Menu {
+                    // Remote Operations
+                    Section {
+                        Button {
+                            Task { await model.pull() }
+                        } label: {
+                            Label("Pull", systemImage: "arrow.down")
+                        }
+
+                        Button {
+                            Task { await model.push() }
+                        } label: {
+                            Label("Push", systemImage: "arrow.up")
+                        }
+
+                        Button {
+                            Task { await model.fetch() }
+                        } label: {
+                            Label("Fetch", systemImage: "arrow.triangle.2.circlepath")
+                        }
+
+                        Button {
+                            Task { await model.fetch(prune: true) }
+                        } label: {
+                            Label("Fetch (Prune)", systemImage: "arrow.triangle.2.circlepath.circle")
+                        }
+                    }
+
+                    // Stash Operations
+                    Section {
+                        Button {
+                            Task { await model.stash() }
+                        } label: {
+                            Label("Stash All Changes", systemImage: "tray.and.arrow.down")
+                        }
+                        .disabled(!model.hasChanges)
+
+                        Button {
+                            Task { await model.popStash() }
+                        } label: {
+                            Label("Pop Latest Stash", systemImage: "tray.and.arrow.up")
+                        }
+                        .disabled(model.stashCount == 0)
+
+                        Button {
+                            Task { await model.applyStash() }
+                        } label: {
+                            Label("Apply Latest Stash", systemImage: "tray")
+                        }
+                        .disabled(model.stashCount == 0)
+
+                        Button {
+                            Task { await model.dropStash() }
+                        } label: {
+                            Label("Drop Latest Stash", systemImage: "trash")
+                        }
+                        .disabled(model.stashCount == 0)
+                    }
+
+                    // Changes & Staging
+                    Section {
+                        Button {
+                            Task { await model.stageAll() }
+                        } label: {
+                            Label("Stage All Changes", systemImage: "plus")
+                        }
+                        .disabled(model.unstagedFiles.isEmpty)
+
+                        Button {
+                            Task { await model.unstageAll() }
+                        } label: {
+                            Label("Unstage All Changes", systemImage: "minus")
+                        }
+                        .disabled(model.stagedFiles.isEmpty)
+
+                        Button(role: .destructive) {
+                            Task { await model.discardAllChanges() }
+                        } label: {
+                            Label("Discard All Changes…", systemImage: "arrow.uturn.backward")
+                        }
+                        .disabled(!model.hasChanges)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 11, weight: .medium))
+                        .frame(width: 16, height: 16)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .frame(width: 26, height: 22)
+                .help("More Actions…")
             }
 
             Button {
