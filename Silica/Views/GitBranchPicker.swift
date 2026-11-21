@@ -33,8 +33,19 @@ struct GitBranchPicker: View {
                     .textFieldStyle(.plain)
                     .focused($isFieldFocused)
                     .onSubmit {
-                        // Return takes the first branch listed.
-                        if let name = local.first { choose(local: name) } else if let name = remote.first { choose(remote: name) }
+                        // Return takes the branch typed, or failing that the first
+                        // one listed. With nothing typed it does nothing: the first
+                        // listed is only the one last committed to.
+                        guard !query.isEmpty else { return }
+                        if let name = local.first(where: { $0 == query }) {
+                            choose(local: name)
+                        } else if let name = remote.first(where: { $0 == query }) {
+                            choose(remote: name)
+                        } else if let name = local.first {
+                            choose(local: name)
+                        } else if let name = remote.first {
+                            choose(remote: name)
+                        }
                     }
                     .accessibilityLabel("Filter Branches")
             }

@@ -443,13 +443,21 @@ final class EditorBuffer: Identifiable {
         return regions.firstIndex { NSMaxRange($0.whole) > cursor } ?? 0
     }
 
-    /// Replaces the conflict at the cursor with one of its sides, or both. One
-    /// undoable edit; the next conflict is then shown.
+    /// Replaces the conflict the cursor is in with one of its sides, or both. One
+    /// undoable edit; the next conflict is then shown. With the cursor outside
+    /// any conflict nothing is replaced: the conflict that would be is shown
+    /// instead, so that what gets rewritten is what's on screen, and asking again
+    /// settles it.
     func resolveConflict(taking choice: ConflictMarkers.Choice) {
         guard let controller = textController else { return }
         let text = controller.textView.string as NSString
         let regions = conflicts
         guard let index = conflictAtCursor(in: regions) else { return }
+        let cursor = controller.textView.selectedRange().location
+        guard NSLocationInRange(cursor, regions[index].whole) else {
+            showConflict(offsetBy: 0)
+            return
+        }
         let replacement = ConflictMarkers.resolution(of: regions[index], in: text, taking: choice)
         controller.textView.insertText(replacement, replacementRange: regions[index].whole)
         controller.textView.setSelectedRange(NSRange(location: regions[index].whole.location, length: 0))

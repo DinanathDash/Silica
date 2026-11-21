@@ -640,8 +640,10 @@ nonisolated enum GitOperation: Sendable {
         case .stage(let paths):
             return Git.perform(["add", "-A", "--"] + paths, in: root)
         case .unstage(let paths, let hasCommits):
-            // Before the first commit there is nothing to restore the index from.
-            return Git.perform((hasCommits ? ["restore", "--staged", "--"] : ["rm", "--cached", "-q", "--"]) + paths, in: root)
+            // Before the first commit there is nothing to restore the index from,
+            // so the entry is removed. Forced: git otherwise refuses a file edited
+            // since it was staged. With `--cached` the file itself is left alone.
+            return Git.perform((hasCommits ? ["restore", "--staged", "--"] : ["rm", "--cached", "-f", "-q", "--"]) + paths, in: root)
         case .commit(let message, let stagingAll):
             if stagingAll {
                 let staging = Git.perform(["add", "-A", "--", "."], in: root)
