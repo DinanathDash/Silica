@@ -401,7 +401,7 @@ private struct KeybindSettingsPane: View {
                     fixedRow(keybinds.title(for: command), keybinds.keybind(for: command))
                 }
             }
-            Section("System") {
+            Section("Reserved") {
                 ForEach(SystemKeyCommand.allCases) { command in
                     fixedRow(command.title, command.keybind)
                 }

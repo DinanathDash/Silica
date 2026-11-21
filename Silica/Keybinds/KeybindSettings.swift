@@ -62,29 +62,23 @@ final class KeybindSettings {
         }
     }
 
+    // Every preset binds every command to a valid keybind: KeybindFile's validation
+    // checks that when the presets load.
+
     func keybind(for command: FixedKeyCommand) -> Keybind {
-        let current = getActivePreset().binding(for: command)?.asKeybind()
-        return current ?? Keybind.Fallback.fixed(for: command)
+        presetBinding(for: command).asKeybind()!
     }
 
     func keybind(for command: ConfigKeyCommand) -> Keybind {
-        let override = self.overrides[command.id]
-        let current = getActivePreset().binding(for: command)?.asKeybind()
-        return override ?? current ?? Keybind.Fallback.config(for: command)
+        self.overrides[command.id] ?? presetBinding(for: command).asKeybind()!
     }
 
     func title(for command: FixedKeyCommand) -> String {
-        let current = getActivePreset().binding(for: command)?.title
-        let `default` = getDefaultPreset().binding(for: command)?.title
-        let fallback = command.title
-        return current ?? `default` ?? fallback
+        presetBinding(for: command).title
     }
 
     func title(for command: ConfigKeyCommand) -> String {
-        let current = getActivePreset().binding(for: command)?.title
-        let `default` = getDefaultPreset().binding(for: command)?.title
-        let fallback = command.title
-        return current ?? `default` ?? fallback
+        presetBinding(for: command).title
     }
 
     func isDefaultKeybind(for command: ConfigKeyCommand) -> Bool {
@@ -127,8 +121,8 @@ final class KeybindSettings {
     ) throws {
         guard let keybind else {
             // Another command may have taken the preset's keystroke in the meantime.
-            if let preset = getActivePreset().binding(for: command)?.asKeybind(),
-               let conflict = commandTitle(boundTo: preset, excluding: command) {
+            let preset = presetBinding(for: command).asKeybind()!
+            if let conflict = commandTitle(boundTo: preset, excluding: command) {
                 throw Error.commandConflict(preset, conflict)
             }
             self.overrides.removeValue(forKey: command.id)
@@ -143,7 +137,7 @@ final class KeybindSettings {
         if let conflict = commandTitle(boundTo: keybind, excluding: command) {
             throw Error.commandConflict(keybind, conflict)
         }
-        if keybind == getActivePreset().binding(for: command)?.asKeybind() {
+        if keybind == presetBinding(for: command).asKeybind() {
             // If keybind is equal to our preset's default, remove the override.
             self.overrides.removeValue(forKey: command.id)
         }
@@ -168,11 +162,18 @@ final class KeybindSettings {
         return preset
     }
 
-    private func getDefaultPreset() -> KeybindFile {
-        guard let preset = self.presets.first(where: { $0.id == KeybindFile.defaultFileId }) else {
-            preconditionFailure("Default keybind preset is missing.")
+    private func presetBinding(for command: FixedKeyCommand) -> KeybindFile.Binding {
+        guard let binding = getActivePreset().binding(for: command) else {
+            preconditionFailure("Keybind preset has no binding for \(command.id).")
         }
-        return preset
+        return binding
+    }
+    
+    private func presetBinding(for command: ConfigKeyCommand) -> KeybindFile.Binding {
+        guard let binding = getActivePreset().binding(for: command) else {
+            preconditionFailure("Keybind preset has no binding for \(command.id).")
+        }
+        return binding
     }
 
     /// The title of the command that `candidate` runs, other than `excludedCommand`.

@@ -130,6 +130,7 @@ final class KeybindSettingsTests {
         (keybind(";", [.shift, .command]), "Show Spelling and Grammar"),
         (keybind("f", [.control, .command]), "Enter Full Screen"),
         (keybind("q", [.option, .command]), "Quit and Keep Windows"),
+        (Keybind(key: .return, modifiers: .command)!, "Commit (in the commit message)"),
     ])
     func editAndWindowMenuShortcutsConflict(keybind: Keybind, title: String) {
         #expect(throws: KeybindSettings.Error.commandConflict(keybind, title)) {

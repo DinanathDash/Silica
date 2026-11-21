@@ -4,16 +4,6 @@ import SwiftUI
 /// Protocol describing a key command.
 protocol KeyCommand: Identifiable, CaseIterable, RawRepresentable where RawValue == String {}
 
-extension KeyCommand {
-
-    var title: String {
-        self.rawValue
-            .split(separator: "_")
-            .map(\.localizedCapitalized)
-            .joined(separator: " ")
-    }
-}
-
 // MARK: FixedKeyCommand
 
 /// A fixed (non-configurable) key command. Presets can still bind it to a different key.
@@ -73,9 +63,9 @@ enum ConfigKeyCommand: String, KeyCommand {
 
 // MARK: SystemKeyCommand
 
-/// A menu item that comes from macOS or from SwiftUI's `TextEditingCommands` rather
-/// than from `AppCommands`, so its shortcut can't change. Listed so a keybind can't
-/// take its shortcut. Items bound only with the Globe key (the Window menu's tiling,
+/// A shortcut that doesn't come from `AppCommands`, so it can't change: a menu item
+/// from macOS or from SwiftUI's `TextEditingCommands`, or a key a view handles itself.
+/// Listed so a keybind can't take its shortcut. Items bound only with the Globe key (the Window menu's tiling,
 /// Emoji & Symbols) are left out: the recorder can't record that key.
 enum SystemKeyCommand: String, CaseIterable, Identifiable {
     
@@ -115,6 +105,8 @@ enum SystemKeyCommand: String, CaseIterable, Identifiable {
     case lockScreen
     case logOut
     case logOutNow
+    // Handled by views, which get keys after the menus do.
+    case commit
     
     var title: String {
         switch self {
@@ -146,6 +138,7 @@ enum SystemKeyCommand: String, CaseIterable, Identifiable {
         case .lockScreen: "Lock Screen"
         case .logOut: "Log Out"
         case .logOutNow: "Log Out Without Asking"
+        case .commit: "Commit (in the commit message)"
         }
     }
     
@@ -178,6 +171,7 @@ enum SystemKeyCommand: String, CaseIterable, Identifiable {
         case .lockScreen: .init(key: "q", modifiers: [.control, .command])!
         case .logOut: .init(key: "q", modifiers: [.shift, .command])!
         case .logOutNow: .init(key: "q", modifiers: [.option, .shift, .command])!
+        case .commit: .init(key: .return, modifiers: .command)!
         }
     }
 }

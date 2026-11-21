@@ -66,7 +66,7 @@ struct WelcomeView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .glassButtonStyle(prominent: true)
-                .keyboardShortcut("o")
+                .keybindShortcut(for: FixedKeyCommand.open, .shared)
 
                 if let last = store.projects.first {
                     Button {
