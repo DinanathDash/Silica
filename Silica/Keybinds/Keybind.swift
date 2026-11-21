@@ -103,8 +103,10 @@ struct Keybind: Codable, Hashable {
         if flags.contains(.shift) { modifiers.insert(.shift) }
 
         // The unshifted character, so ⇧⌘1 is recorded as "1" with ⇧⌘, the way presets
-        // write it, not as "!". (`charactersIgnoringModifiers` keeps Shift.)
-        guard let key = event.characters(byApplyingModifiers: []) else {
+        // write it, not as "!". (`charactersIgnoringModifiers` keeps Shift.) ⌘ stays
+        // applied: layouts such as "Dvorak – QWERTY ⌘" switch keys while it's held, and
+        // the menus match key equivalents against that ⌘ layout.
+        guard let key = event.characters(byApplyingModifiers: flags.intersection(.command)) else {
             return nil
         }
 
