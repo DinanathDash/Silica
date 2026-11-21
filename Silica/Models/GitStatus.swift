@@ -116,6 +116,10 @@ nonisolated struct GitPendingOperation: Sendable, Equatable {
         // mark too. Its two ways of working keep their notes in different places.
         for (folder, step, count) in [("rebase-merge", "msgnum", "end"), ("rebase-apply", "next", "last")]
         where files.fileExists(atPath: path(folder)) {
+            // `git am` keeps the patches it is applying in "rebase-apply" as well,
+            // marked "applying". That is no rebase: `rebase --continue` and
+            // `--abort` would find nothing to go on with or call off.
+            if folder == "rebase-apply", files.fileExists(atPath: path(folder + "/applying")) { continue }
             var branch = text(folder + "/head-name")
             if let name = branch, name.hasPrefix("refs/heads/") { branch = String(name.dropFirst("refs/heads/".count)) }
             return GitPendingOperation(

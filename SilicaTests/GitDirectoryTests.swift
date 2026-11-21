@@ -86,6 +86,39 @@ struct GitPendingOperationTests {
         #expect(GitPendingOperation.find(in: git.path) == GitPendingOperation(kind: .rebase, branch: "feature", step: 1, stepCount: 3))
     }
 
+    /// `git am` stopped at a patch that doesn't apply: it uses the same folder,
+    /// marked "applying" where a rebase's is marked "rebasing", and is finished
+    /// with `git am`, not `git rebase`.
+    @Test func patchesBeingAppliedAreNotARebase() throws {
+        let git = try ScratchFolder()
+        defer { git.remove() }
+        try git.file("HEAD", "ref: refs/heads/main\n")
+        try git.file("ORIG_HEAD", hash)
+        try git.file("rebase-apply/applying")
+        try git.file("rebase-apply/next", "1\n")
+        try git.file("rebase-apply/last", "3\n")
+        try git.file("rebase-apply/0001", "From: someone\n")
+        #expect(GitPendingOperation.find(in: git.path) == nil)
+    }
+
+    /// What else is under way is still found past the patches.
+    @Test func aMergeIsFoundBesidePatchesBeingApplied() throws {
+        let git = try ScratchFolder()
+        defer { git.remove() }
+        try git.file("rebase-apply/applying")
+        try git.file("MERGE_HEAD", hash)
+        #expect(GitPendingOperation.find(in: git.path) == GitPendingOperation(kind: .merge))
+    }
+
+    /// git takes the folder for a rebase's unless it is marked "applying".
+    @Test func anUnmarkedPatchFolderIsARebase() throws {
+        let git = try ScratchFolder()
+        defer { git.remove() }
+        try git.file("rebase-apply/next", "2\n")
+        try git.file("rebase-apply/last", "4\n")
+        #expect(GitPendingOperation.find(in: git.path) == GitPendingOperation(kind: .rebase, step: 2, stepCount: 4))
+    }
+
     @Test func aBranchWithSlashesInItsNameKeepsThem() throws {
         let git = try ScratchFolder()
         defer { git.remove() }
