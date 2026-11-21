@@ -43,10 +43,10 @@ final class KeyWorkspace: ObservableObject {
                 workspace.toggleSourceControl()
                 return nil
             }
-            // ⌘⌫ (Move to Trash) and ⌘⌥⌫ (Delete Immediately) for selected item in file tree
+            // ⌘⌫ (Move to Trash) and ⌘⌥⌫ (Delete Immediately) for selected item(s) in file tree
             if (event.keyCode == 51 || event.keyCode == 117),
                let workspace = self?.current,
-               let selection = workspace.selection,
+               (!workspace.selections.isEmpty || workspace.selection != nil),
                workspace.treeEdit == nil,
                workspace.sidebarMode == .explorer {
                 let firstResponder = event.window?.firstResponder
@@ -56,14 +56,15 @@ final class KeyWorkspace: ObservableObject {
                 let isTerminalFocused = workspace.terminal?.isFocused == true
 
                 if !isEditingField && !isEditorTextView && !isTerminalFocused {
+                    let targets = !workspace.selections.isEmpty ? Array(workspace.selections) : (workspace.selection.map { [$0] } ?? [])
                     if flags == [.command, .option] {
                         DispatchQueue.main.async {
-                            workspace.deleteImmediately(selection)
+                            workspace.deleteImmediately(targets)
                         }
                         return nil
                     } else if flags == .command {
                         DispatchQueue.main.async {
-                            workspace.moveToTrash(selection)
+                            workspace.moveToTrash(targets)
                         }
                         return nil
                     }

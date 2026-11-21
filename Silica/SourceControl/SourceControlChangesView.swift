@@ -70,7 +70,7 @@ struct SourceControlChangesView: View {
 
             // Commit Composer
             VStack(alignment: .leading, spacing: 8) {
-                TextField("Commit message (⌘Enter to commit)", text: $model.commitMessage, axis: .vertical)
+                TextField("Commit message", text: $model.commitMessage, axis: .vertical)
                     .lineLimit(2...4)
                     .textFieldStyle(.plain)
                     .font(.system(size: settings.sidebarFontSize))

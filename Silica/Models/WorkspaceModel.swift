@@ -9,7 +9,35 @@ final class WorkspaceModel {
     let rootURL: URL
     let root: FileNode
 
-    var selection: URL?
+    var selections: Set<URL> = [] {
+        didSet {
+            if selections.count == 1, let single = selections.first {
+                if selection != single {
+                    selection = single
+                }
+            } else if selections.isEmpty {
+                if selection != nil {
+                    selection = nil
+                }
+            } else if let current = selection, !selections.contains(current) {
+                selection = selections.first
+            }
+        }
+    }
+
+    var selection: URL? {
+        didSet {
+            if let selection {
+                if !selections.contains(selection) {
+                    selections = [selection]
+                }
+            } else {
+                if !selections.isEmpty {
+                    selections.removeAll()
+                }
+            }
+        }
+    }
     /// The last file asked to be shown in the tree; `revealCount` changes on every
     /// request so the tree scrolls even when the same file is revealed twice.
     private(set) var revealedURL: URL?
@@ -749,36 +777,46 @@ final class WorkspaceModel {
         reveal(copy)
     }
 
-    /// Moves the item to the Trash. Unedited tabs for it close; edited ones stay
+    /// Moves the item(s) to the Trash. Unedited tabs for them close; edited ones stay
     /// open, marked as deleted, so nothing typed is lost.
     func moveToTrash(_ url: URL) {
-        FileSizeCache.shared.invalidate(for: url)
-        do {
-            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
-        } catch {
-            NSAlert(error: error).runModal()
-            return
+        moveToTrash([url])
+    }
+
+    func moveToTrash(_ urls: [URL]) {
+        for url in urls {
+            FileSizeCache.shared.invalidate(for: url)
+            do {
+                try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            } catch {
+                NSAlert(error: error).runModal()
+            }
+            for tab in openTabs where Self.url(tab, isInside: url) && buffers[tab]?.isDirty != true {
+                closeTab(tab)
+            }
         }
-        for tab in openTabs where Self.url(tab, isInside: url) && buffers[tab]?.isDirty != true {
-            closeTab(tab)
-        }
-        if let selection, Self.url(selection, isInside: url) { self.selection = nil }
+        selections.subtract(urls)
         refresh()
     }
 
-    /// Deletes the item permanently (⌘⌥⌫) bypassing the Trash.
+    /// Deletes the item(s) permanently (⌘⌥⌫) bypassing the Trash.
     func deleteImmediately(_ url: URL) {
-        FileSizeCache.shared.invalidate(for: url)
-        do {
-            try FileManager.default.removeItem(at: url)
-        } catch {
-            NSAlert(error: error).runModal()
-            return
+        deleteImmediately([url])
+    }
+
+    func deleteImmediately(_ urls: [URL]) {
+        for url in urls {
+            FileSizeCache.shared.invalidate(for: url)
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch {
+                NSAlert(error: error).runModal()
+            }
+            for tab in openTabs where Self.url(tab, isInside: url) && buffers[tab]?.isDirty != true {
+                closeTab(tab)
+            }
         }
-        for tab in openTabs where Self.url(tab, isInside: url) && buffers[tab]?.isDirty != true {
-            closeTab(tab)
-        }
-        if let selection, Self.url(selection, isInside: url) { self.selection = nil }
+        selections.subtract(urls)
         refresh()
     }
 

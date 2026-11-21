@@ -36,12 +36,12 @@ struct FileTreeView: View {
                 ProjectSearchView(workspace: workspace, model: workspace.search)
             }
         }
-        .onChange(of: workspace.selection) { old, new in
+        .onChange(of: workspace.selections) { old, new in
             if let dragged = draggedURL {
                 draggedURL = nil
-                if new == dragged {
+                if new.contains(dragged) {
                     isRestoringSelection = true
-                    workspace.selection = old
+                    workspace.selections = old
                     return
                 }
             }
@@ -49,7 +49,14 @@ struct FileTreeView: View {
                 isRestoringSelection = false
                 return
             }
-            workspace.handleSelectionChange()
+            if new.count == 1 {
+                workspace.handleSelectionChange()
+            }
+        }
+        .onChange(of: workspace.selection) { _, new in
+            if let new, !workspace.selections.contains(new) {
+                workspace.selections = [new]
+            }
         }
     }
 
@@ -92,7 +99,7 @@ struct FileTreeView: View {
     private var tree: some View {
         let rows = visibleRows()
         return ScrollViewReader { proxy in
-            List(selection: $workspace.selection) {
+            List(selection: $workspace.selections) {
                 if rows.isEmpty {
                     Text(workspace.isFilteringTree ? "No files match “\(workspace.treeFilter)”" : "This project is empty")
                         .font(.system(size: EditorSettings.shared.sidebarFontSize))
@@ -152,8 +159,9 @@ struct FileTreeView: View {
                 rows: EditorSettings.shared.pinsParentFolders ? rows.map(\.pinnedFolderRow) : []
             ))
             .background(FileTreeDragSource(rows: rows, isEnabled: workspace.treeEdit == nil) { url in
-                draggedURL = workspace.selection == url ? nil : url
+                draggedURL = workspace.selections.contains(url) ? nil : url
             })
+            .background(SystemHighlightRemover())
             .overlay(alignment: .top) {
                 PinnedFolders(rows: rows, tracker: pinnedFolders, workspace: workspace)
             }
@@ -184,20 +192,23 @@ struct FileTreeView: View {
         if press.key == .leftArrow {
             return workspace.setSelectedFolderExpanded(false) ? .handled : .ignored
         }
-        guard workspace.treeEdit == nil, let selection = workspace.selection else { return .ignored }
-        if press.key == .return {
-            workspace.beginRename(selection)
-            return .handled
-        }
+        guard workspace.treeEdit == nil else { return .ignored }
         if press.key == .delete || press.key == .deleteForward {
+            let targets = !workspace.selections.isEmpty ? Array(workspace.selections) : (workspace.selection.map { [$0] } ?? [])
+            guard !targets.isEmpty else { return .ignored }
             if press.modifiers == [.command, .option] {
-                workspace.deleteImmediately(selection)
+                workspace.deleteImmediately(targets)
                 return .handled
             }
             if press.modifiers == .command {
-                workspace.moveToTrash(selection)
+                workspace.moveToTrash(targets)
                 return .handled
             }
+        }
+        guard let selection = workspace.selection else { return .ignored }
+        if press.key == .return {
+            workspace.beginRename(selection)
+            return .handled
         }
         return .ignored
     }
@@ -417,7 +428,7 @@ private struct PinnedFolders: View {
                         .padding(.top, layout.top)
                         .frame(height: pinned.height, alignment: .top)
                         .background {
-                            if workspace.selection == node.url {
+                            if workspace.selections.contains(node.url) {
                                 SelectionHighlightShape()
                                     .padding(.leading, 10 - FileTreeView.listLeadingOutset)
                                     .padding(.trailing, 10)
@@ -664,7 +675,7 @@ private struct FileNodeRow: View {
 
     /// Formats file or folder size into human readable string using cached background provider.
     private var formattedSize: String? {
-        FileSizeCache.shared.formattedSize(for: node, isHoveredOrSelected: isHovered || workspace.selection == node.url)
+        FileSizeCache.shared.formattedSize(for: node, isHoveredOrSelected: isHovered || workspace.selections.contains(node.url))
     }
 
     /// The name, with the filter text in bold on a soft accent background.
@@ -701,7 +712,7 @@ private struct FileNodeRow: View {
             Spacer(minLength: 0)
 
             // File or folder size shown on the right side when hovered or selected
-            if (isHovered || workspace.selection == node.url), !isRenaming, let formattedSize {
+            if (isHovered || workspace.selections.contains(node.url)), !isRenaming, let formattedSize {
                 Text(formattedSize)
                     .font(.system(size: max(EditorSettings.shared.sidebarFontSize - 1.5, 9), design: .monospaced))
                     .foregroundStyle(.secondary.opacity(0.8))
@@ -720,7 +731,7 @@ private struct FileNodeRow: View {
         .font(.system(size: EditorSettings.shared.sidebarFontSize))
         .tag(node.url)
         .onHover { isHovered = $0 }
-        .listRowBackground(SelectionHighlight(isSelected: workspace.selection == node.url))
+        .listRowBackground(SelectionHighlight(isSelected: workspace.selections.contains(node.url)))
         .contextMenu { FileNodeMenu(node: node, workspace: workspace) }
     }
 
@@ -765,10 +776,21 @@ private struct FileNodeMenu: View {
         Divider()
         Button("Rename…") { workspace.beginRename(node.url) }
         Button("Duplicate") { workspace.duplicate(node.url) }
-        Button("Move to Trash") { workspace.moveToTrash(node.url) }
+        if workspace.selections.contains(node.url) && workspace.selections.count > 1 {
+            Button("Move \(workspace.selections.count) Items to Trash") {
+                workspace.moveToTrash(Array(workspace.selections))
+            }
             .keyboardShortcut(.delete, modifiers: .command)
-        Button("Delete Immediately…") { workspace.deleteImmediately(node.url) }
+            Button("Delete \(workspace.selections.count) Items Immediately…") {
+                workspace.deleteImmediately(Array(workspace.selections))
+            }
             .keyboardShortcut(.delete, modifiers: [.command, .option])
+        } else {
+            Button("Move to Trash") { workspace.moveToTrash(node.url) }
+                .keyboardShortcut(.delete, modifiers: .command)
+            Button("Delete Immediately…") { workspace.deleteImmediately(node.url) }
+                .keyboardShortcut(.delete, modifiers: [.command, .option])
+        }
         Divider()
         Button("Show in Finder") { Finder.reveal(node.url) }
         Button("Copy Path") { Finder.copyPath(node.url) }
@@ -825,6 +847,9 @@ private struct SystemHighlightRemover: NSViewRepresentable {
                 if let table = view as? NSTableView {
                     if table.selectionHighlightStyle != .none {
                         table.selectionHighlightStyle = .none
+                    }
+                    if !table.allowsMultipleSelection {
+                        table.allowsMultipleSelection = true
                     }
                     return
                 }

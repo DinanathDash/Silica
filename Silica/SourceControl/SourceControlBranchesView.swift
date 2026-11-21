@@ -311,21 +311,9 @@ struct SourceControlBranchesView: View {
                 title: "Cannot Switch Branch",
                 message: "Git stopped the switch because your local edits in these files would be overwritten by “\(targetBranch)”:\n\n\(fileList)\(extra)\n\nPlease commit or discard these files in the Changes tab before switching."
             )
-        } else if rawError.contains("already exists") {
-            return (
-                title: "Branch Already Exists",
-                message: "A branch named “\(targetBranch)” already exists in this repository."
-            )
         } else {
-            let clean = rawError
-                .replacingOccurrences(of: "error:", with: "")
-                .replacingOccurrences(of: "fatal:", with: "")
-                .replacingOccurrences(of: "Aborting", with: "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return (
-                title: "Cannot Switch to “\(targetBranch)”",
-                message: clean.isEmpty ? "Git encountered an unexpected issue while switching branches." : clean
-            )
+            let alert = model.parseGitError(rawError, fallbackTitle: "Cannot Switch to “\(targetBranch)”", fallbackMessage: "Git encountered an unexpected issue while switching branches.")
+            return (title: alert.title, message: alert.message)
         }
     }
 

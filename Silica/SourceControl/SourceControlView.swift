@@ -76,18 +76,18 @@ struct SourceControlView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .workspaceCard()
         .alert(
-            "Git Error",
+            model.activeAlert?.title ?? "Git Alert",
             isPresented: Binding(
-                get: { model.activeAlertError != nil },
-                set: { if !$0 { model.activeAlertError = nil } }
+                get: { model.activeAlert != nil },
+                set: { if !$0 { model.activeAlert = nil } }
             ),
-            presenting: model.activeAlertError
+            presenting: model.activeAlert
         ) { _ in
             Button("OK", role: .cancel) {
-                model.activeAlertError = nil
+                model.activeAlert = nil
             }
-        } message: { error in
-            Text(error)
+        } message: { alert in
+            Text(alert.message)
         }
         .task {
             await model.refresh()

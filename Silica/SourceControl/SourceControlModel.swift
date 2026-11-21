@@ -1,6 +1,17 @@
 import Foundation
 import Observation
 
+public struct GitAlertItem: Identifiable, Equatable {
+    public let id = UUID()
+    public let title: String
+    public let message: String
+
+    public init(title: String, message: String) {
+        self.title = title
+        self.message = message
+    }
+}
+
 /// Coordinates git status, commits, branches, and worktree operations for a workspace.
 @MainActor
 @Observable
@@ -18,7 +29,17 @@ final class SourceControlModel {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
     private(set) var stashCount: Int = 0
-    var activeAlertError: String?
+    var activeAlert: GitAlertItem?
+    var activeAlertError: String? {
+        get { activeAlert?.message }
+        set {
+            if let newValue {
+                activeAlert = GitAlertItem(title: "Git Alert", message: newValue)
+            } else {
+                activeAlert = nil
+            }
+        }
+    }
     private var isRefreshing = false
 
     var commitMessage = ""
@@ -492,13 +513,169 @@ final class SourceControlModel {
         await loadStatus()
     }
 
-    private func cleanErrorMessage(_ raw: String, fallback: String) -> String {
-        let clean = raw
-            .replacingOccurrences(of: "error:", with: "")
-            .replacingOccurrences(of: "fatal:", with: "")
-            .replacingOccurrences(of: "Aborting", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+    func cleanErrorMessage(_ raw: String, fallback: String) -> String {
+        var clean = raw
+        let prefixesToRemove = ["error:", "fatal:", "warning:", "Aborting", "hint:"]
+        for prefix in prefixesToRemove {
+            clean = clean.replacingOccurrences(of: prefix, with: "", options: .caseInsensitive)
+        }
+        clean = clean.trimmingCharacters(in: .whitespacesAndNewlines)
         return clean.isEmpty ? fallback : clean
+    }
+
+    func parseGitError(_ raw: String, fallbackTitle: String, fallbackMessage: String) -> GitAlertItem {
+        let lower = raw.lowercased()
+
+        if lower.contains("authentication failed") ||
+           lower.contains("invalid username or password") ||
+           lower.contains("could not read username") ||
+           lower.contains("permission denied (publickey)") ||
+           lower.contains("returned error: 401") ||
+           lower.contains("returned error: 403") {
+            return GitAlertItem(
+                title: "Authentication Failed",
+                message: "Git couldn't verify your account credentials. Please check your username, personal access token, or SSH key for this repository."
+            )
+        }
+
+        if lower.contains("no upstream branch") ||
+           lower.contains("set-upstream") ||
+           lower.contains("no tracking information") {
+            return GitAlertItem(
+                title: "No Remote Branch Linked",
+                message: "This branch hasn't been connected to a remote branch yet. Push with tracking enabled or publish your branch to the remote repository."
+            )
+        }
+
+        if lower.contains("updates were rejected") ||
+           lower.contains("fetch first") ||
+           lower.contains("non-fast-forward") ||
+           lower.contains("failed to push some refs") {
+            return GitAlertItem(
+                title: "Remote Has Newer Changes",
+                message: "The remote repository has new commits that you don't have on your computer yet. Pull the latest changes first to combine them before pushing."
+            )
+        }
+
+        if lower.contains("would be overwritten by checkout") ||
+           lower.contains("would be overwritten by merge") ||
+           lower.contains("please commit your changes or stash them") {
+            return GitAlertItem(
+                title: "Uncommitted Changes Conflict",
+                message: "You have local edits in your files that would be overwritten. Please commit your changes or stash them in the Changes tab before continuing."
+            )
+        }
+
+        if lower.contains("automatic merge failed") ||
+           lower.contains("merge conflict") ||
+           lower.contains("conflict in") ||
+           lower.contains("fix conflicts") {
+            return GitAlertItem(
+                title: "Merge Conflict",
+                message: "Changes from both branches overlap in the same files. Open the affected files to resolve the conflicts, then stage and commit your changes."
+            )
+        }
+
+        if lower.contains("already exists") {
+            return GitAlertItem(
+                title: "Branch Already Exists",
+                message: "A branch with this name already exists in your repository. Please choose a different name or switch to the existing branch."
+            )
+        }
+
+        if lower.contains("is not fully merged") {
+            return GitAlertItem(
+                title: "Branch Has Unmerged Work",
+                message: "This branch contains commits that haven't been merged into your main branch. Delete it with force if you are sure you want to discard those changes."
+            )
+        }
+
+        if lower.contains("could not resolve host") ||
+           lower.contains("unable to access") ||
+           lower.contains("failed to connect") ||
+           lower.contains("connection refused") ||
+           lower.contains("network is unreachable") ||
+           lower.contains("timed out") {
+            return GitAlertItem(
+                title: "Connection Failed",
+                message: "Git couldn't reach the server. Please check your internet connection and verify that the remote server address is reachable."
+            )
+        }
+
+        if lower.contains("repository not found") ||
+           lower.contains("does not appear to be a git repository") {
+            return GitAlertItem(
+                title: "Repository Not Found",
+                message: "The remote repository could not be found. Make sure the URL is typed correctly and that your account has permission to access it."
+            )
+        }
+
+        if lower.contains("protected branch") ||
+           lower.contains("pre-receive hook declined") ||
+           lower.contains("protected branch update failed") ||
+           lower.contains("gh006") {
+            return GitAlertItem(
+                title: "Protected Branch",
+                message: "This branch is protected by repository rules. You cannot push changes directly to it. Please create a new branch and open a pull request instead."
+            )
+        }
+
+        if lower.contains("index.lock") ||
+           lower.contains("another git process seems to be running") {
+            return GitAlertItem(
+                title: "Git Is Busy",
+                message: "Another Git operation is currently running or a previous task was interrupted. Wait a few moments, or delete the '.git/index.lock' file if it stays locked."
+            )
+        }
+
+        if lower.contains("nothing to commit") {
+            return GitAlertItem(
+                title: "Nothing to Commit",
+                message: "There are no changes staged for this commit. Stage the files you want to include before committing."
+            )
+        }
+
+        if lower.contains("no stash entries found") ||
+           lower.contains("is not a valid reference") {
+            return GitAlertItem(
+                title: "No Stash Found",
+                message: "There are no saved stashes to restore or delete in this repository."
+            )
+        }
+
+        if lower.contains("cannot pull with rebase") ||
+           lower.contains("cannot rebase: you have unstaged changes") {
+            return GitAlertItem(
+                title: "Unstaged Edits Detected",
+                message: "Git cannot update while you have unstaged changes in your working tree. Please stash or commit your files before pulling."
+            )
+        }
+
+        if lower.contains("not a valid branch name") ||
+           lower.contains("is not a valid branch name") {
+            return GitAlertItem(
+                title: "Invalid Branch Name",
+                message: "Branch names cannot contain spaces, colons, backslashes, or control characters. Please use letters, numbers, hyphens, and slashes."
+            )
+        }
+
+        if lower.contains("not a git repository") {
+            return GitAlertItem(
+                title: "Not a Git Repository",
+                message: "This directory is not a Git repository. Click 'Initialize Repository' to start tracking changes."
+            )
+        }
+
+        if lower.contains("no such remote") ||
+           lower.contains("no remote repository specified") {
+            return GitAlertItem(
+                title: "No Remote Configured",
+                message: "This repository has no remote server linked. Add a remote origin before pushing or pulling."
+            )
+        }
+
+        let cleaned = cleanErrorMessage(raw, fallback: fallbackMessage)
+        return GitAlertItem(title: fallbackTitle, message: cleaned)
     }
 
     func commit() async -> Bool {
@@ -517,9 +694,9 @@ final class SourceControlModel {
             await refresh()
             return true
         } else {
-            let msg = cleanErrorMessage(result.stderr, fallback: "Commit failed.")
-            errorMessage = msg
-            activeAlertError = msg
+            let alert = parseGitError(result.stderr, fallbackTitle: "Commit Failed", fallbackMessage: "Could not create commit.")
+            errorMessage = alert.message
+            activeAlert = alert
             return false
         }
     }
@@ -530,9 +707,9 @@ final class SourceControlModel {
             errorMessage = nil
             await refresh()
         } else {
-            let msg = cleanErrorMessage(result.stderr, fallback: "Push failed.")
-            errorMessage = msg
-            activeAlertError = msg
+            let alert = parseGitError(result.stderr, fallbackTitle: "Push Failed", fallbackMessage: "Could not push commits to the remote repository.")
+            errorMessage = alert.message
+            activeAlert = alert
         }
     }
 
@@ -542,9 +719,9 @@ final class SourceControlModel {
             errorMessage = nil
             await refresh()
         } else {
-            let msg = cleanErrorMessage(result.stderr, fallback: "Pull failed.")
-            errorMessage = msg
-            activeAlertError = msg
+            let alert = parseGitError(result.stderr, fallbackTitle: "Pull Failed", fallbackMessage: "Could not pull updates from the remote repository.")
+            errorMessage = alert.message
+            activeAlert = alert
         }
     }
 
@@ -558,9 +735,9 @@ final class SourceControlModel {
             errorMessage = nil
             await refresh()
         } else {
-            let msg = cleanErrorMessage(result.stderr, fallback: "Fetch failed.")
-            errorMessage = msg
-            activeAlertError = msg
+            let alert = parseGitError(result.stderr, fallbackTitle: "Fetch Failed", fallbackMessage: "Could not fetch changes from the remote repository.")
+            errorMessage = alert.message
+            activeAlert = alert
         }
     }
 
@@ -586,9 +763,9 @@ final class SourceControlModel {
             await refresh()
             return true
         } else {
-            let msg = cleanErrorMessage(result.stderr, fallback: "Stash failed.")
-            errorMessage = msg
-            activeAlertError = msg
+            let alert = parseGitError(result.stderr, fallbackTitle: "Stash Failed", fallbackMessage: "Could not stash working changes.")
+            errorMessage = alert.message
+            activeAlert = alert
             return false
         }
     }
@@ -601,9 +778,9 @@ final class SourceControlModel {
             await refresh()
             return true
         } else {
-            let msg = cleanErrorMessage(result.stderr, fallback: "Pop stash failed.")
-            errorMessage = msg
-            activeAlertError = msg
+            let alert = parseGitError(result.stderr, fallbackTitle: "Pop Stash Failed", fallbackMessage: "Could not restore the latest stash.")
+            errorMessage = alert.message
+            activeAlert = alert
             return false
         }
     }
@@ -616,9 +793,9 @@ final class SourceControlModel {
             await refresh()
             return true
         } else {
-            let msg = cleanErrorMessage(result.stderr, fallback: "Apply stash failed.")
-            errorMessage = msg
-            activeAlertError = msg
+            let alert = parseGitError(result.stderr, fallbackTitle: "Apply Stash Failed", fallbackMessage: "Could not apply the latest stash.")
+            errorMessage = alert.message
+            activeAlert = alert
             return false
         }
     }
@@ -631,9 +808,9 @@ final class SourceControlModel {
             await refresh()
             return true
         } else {
-            let msg = cleanErrorMessage(result.stderr, fallback: "Drop stash failed.")
-            errorMessage = msg
-            activeAlertError = msg
+            let alert = parseGitError(result.stderr, fallbackTitle: "Drop Stash Failed", fallbackMessage: "Could not drop the latest stash.")
+            errorMessage = alert.message
+            activeAlert = alert
             return false
         }
     }
@@ -647,8 +824,8 @@ final class SourceControlModel {
             await refresh()
             return (true, nil)
         } else {
-            let msg = cleanErrorMessage(result.stderr, fallback: "Checkout failed.")
-            errorMessage = msg
+            let alert = parseGitError(result.stderr, fallbackTitle: "Checkout Failed", fallbackMessage: "Could not switch to branch “\(branchName)”.")
+            errorMessage = alert.message
             return (false, result.stderr)
         }
     }
@@ -666,9 +843,9 @@ final class SourceControlModel {
             await refresh()
             return true
         } else {
-            let msg = cleanErrorMessage(result.stderr, fallback: "Failed to create branch “\(trimmed)”.")
-            errorMessage = msg
-            activeAlertError = msg
+            let alert = parseGitError(result.stderr, fallbackTitle: "Create Branch Failed", fallbackMessage: "Failed to create branch “\(trimmed)”.")
+            errorMessage = alert.message
+            activeAlert = alert
             return false
         }
     }
@@ -699,9 +876,9 @@ final class SourceControlModel {
             await refresh()
             return true
         } else {
-            let msg = cleanErrorMessage(result.stderr, fallback: "Failed to delete branch “\(branch.name)”.")
-            errorMessage = msg
-            activeAlertError = msg
+            let alert = parseGitError(result.stderr, fallbackTitle: "Delete Branch Failed", fallbackMessage: "Failed to delete branch “\(branch.name)”.")
+            errorMessage = alert.message
+            activeAlert = alert
             return false
         }
     }
@@ -712,9 +889,9 @@ final class SourceControlModel {
             errorMessage = nil
             await refresh()
         } else {
-            let msg = cleanErrorMessage(result.stderr, fallback: "Failed to initialize repository.")
-            errorMessage = msg
-            activeAlertError = msg
+            let alert = parseGitError(result.stderr, fallbackTitle: "Init Failed", fallbackMessage: "Failed to initialize repository.")
+            errorMessage = alert.message
+            activeAlert = alert
         }
     }
 }
