@@ -273,12 +273,17 @@ struct SourceControlChangesView: View {
         return flatten(nodes: tree, depth: 0, isStaged: isStaged)
     }
 
+    private func nodeKey(for node: ChangeTreeNode, isStaged: Bool) -> String {
+        (isStaged ? "staged:" : "unstaged:") + node.id
+    }
+
     private func flatten(nodes: [ChangeTreeNode], depth: Int, isStaged: Bool) -> [FlatChangeRow] {
         var rows: [FlatChangeRow] = []
         for node in nodes {
+            let key = nodeKey(for: node, isStaged: isStaged)
             let rowId = (isStaged ? "staged_" : "unstaged_") + node.id
             rows.append(FlatChangeRow(id: rowId, node: node, depth: depth, isStaged: isStaged))
-            if node.isDirectory && !collapsedNodes.contains(node.id) {
+            if node.isDirectory && !collapsedNodes.contains(key) {
                 rows.append(contentsOf: flatten(nodes: node.children, depth: depth + 1, isStaged: isStaged))
             }
         }
@@ -295,8 +300,9 @@ struct SourceControlChangesView: View {
     }
 
     private func folderRow(node: ChangeTreeNode, depth: Int, isStaged: Bool) -> some View {
-        let isCollapsed = collapsedNodes.contains(node.id)
-        let isHovered = hoveredNodeID == node.id
+        let key = nodeKey(for: node, isStaged: isStaged)
+        let isCollapsed = collapsedNodes.contains(key)
+        let isHovered = hoveredNodeID == key
         let folderURL = workspace.rootURL.appending(path: node.relativePath)
 
         return HStack(spacing: 5) {
@@ -307,9 +313,9 @@ struct SourceControlChangesView: View {
             Button {
                 withAnimation(.snappy(duration: 0.15)) {
                     if isCollapsed {
-                        collapsedNodes.remove(node.id)
+                        collapsedNodes.remove(key)
                     } else {
-                        collapsedNodes.insert(node.id)
+                        collapsedNodes.insert(key)
                     }
                 }
             } label: {
@@ -377,14 +383,14 @@ struct SourceControlChangesView: View {
         }
         .contentShape(Rectangle())
         .onHover { isHovering in
-            hoveredNodeID = isHovering ? node.id : (hoveredNodeID == node.id ? nil : hoveredNodeID)
+            hoveredNodeID = isHovering ? key : (hoveredNodeID == key ? nil : hoveredNodeID)
         }
         .onTapGesture {
             withAnimation(.snappy(duration: 0.15)) {
                 if isCollapsed {
-                    collapsedNodes.remove(node.id)
+                    collapsedNodes.remove(key)
                 } else {
-                    collapsedNodes.insert(node.id)
+                    collapsedNodes.insert(key)
                 }
             }
         }

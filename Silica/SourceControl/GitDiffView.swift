@@ -188,64 +188,78 @@ struct GitDiffView: View {
 
     // MARK: - Row Rendering
 
-    private func diffLineRow(line: DiffLine) -> some View {
-        HStack(spacing: 0) {
-            switch line.kind {
-            case .header:
-                EmptyView()
+    private var diffLanguage: SyntaxLanguage? {
+        SyntaxLanguage(url: diff.fileURL)
+    }
 
-            case .hunkHeader(let text):
-                HStack {
-                    Text(text)
-                        .font(.system(size: max(settings.fontSize - 1, 10), weight: .medium, design: .monospaced))
-                        .foregroundStyle(Color.accentColor.opacity(0.85))
-                    Spacer()
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 3)
-                .background(Color.accentColor.opacity(0.08))
-
-            case .addition(let oldL, let newL, let text):
-                HStack(spacing: 0) {
-                    lineNumberView(oldLine: oldL, newLine: newL)
-                    Text("+")
-                        .frame(width: 16)
-                        .foregroundStyle(.green)
-                        .fontWeight(.bold)
-                    Text(text)
-                        .foregroundStyle(.primary)
-                    Spacer(minLength: 16)
-                }
-                .padding(.vertical, 1)
-                .background(Color.green.opacity(0.12))
-
-            case .deletion(let oldL, let newL, let text):
-                HStack(spacing: 0) {
-                    lineNumberView(oldLine: oldL, newLine: newL)
-                    Text("-")
-                        .frame(width: 16)
-                        .foregroundStyle(.red)
-                        .fontWeight(.bold)
-                    Text(text)
-                        .foregroundStyle(.primary.opacity(0.85))
-                    Spacer(minLength: 16)
-                }
-                .padding(.vertical, 1)
-                .background(Color.red.opacity(0.12))
-
-            case .context(let oldL, let newL, let text):
-                HStack(spacing: 0) {
-                    lineNumberView(oldLine: oldL, newLine: newL)
-                    Text(" ")
-                        .frame(width: 16)
-                    Text(text)
-                        .foregroundStyle(.primary.opacity(0.9))
-                    Spacer(minLength: 16)
-                }
-                .padding(.vertical, 1)
-            }
+    private func highlightedCodeText(_ text: String) -> AttributedString {
+        var attrStr = AttributedString(text)
+        guard let language = diffLanguage else { return attrStr }
+        let theme = settings.syntaxTheme
+        let tokens = language.tokenizer.tokenize(text as NSString)
+        for token in tokens {
+            guard let range = Range(token.range, in: attrStr) else { continue }
+            attrStr[range].foregroundColor = Color(nsColor: theme.color(for: token.kind))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        return attrStr
+    }
+
+    @ViewBuilder
+    private func diffLineRow(line: DiffLine) -> some View {
+        switch line.kind {
+        case .header:
+            EmptyView()
+
+        case .hunkHeader(let text):
+            HStack(spacing: 0) {
+                Text(text)
+                    .font(.system(size: max(settings.fontSize - 1, 10), weight: .medium, design: .monospaced))
+                    .foregroundStyle(Color.accentColor.opacity(0.85))
+                    .padding(.horizontal, 12)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .background(Color.accentColor.opacity(0.08))
+
+        case .addition(let oldL, let newL, let text):
+            HStack(spacing: 0) {
+                lineNumberView(oldLine: oldL, newLine: newL)
+                Text("+")
+                    .frame(width: 16)
+                    .foregroundStyle(Color(red: 0.45, green: 0.79, blue: 0.57))
+                    .fontWeight(.bold)
+                Text(highlightedCodeText(text))
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 16)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .background(Color.green.opacity(0.12))
+
+        case .deletion(let oldL, let newL, let text):
+            HStack(spacing: 0) {
+                lineNumberView(oldLine: oldL, newLine: newL)
+                Text("-")
+                    .frame(width: 16)
+                    .foregroundStyle(Color(red: 0.89, green: 0.41, blue: 0.45))
+                    .fontWeight(.bold)
+                Text(highlightedCodeText(text))
+                    .foregroundStyle(.primary.opacity(0.9))
+                Spacer(minLength: 16)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .background(Color.red.opacity(0.12))
+
+        case .context(let oldL, let newL, let text):
+            HStack(spacing: 0) {
+                lineNumberView(oldLine: oldL, newLine: newL)
+                Text(" ")
+                    .frame(width: 16)
+                Text(highlightedCodeText(text))
+                    .foregroundStyle(.primary.opacity(0.95))
+                Spacer(minLength: 16)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        }
     }
 
     private func lineNumberView(oldLine: Int?, newLine: Int?) -> some View {

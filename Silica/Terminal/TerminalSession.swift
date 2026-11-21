@@ -31,6 +31,12 @@ final class TerminalSession {
     @ObservationIgnored var onExit: (() -> Void)?
     /// A link to a file was followed, to a line of it if the link named one.
     @ObservationIgnored var onOpenFile: ((URL, Int?) -> Void)?
+    /// A terminal command completed execution.
+    @ObservationIgnored var onCommandFinished: ((_ message: String, _ title: String, _ isFailure: Bool) -> Void)?
+
+    @ObservationIgnored private var commandStartTime: Date?
+    @ObservationIgnored private var isCommandActive = false
+    @ObservationIgnored private var pendingCommandText = ""
 
     @ObservationIgnored private let shell: String
     @ObservationIgnored private let directory: URL
@@ -159,6 +165,26 @@ final class TerminalSession {
             ghostty_terminal_vt_write(terminal, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count)
         }
         view.terminalDidChange()
+
+        // Check if a running command finished
+        if isCommandActive, let started = commandStartTime {
+            let duration = Date().timeIntervalSince(started)
+            // Long running commands (taking >= 1.5 seconds)
+            if duration >= 1.5, let str = String(data: data, encoding: .utf8) {
+                // If prompt indicator reappears (e.g., % , $, >, or OSC 133;D)
+                if str.contains("\u{1b}]133;D") || str.hasSuffix("% ") || str.hasSuffix("$ ") || str.hasSuffix("# ") || str.contains("\r\n% ") || str.contains("\r\n$ ") {
+                    isCommandActive = false
+                    commandStartTime = nil
+                    let durStr = duration >= 60 ? String(format: "%.1fm", duration / 60) : String(format: "%.1fs", duration)
+                    let isFailure = str.contains("command not found") || str.contains("error:") || str.contains("FAILED")
+                    let title = isFailure ? "Command Failed (\(name))" : "Command Succeeded (\(name))"
+                    let msg = isFailure ? "Process finished with error after \(durStr)" : "Completed in \(durStr)"
+                    DispatchQueue.main.async { [weak self] in
+                        self?.onCommandFinished?(msg, title, isFailure)
+                    }
+                }
+            }
+        }
     }
 
     fileprivate func titleDidChange() {
@@ -219,6 +245,14 @@ final class TerminalSession {
 
     /// Sends bytes to the shell as if typed.
     func send(_ data: Data) {
+        if let str = String(data: data, encoding: .utf8) {
+            if str.contains("\r") || str.contains("\n") {
+                commandStartTime = Date()
+                isCommandActive = true
+            } else {
+                pendingCommandText += str
+            }
+        }
         process?.write(data)
     }
 

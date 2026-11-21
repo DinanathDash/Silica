@@ -126,16 +126,8 @@ public struct LiquidGlassTooltipModifier: ViewModifier {
             content
         } else {
             content
-                .overlay(alignment: .bottom) {
-                    if isVisible {
-                        tooltipCard
-                            .offset(y: 26)
-                            .transition(.asymmetric(
-                                insertion: .opacity.combined(with: .scale(scale: 0.94, anchor: .top)),
-                                removal: .opacity
-                            ))
-                            .zIndex(99999)
-                    }
+                .popover(isPresented: $isVisible, arrowEdge: .bottom) {
+                    tooltipCard
                 }
                 .onHover { hovering in
                     timerTask?.cancel()
@@ -144,15 +136,11 @@ public struct LiquidGlassTooltipModifier: ViewModifier {
                             do {
                                 try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                                 guard !Task.isCancelled else { return }
-                                withAnimation(.spring(response: 0.25, dampingFraction: 0.78)) {
-                                    isVisible = true
-                                }
+                                isVisible = true
                             } catch { }
                         }
                     } else {
-                        withAnimation(.easeOut(duration: 0.15)) {
-                            isVisible = false
-                        }
+                        isVisible = false
                     }
                 }
         }
@@ -160,21 +148,11 @@ public struct LiquidGlassTooltipModifier: ViewModifier {
 
     private var tooltipCard: some View {
         Text(text)
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: 11.5, weight: .medium))
             .foregroundStyle(.primary)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .shadow(color: .black.opacity(0.25), radius: 8, x: 0, y: 3)
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
-            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
             .fixedSize()
-            .allowsHitTesting(false)
     }
 }
 

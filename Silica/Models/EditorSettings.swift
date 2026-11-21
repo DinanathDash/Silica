@@ -39,6 +39,24 @@ final class EditorSettings {
         static let restoresTabs = "restoresOpenTabs"
         static let pinsParentFolders = "fileTreePinsParentFolders"
         static let autoSaveOnEdit = "editorAutoSaveOnEdit"
+        static let commitInstructions = "commitInstructions"
+        static let terminalCommandNotifications = "terminalCommandNotifications"
+    }
+
+    /// Commit message custom instructions from settings
+    var commitInstructions: String {
+        didSet {
+            guard commitInstructions != oldValue else { return }
+            store(commitInstructions, Key.commitInstructions, isDefault: commitInstructions.isEmpty)
+        }
+    }
+
+    /// Whether to post notification banners/toasts when terminal commands complete
+    var terminalCommandNotifications: Bool {
+        didSet {
+            guard terminalCommandNotifications != oldValue else { return }
+            store(terminalCommandNotifications, Key.terminalCommandNotifications, isDefault: !terminalCommandNotifications)
+        }
     }
 
     /// Automatically saves existing files after user editing.
@@ -225,6 +243,8 @@ final class EditorSettings {
         restoresTabs = defaults.object(forKey: Key.restoresTabs) as? Bool ?? true
         pinsParentFolders = defaults.object(forKey: Key.pinsParentFolders) as? Bool ?? true
         autoSaveOnEdit = defaults.bool(forKey: Key.autoSaveOnEdit)
+        commitInstructions = defaults.string(forKey: Key.commitInstructions) ?? ""
+        terminalCommandNotifications = defaults.object(forKey: Key.terminalCommandNotifications) as? Bool ?? true
     }
 
     private func store(_ value: Any?, _ key: String, isDefault: Bool) {

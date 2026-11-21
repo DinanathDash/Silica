@@ -141,6 +141,22 @@ struct WorkspaceView: View {
                 QuickOpenOverlay(workspace: workspace)
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            if let toast = workspace.activeToast {
+                ToastCard(toast: toast) {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        workspace.activeToast = nil
+                    }
+                }
+                .padding(.trailing, 24)
+                .padding(.bottom, 24)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .bottom).combined(with: .opacity),
+                    removal: .opacity
+                ))
+                .zIndex(9999)
+            }
+        }
         .frame(minWidth: WorkspaceLayout.windowMinWidth, minHeight: 400)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { newWidth in
             windowWidth = newWidth
@@ -296,4 +312,77 @@ struct TitleBarIconButtonStyle: ButtonStyle {
 
 extension ButtonStyle where Self == TitleBarIconButtonStyle {
     static var titleBarIcon: TitleBarIconButtonStyle { TitleBarIconButtonStyle() }
+}
+
+/// Floating notification toast matching droppy-code ToastCard
+struct ToastCard: View {
+    let toast: WorkspaceModel.Toast
+    var onDismiss: () -> Void
+
+    private var iconName: String {
+        if toast.isFailure {
+            return "xmark.circle.fill"
+        }
+        let text = (toast.title ?? toast.message).lowercased()
+        if text.contains("fail") || text.contains("error") {
+            return "xmark.circle.fill"
+        } else if text.contains("finish") || text.contains("success") || text.contains("complete") {
+            return "checkmark.circle.fill"
+        }
+        return "info.circle.fill"
+    }
+
+    private var iconColor: Color {
+        toast.isFailure ? .red : .green
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: iconName)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(iconColor)
+                .frame(width: 20, height: 20)
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 3) {
+                if let title = toast.title {
+                    Text(verbatim: title)
+                        .font(.system(.subheadline, weight: .semibold))
+                        .foregroundStyle(Color.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Text(verbatim: toast.message)
+                    .font(.system(.callout))
+                    .foregroundStyle(toast.title != nil ? Color.secondary : Color.primary)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
+                    .background(Color.primary.opacity(0.06), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 1)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(width: 320)
+        .background {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .shadow(color: Color.black.opacity(0.22), radius: 14, x: 0, y: 6)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .onTapGesture(perform: onDismiss)
+    }
 }

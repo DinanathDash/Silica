@@ -83,6 +83,28 @@ final class WorkspaceModel {
     let sourceControl: SourceControlModel
     private(set) var isSourceControlVisible = false
 
+    /// Floating notification toast, e.g. for terminal command completions
+    struct Toast: Identifiable {
+        let id = UUID()
+        let title: String?
+        let message: String
+        let isFailure: Bool
+    }
+    var activeToast: Toast?
+    @ObservationIgnored private var toastTask: Task<Void, Never>?
+
+    func showToast(_ message: String, title: String? = nil, isFailure: Bool = false) {
+        toastTask?.cancel()
+        activeToast = Toast(title: title, message: message, isFailure: isFailure)
+        toastTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                self?.activeToast = nil
+            }
+        }
+    }
+
     /// The project's window, to bring forward when a file is opened in it from outside.
     @ObservationIgnored weak var window: NSWindow?
     @ObservationIgnored private var isAccessingScope: Bool
@@ -307,6 +329,10 @@ final class WorkspaceModel {
             self?.open(url)
             self?.reveal(url)
             if let line { self?.goToLine(line) }
+        }
+        terminal.onCommandFinished = { [weak self] message, title, isFailure in
+            guard EditorSettings.shared.terminalCommandNotifications else { return }
+            self?.showToast(message, title: title, isFailure: isFailure)
         }
         terminals.append(terminal)
         self.terminal = terminal

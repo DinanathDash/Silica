@@ -35,6 +35,7 @@ struct EditorArea: View {
                     .padding(.trailing, WorkspaceLayout.cardInset + 4)
             }
             .frame(height: WorkspaceLayout.titleBarHeight)
+            .zIndex(100)
 
             VStack(spacing: 0) {
                 editorCard
@@ -1039,11 +1040,9 @@ private struct EmptyEditorView: View {
 
     var body: some View {
         VStack(spacing: 24) {
-            // The app icon, as on the welcome window; it carries its own margin.
-            Image(nsImage: NSApp.applicationIconImage)
-                .resizable()
-                .interpolation(.high)
-                .frame(width: 112, height: 112)
+            // Repo logo if present, otherwise folder icon or application icon
+            repoIconView
+                .frame(width: 96, height: 96)
 
             VStack(spacing: 6) {
                 Text(workspace.name)
@@ -1082,6 +1081,26 @@ private struct EmptyEditorView: View {
                         .strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5)
                 )
                 .glassSurface(in: .capsule)
+        }
+    }
+
+    @ViewBuilder
+    private var repoIconView: some View {
+        if let icon = workspace.effectiveIcon, let path = icon.imagePath, let image = NSImage(contentsOfFile: path) {
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFit()
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+        } else if let icon = workspace.effectiveIcon, let emoji = icon.emoji {
+            Text(verbatim: emoji)
+                .font(.system(size: 72))
+        } else {
+            let fileIcon = NSWorkspace.shared.icon(forFile: workspace.rootURL.path(percentEncoded: false))
+            Image(nsImage: fileIcon)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 88, height: 88)
         }
     }
 }

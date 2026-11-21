@@ -4,7 +4,7 @@ import SwiftUI
 /// metrics, native switch toggles, and centered detail content.
 struct SettingsView: View {
     enum Pane: String, CaseIterable, Identifiable {
-        case general, fontsAndColors, editor, about
+        case general, fontsAndColors, editor, sourceControl, about
 
         var id: String { rawValue }
 
@@ -13,6 +13,7 @@ struct SettingsView: View {
             case .general: "General"
             case .fontsAndColors: "Fonts & Colors"
             case .editor: "Editor"
+            case .sourceControl: "Source Control"
             case .about: "About"
             }
         }
@@ -22,6 +23,7 @@ struct SettingsView: View {
             case .general: "gearshape"
             case .fontsAndColors: "paintpalette"
             case .editor: "text.cursor"
+            case .sourceControl: "arrow.triangle.branch"
             case .about: "info.circle"
             }
         }
@@ -31,6 +33,7 @@ struct SettingsView: View {
             case .general: ["appearance", "theme", "dark", "light", "background", "translucent", "opaque", "glass", "restore", "tabs", "command line", "silica", "update"]
             case .fontsAndColors: ["font", "size", "colors", "syntax", "theme", "sidebar", "family", "monospaced", "code"]
             case .editor: ["lines", "line numbers", "indent", "guides", "minimap", "wrap", "tab width", "spaces"]
+            case .sourceControl: ["git", "github", "commit", "messages", "pull request", "branch", "instructions", "notifications", "terminal", "clone"]
             case .about: ["version", "build", "license", "acknowledgements", "copyright", "sparkle", "ghostty"]
             }
         }
@@ -161,6 +164,7 @@ struct SettingsView: View {
         case .general: GeneralSettingsPane().id(Pane.general)
         case .fontsAndColors: FontsAndColorsSettingsPane().id(Pane.fontsAndColors)
         case .editor: EditorSettingsPane().id(Pane.editor)
+        case .sourceControl: SourceControlSettingsPane().id(Pane.sourceControl)
         case .about: AboutSettingsView().id(Pane.about)
         }
     }
@@ -492,6 +496,77 @@ private struct EditorSettingsPane: View {
                         .fixedSize()
                     }
                 }
+            }
+        }
+    }
+}
+
+/// Source Control preferences: commit instructions, notifications, and git integration matching droppy-code.
+private struct SourceControlSettingsPane: View {
+    @Bindable private var settings = EditorSettings.shared
+    @State private var gitVersion: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Chrome.sectionSpacing) {
+            ChromeSection(title: "Commit message instructions", footer: "Instructions applied when writing commit messages.") {
+                ChromeCard {
+                    ZStack(alignment: .topLeading) {
+                        TextEditor(text: $settings.commitInstructions)
+                            .font(.system(.body))
+                            .scrollContentBackground(.hidden)
+                            .frame(minHeight: 90)
+                        if settings.commitInstructions.isEmpty {
+                            Text("For example: use conventional commit prefixes (feat:, fix:, docs:)")
+                                .font(.system(.body))
+                                .foregroundStyle(Chrome.secondaryText)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 8)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .padding(10)
+                }
+            }
+
+            ChromeSection(title: "Terminal & Notifications") {
+                ChromeCard {
+                    ChromeRow(
+                        title: "Command notifications",
+                        detail: "Show toast notifications when long-running terminal commands finish or fail"
+                    ) {
+                        SettingsSwitch(isOn: $settings.terminalCommandNotifications)
+                    }
+                }
+            }
+
+            ChromeSection(title: "Git Integration") {
+                ChromeCard {
+                    ChromeRow(
+                        title: "Git Version",
+                        detail: gitVersion.isEmpty ? "Checking system git…" : gitVersion
+                    ) {
+                        EmptyView()
+                    }
+                    ChromeRowDivider()
+                    ChromeRow(
+                        title: "Pull requests",
+                        detail: "Opened with GitHub CLI (gh) or GitLab CLI (glab) from your PATH."
+                    ) {
+                        EmptyView()
+                    }
+                }
+            }
+        }
+        .task {
+            loadGitVersion()
+        }
+    }
+
+    private func loadGitVersion() {
+        Task {
+            let res = await GitRunner.shared.run(arguments: ["--version"], in: URL(filePath: NSHomeDirectory()))
+            await MainActor.run {
+                gitVersion = res.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
             }
         }
     }

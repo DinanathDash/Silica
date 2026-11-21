@@ -676,7 +676,7 @@ private struct FileNodeRow: View {
 
     /// Formats file or folder size into human readable string using cached background provider.
     private var formattedSize: String? {
-        FileSizeCache.shared.formattedSize(for: node, isHoveredOrSelected: isHovered || workspace.selections.contains(node.url))
+        FileSizeCache.shared.formattedSize(for: node, isHoveredOrSelected: isHovered)
     }
 
     /// The name, with the filter text in bold on a soft accent background.
@@ -725,8 +725,8 @@ private struct FileNodeRow: View {
                     .padding(.trailing, 2)
             }
 
-            // File or folder size shown on the right side when hovered or selected
-            if (isHovered || workspace.selections.contains(node.url)), !isRenaming, let formattedSize {
+            // File or folder size shown on the right side only when hovered
+            if isHovered, !isRenaming, let formattedSize {
                 Text(formattedSize)
                     .font(.system(size: max(EditorSettings.shared.sidebarFontSize - 1.5, 9), design: .monospaced))
                     .foregroundStyle(.secondary.opacity(0.8))
