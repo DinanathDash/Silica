@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Branches tab in Source Control for searching, viewing, creating, and switching Git branches.
 struct SourceControlBranchesView: View {
+    let workspace: WorkspaceModel
     @Bindable var model: SourceControlModel
 
     private var settings: EditorSettings { .shared }
@@ -204,15 +205,17 @@ struct SourceControlBranchesView: View {
                     .help("New branch from “\(branch.name)”")
 
                     // Compare with current branch
-                    Button {
-                        // Wired later
-                    } label: {
-                        SourceControlIcon(type: .compare, size: 12)
+                    if !branch.isCurrent {
+                        Button {
+                            workspace.openBranchCompare(targetBranch: branch.name)
+                        } label: {
+                            SourceControlIcon(type: .compare, size: 12)
+                        }
+                        .buttonStyle(.titleBarIcon)
+                        .frame(width: 20, height: 20)
+                        .focusable(false)
+                        .help("Compare “\(branch.name)” with current branch")
                     }
-                    .buttonStyle(.titleBarIcon)
-                    .frame(width: 20, height: 20)
-                    .focusable(false)
-                    .help("Compare “\(branch.name)” with current branch")
 
                     // Delete branch (omitted completely for current branch so buttons sit flush to the right)
                     if !branch.isCurrent {

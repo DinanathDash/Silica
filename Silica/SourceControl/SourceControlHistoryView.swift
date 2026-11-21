@@ -57,12 +57,12 @@ struct SourceControlHistoryView: View {
                             .font(.system(size: settings.sidebarFontSize))
                             .lineLimit(1)
                         Spacer(minLength: 2)
-                        Image(systemName: "chevron.up.chevron.down")
+                        Image(systemName: "chevron.down")
                             .font(.system(size: 8, weight: .bold))
                             .foregroundStyle(.secondary)
                     }
                     .padding(.horizontal, 8)
-                    .frame(height: 28)
+                    .frame(height: 32)
                     .frame(maxWidth: 145)
                     .background {
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -73,7 +73,8 @@ struct SourceControlHistoryView: View {
                             )
                     }
                 }
-                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
                 .help("Select branch to inspect history")
             }
             .padding(.bottom, 2)
@@ -202,7 +203,7 @@ struct SourceControlHistoryView: View {
             }
         }
         .padding(.horizontal, 8)
-        .frame(height: 28)
+        .frame(height: 32)
         .background {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
@@ -342,7 +343,7 @@ struct SourceControlHistoryView: View {
                 Task { await model.cherryPick(commitHash: commit.hash) }
             }
 
-            if model.isDetachedHead || commit.hash != model.commits.first?.hash {
+            if model.isDetachedHead {
                 Divider()
                 Button("Return to Latest Commit (\(model.lastKnownBranch))") {
                     Task { _ = await model.returnToLatestBranch() }

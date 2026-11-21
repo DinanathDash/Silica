@@ -14,10 +14,11 @@ struct GitDiffView: View {
     @State private var parsedLines: [DiffLine] = []
     @State private var totalAdditions = 0
     @State private var totalDeletions = 0
+    @State private var maxVisibleLines = 3000
 
-    struct DiffLine: Identifiable {
-        let id = UUID()
-        enum Kind {
+    struct DiffLine: Identifiable, Sendable {
+        let id: Int
+        enum Kind: Sendable {
             case header
             case hunkHeader(String)
             case addition(oldLine: Int?, newLine: Int?, text: String)
@@ -25,6 +26,13 @@ struct GitDiffView: View {
             case context(oldLine: Int?, newLine: Int?, text: String)
         }
         let kind: Kind
+    }
+
+    private var visibleParsedLines: [DiffLine] {
+        if parsedLines.count > maxVisibleLines {
+            return Array(parsedLines.prefix(maxVisibleLines))
+        }
+        return parsedLines
     }
 
     var body: some View {
@@ -63,8 +71,23 @@ struct GitDiffView: View {
                 GeometryReader { geometry in
                     ScrollView([.horizontal, .vertical]) {
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(parsedLines) { line in
+                            ForEach(visibleParsedLines) { line in
                                 diffLineRow(line: line)
+                                    .frame(height: max(settings.fontSize + 5, 20))
+                            }
+
+                            if parsedLines.count > maxVisibleLines {
+                                HStack(spacing: 8) {
+                                    Text("Diff is very large (\(parsedLines.count) lines). Showing first \(maxVisibleLines) lines for smooth scrolling.")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.secondary)
+                                    Button("Show All Lines") {
+                                        maxVisibleLines = parsedLines.count
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                }
+                                .padding(12)
                             }
                         }
                         .frame(minWidth: geometry.size.width, alignment: .leading)
@@ -93,7 +116,14 @@ struct GitDiffView: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.primary)
 
-                    if diff.isCommitDiff {
+                    if diff.isBranchCompare {
+                        Text("Branch Compare")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.accentColor.opacity(0.12), in: Capsule())
+                    } else if diff.isCommitDiff {
                         Text(diff.commitHash?.prefix(7).description ?? "Commit")
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .foregroundStyle(Color.accentColor)
@@ -236,33 +266,47 @@ struct GitDiffView: View {
 
     private func loadDiff() async {
         isLoading = true
-        let raw = await model.diffForFile(in: diff.commitHash, relativePath: diff.relativePath)
+        let raw: String
+        if let targetBranch = diff.compareBranch {
+            raw = await model.diffForBranchCompare(targetBranch: targetBranch)
+        } else {
+            raw = await model.diffForFile(in: diff.commitHash, relativePath: diff.relativePath)
+        }
         self.diffText = raw
-        parseUnifiedDiff(raw)
-        isLoading = false
+
+        let result = await Task.detached(priority: .userInitiated) { () -> (lines: [DiffLine], adds: Int, dels: Int) in
+            Self.parseUnifiedDiffLines(raw)
+        }.value
+
+        self.parsedLines = result.lines
+        self.totalAdditions = result.adds
+        self.totalDeletions = result.dels
+        self.isLoading = false
     }
 
-    private func parseUnifiedDiff(_ raw: String) {
+    nonisolated static func parseUnifiedDiffLines(_ raw: String) -> (lines: [DiffLine], adds: Int, dels: Int) {
         var lines: [DiffLine] = []
+        lines.reserveCapacity(min(raw.count / 40, 5000))
         var adds = 0
         var dels = 0
+        var lineIndex = 0
 
         var oldLineCounter = 0
         var newLineCounter = 0
         var inHunk = false
 
-        for line in raw.components(separatedBy: .newlines) {
+        raw.enumerateLines { line, _ in
             if line.hasPrefix("diff --git") || line.hasPrefix("index ") ||
                line.hasPrefix("--- ") || line.hasPrefix("+++ ") ||
                line.hasPrefix("commit ") || line.hasPrefix("Author:") ||
                line.hasPrefix("Date:") {
-                // Header lines, omit or keep clean
-                continue
+                return
             }
 
             if line.hasPrefix("@@") {
                 inHunk = true
-                lines.append(DiffLine(kind: .hunkHeader(line)))
+                lines.append(DiffLine(id: lineIndex, kind: .hunkHeader(line)))
+                lineIndex += 1
                 // Parse @@ -oldStart,oldCount +newStart,newCount @@
                 let components = line.split(separator: " ")
                 if components.count >= 3 {
@@ -273,34 +317,32 @@ struct GitDiffView: View {
                     oldLineCounter = oldStart
                     newLineCounter = newStart
                 }
-                continue
+                return
             }
 
-            guard inHunk else { continue }
+            guard inHunk else { return }
 
             if line.hasPrefix("+") {
                 adds += 1
                 let content = String(line.dropFirst())
-                lines.append(DiffLine(kind: .addition(oldLine: nil, newLine: newLineCounter, text: content)))
+                lines.append(DiffLine(id: lineIndex, kind: .addition(oldLine: nil, newLine: newLineCounter, text: content)))
+                lineIndex += 1
                 newLineCounter += 1
             } else if line.hasPrefix("-") {
                 dels += 1
                 let content = String(line.dropFirst())
-                lines.append(DiffLine(kind: .deletion(oldLine: oldLineCounter, newLine: nil, text: content)))
+                lines.append(DiffLine(id: lineIndex, kind: .deletion(oldLine: oldLineCounter, newLine: nil, text: content)))
+                lineIndex += 1
                 oldLineCounter += 1
             } else if line.hasPrefix(" ") {
                 let content = String(line.dropFirst())
-                lines.append(DiffLine(kind: .context(oldLine: oldLineCounter, newLine: newLineCounter, text: content)))
+                lines.append(DiffLine(id: lineIndex, kind: .context(oldLine: oldLineCounter, newLine: newLineCounter, text: content)))
+                lineIndex += 1
                 oldLineCounter += 1
                 newLineCounter += 1
-            } else if line.hasPrefix("\\ No newline at end of file") {
-                // Skip git marker
-                continue
             }
         }
 
-        self.parsedLines = lines
-        self.totalAdditions = adds
-        self.totalDeletions = dels
+        return (lines, adds, dels)
     }
 }

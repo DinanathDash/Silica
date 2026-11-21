@@ -15,7 +15,8 @@ struct EditorArea: View {
             // Title bar row: tabs share it with the traffic lights.
             HStack(spacing: 8) {
                 if !workspace.isSidebarVisible {
-                    Color.clear.frame(width: WorkspaceLayout.trafficLightsWidth)
+                    Color.clear.frame(width: workspace.isFullScreen ? 12 : WorkspaceLayout.trafficLightsWidth)
+                        .animation(.smooth(duration: 0.25), value: workspace.isFullScreen)
                     SidebarToggleButton(workspace: workspace)
                 }
                 EditorTabBar(workspace: workspace)
@@ -131,7 +132,7 @@ private struct DiffModeToggle: View {
             .background(isDiffActive ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.06), in: Capsule())
         }
         .buttonStyle(.plain)
-        .help(isDiffActive ? "Switch back to Code editor" : "View Git Diff")
+        .liquidGlassTooltip(isDiffActive ? "Switch back to Code editor" : "View Git Diff")
     }
 }
 
@@ -1097,7 +1098,7 @@ struct SettingsToggleButton: View {
         }
         .buttonStyle(.titleBarIcon)
         .foregroundStyle(workspace.isSettingsVisible ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-        .help("Settings (⌘,)")
+        .liquidGlassTooltip("Settings (⌘,)")
     }
 }
 
@@ -1117,6 +1118,6 @@ struct FindInProjectToggleButton: View {
         }
         .buttonStyle(.titleBarIcon)
         .foregroundStyle(workspace.sidebarMode == .search ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-        .help(workspace.sidebarMode == .search ? "Show Explorer (⇧⌘E)" : "Find in Project (⇧⌘F)")
+        .liquidGlassTooltip(workspace.sidebarMode == .search ? "Show Explorer (⇧⌘E)" : "Find in Project (⇧⌘F)")
     }
 }

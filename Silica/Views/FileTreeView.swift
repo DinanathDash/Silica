@@ -18,8 +18,9 @@ struct FileTreeView: View {
                 SidebarToggleButton(workspace: workspace)
             }
             .frame(height: WorkspaceLayout.titleBarHeight)
-            .padding(.leading, WorkspaceLayout.trafficLightsWidth)
+            .padding(.leading, workspace.isFullScreen ? 12 : WorkspaceLayout.trafficLightsWidth)
             .padding(.trailing, 4)
+            .animation(.smooth(duration: 0.25), value: workspace.isFullScreen)
             // Above the list, which reaches up underneath this row (see below).
             .zIndex(1)
 
@@ -716,8 +717,8 @@ private struct FileNodeRow: View {
             .opacity(node.isDimmed && !isRenaming ? 0.5 : 1)
             Spacer(minLength: 0)
 
-            // Git change badge (M, U, A, D, etc.)
-            if let gitStatus, !isRenaming {
+            // Git change badge (M, U, A, D, etc.) on files only
+            if let gitStatus, !node.isDirectory, !isRenaming {
                 Text(gitStatus.badgeLetter)
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundStyle(gitStatus.badgeColor)

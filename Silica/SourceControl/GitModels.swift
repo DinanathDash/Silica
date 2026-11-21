@@ -44,12 +44,38 @@ struct GitFileItem: Identifiable, Hashable, Sendable {
 
         var badgeColor: Color {
             switch self {
-            case .modified: .blue
-            case .added, .untracked: .green
-            case .deleted: .red
-            case .renamed, .copied: .purple
-            case .conflict: .orange
-            case .ignored, .unknown: .secondary
+            case .modified:
+                // VS Code gitDecoration.modifiedResourceForeground: #E2C08D
+                Color(red: 0.89, green: 0.75, blue: 0.55)
+            case .added, .untracked:
+                // VS Code gitDecoration.untrackedResourceForeground / addedResourceForeground: #73C991
+                Color(red: 0.45, green: 0.79, blue: 0.57)
+            case .deleted:
+                // VS Code gitDecoration.deletedResourceForeground: #C74E39
+                Color(red: 0.78, green: 0.31, blue: 0.22)
+            case .renamed, .copied:
+                Color(red: 0.45, green: 0.79, blue: 0.57)
+            case .conflict:
+                // VS Code gitDecoration.conflictingResourceForeground: #E46873
+                Color(red: 0.89, green: 0.41, blue: 0.45)
+            case .ignored:
+                Color(white: 0.55)
+            case .unknown:
+                Color(white: 0.65)
+            }
+        }
+
+        var priority: Int {
+            switch self {
+            case .conflict: 100
+            case .modified: 90
+            case .added: 80
+            case .untracked: 70
+            case .deleted: 60
+            case .renamed: 50
+            case .copied: 40
+            case .ignored: 20
+            case .unknown: 10
             }
         }
     }

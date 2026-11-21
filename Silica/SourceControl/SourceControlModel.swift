@@ -285,6 +285,12 @@ final class SourceControlModel {
         }
     }
 
+    func diffForBranchCompare(targetBranch: String) async -> String {
+        let base = branchName ?? "HEAD"
+        let res = await runner.run(arguments: ["diff", "\(base)...\(targetBranch)"], in: rootURL)
+        return res.stdout
+    }
+
     func stageFolder(_ path: String) async {
         _ = await runner.run(arguments: ["add", "--", path], in: rootURL)
         await loadStatus()

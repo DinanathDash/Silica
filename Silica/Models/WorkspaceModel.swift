@@ -43,6 +43,7 @@ final class WorkspaceModel {
     private(set) var revealedURL: URL?
     private(set) var revealCount = 0
     var isSidebarVisible = true
+    var isFullScreen: Bool = false
     /// What the sidebar shows: the file tree or Find in Project.
     var sidebarMode: SidebarMode = .explorer
     let search: ProjectSearchModel
@@ -670,8 +671,18 @@ final class WorkspaceModel {
         let relativePath: String
         let commitHash: String?
         let commitTitle: String?
+        let compareBranch: String?
 
         var isCommitDiff: Bool { commitHash != nil }
+        var isBranchCompare: Bool { compareBranch != nil }
+
+        init(fileURL: URL, relativePath: String, commitHash: String? = nil, commitTitle: String? = nil, compareBranch: String? = nil) {
+            self.fileURL = fileURL
+            self.relativePath = relativePath
+            self.commitHash = commitHash
+            self.commitTitle = commitTitle
+            self.compareBranch = compareBranch
+        }
     }
 
     var activeDiff: DiffPresentation?
@@ -688,6 +699,23 @@ final class WorkspaceModel {
         open(fullURL)
     }
 
+    func openBranchCompare(targetBranch: String) {
+        let base = sourceControl.branchName ?? "HEAD"
+        let title = "\(base) ↔ \(targetBranch)"
+        let virtualURL = rootURL.appending(path: "Compare (\(targetBranch))")
+        activeDiff = DiffPresentation(
+            fileURL: virtualURL,
+            relativePath: title,
+            commitHash: nil,
+            commitTitle: "Compare \(base) with \(targetBranch)",
+            compareBranch: targetBranch
+        )
+        if !openTabs.contains(virtualURL) {
+            openTabs.append(virtualURL)
+        }
+        activeTab = virtualURL
+    }
+
     func closeDiff() {
         activeDiff = nil
     }
@@ -701,10 +729,11 @@ final class WorkspaceModel {
             return unstaged.status
         }
         let prefix = rel.isEmpty ? "" : (rel.hasSuffix("/") ? rel : rel + "/")
-        let hasChanges = sourceControl.stagedFiles.contains(where: { $0.relativePath.hasPrefix(prefix) }) ||
-                         sourceControl.unstagedFiles.contains(where: { $0.relativePath.hasPrefix(prefix) })
-        if hasChanges {
-            return .modified
+        let matchingStaged = sourceControl.stagedFiles.filter { $0.relativePath.hasPrefix(prefix) }
+        let matchingUnstaged = sourceControl.unstagedFiles.filter { $0.relativePath.hasPrefix(prefix) }
+        let allMatchingStatuses = (matchingStaged + matchingUnstaged).map(\.status)
+        if let highest = allMatchingStatuses.max(by: { $0.priority < $1.priority }) {
+            return highest
         }
         return nil
     }

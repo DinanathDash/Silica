@@ -112,3 +112,75 @@ private struct GlassButtonStyle: ViewModifier {
         }
     }
 }
+
+/// Liquid glass styled tooltip modifier with 1.5s delay
+public struct LiquidGlassTooltipModifier: ViewModifier {
+    let text: String
+    var delay: Double = 1.5
+
+    @State private var isVisible = false
+    @State private var timerTask: Task<Void, Never>?
+
+    public func body(content: Content) -> some View {
+        if text.isEmpty {
+            content
+        } else {
+            content
+                .overlay(alignment: .bottom) {
+                    if isVisible {
+                        tooltipCard
+                            .offset(y: 26)
+                            .transition(.asymmetric(
+                                insertion: .opacity.combined(with: .scale(scale: 0.94, anchor: .top)),
+                                removal: .opacity
+                            ))
+                            .zIndex(99999)
+                    }
+                }
+                .onHover { hovering in
+                    timerTask?.cancel()
+                    if hovering {
+                        timerTask = Task {
+                            do {
+                                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                                guard !Task.isCancelled else { return }
+                                withAnimation(.spring(response: 0.25, dampingFraction: 0.78)) {
+                                    isVisible = true
+                                }
+                            } catch { }
+                        }
+                    } else {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            isVisible = false
+                        }
+                    }
+                }
+        }
+    }
+
+    private var tooltipCard: some View {
+        Text(text)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .shadow(color: .black.opacity(0.25), radius: 8, x: 0, y: 3)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
+            }
+            .fixedSize()
+            .allowsHitTesting(false)
+    }
+}
+
+extension View {
+    /// Liquid glass tooltip with 1.5s delay
+    public func liquidGlassTooltip(_ text: String, delay: Double = 1.5) -> some View {
+        modifier(LiquidGlassTooltipModifier(text: text, delay: delay))
+    }
+}

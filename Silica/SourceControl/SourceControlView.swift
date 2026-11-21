@@ -63,7 +63,7 @@ struct SourceControlView: View {
                         case .history:
                             SourceControlHistoryView(workspace: workspace, model: model)
                         case .branches:
-                            SourceControlBranchesView(model: model)
+                            SourceControlBranchesView(workspace: workspace, model: model)
                         }
                     }
                     .padding(.horizontal, 10)
@@ -127,7 +127,7 @@ struct SourceControlView: View {
                 }
                 .buttonStyle(.titleBarIcon)
                 .frame(width: 26, height: 22)
-                .help("Refresh Status")
+                .liquidGlassTooltip("Refresh Status")
 
                 Menu {
                     // Remote Operations
@@ -219,7 +219,7 @@ struct SourceControlView: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .frame(width: 26, height: 22)
-                .help("More Actions…")
+                .liquidGlassTooltip("More Actions…")
             }
 
             Button {
@@ -231,7 +231,7 @@ struct SourceControlView: View {
             }
             .buttonStyle(.titleBarIcon)
             .frame(width: 26, height: 22)
-            .help("Close Source Control")
+            .liquidGlassTooltip("Close Source Control")
         }
     }
 
@@ -272,6 +272,6 @@ struct SourceControlToggleButton: View {
         }
         .buttonStyle(.titleBarIcon)
         .foregroundStyle(workspace.isSourceControlVisible ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-        .help(workspace.isSourceControlVisible ? "Hide Source Control (⌃⇧G)" : "Show Source Control (⌃⇧G)")
+        .liquidGlassTooltip(workspace.isSourceControlVisible ? "Hide Source Control (⌃⇧G)" : "Show Source Control (⌃⇧G)")
     }
 }

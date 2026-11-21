@@ -147,11 +147,16 @@ struct KeyWindowTracker: NSViewRepresentable {
             fatalError("init(coder:) has not been implemented")
         }
 
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             NotificationCenter.default.removeObserver(self)
             guard let window else { return }
             workspace?.window = window
+            workspace?.isFullScreen = window.styleMask.contains(.fullScreen)
             NotificationCenter.default.addObserver(
                 self, selector: #selector(keyStateDidChange),
                 name: NSWindow.didBecomeKeyNotification, object: window
@@ -160,7 +165,44 @@ struct KeyWindowTracker: NSViewRepresentable {
                 self, selector: #selector(keyStateDidChange),
                 name: NSWindow.didResignKeyNotification, object: window
             )
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(fullScreenStateDidChange),
+                name: NSWindow.didEnterFullScreenNotification, object: window
+            )
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(fullScreenStateDidChange),
+                name: NSWindow.didExitFullScreenNotification, object: window
+            )
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(fullScreenStateDidChange),
+                name: NSWindow.willEnterFullScreenNotification, object: window
+            )
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(fullScreenStateDidChange),
+                name: NSWindow.willExitFullScreenNotification, object: window
+            )
             if window.isKeyWindow { keyStateDidChange() }
+        }
+
+        @objc private func fullScreenStateDidChange(_ notification: Notification) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let workspace = self.workspace, let window = self.window else { return }
+                let isEntering = notification.name == NSWindow.willEnterFullScreenNotification || notification.name == NSWindow.didEnterFullScreenNotification
+                let isExiting = notification.name == NSWindow.willExitFullScreenNotification || notification.name == NSWindow.didExitFullScreenNotification
+                let isFS: Bool
+                if isEntering {
+                    isFS = true
+                } else if isExiting {
+                    isFS = false
+                } else {
+                    isFS = window.styleMask.contains(.fullScreen)
+                }
+                if workspace.isFullScreen != isFS {
+                    withAnimation(.smooth(duration: 0.25)) {
+                        workspace.isFullScreen = isFS
+                    }
+                }
+            }
         }
 
         /// Published a turn later: this is reached in the middle of a SwiftUI view update
