@@ -39,7 +39,10 @@ nonisolated struct GitRepository: Sendable, Equatable {
 
     static func locate(containing root: URL) -> GitRepository? {
         let files = FileManager.default
-        var folder = root.path(percentEncoded: false).trimmingTrailingSlash
+        // From where the folder really is, as git looks from there too: reached
+        // through a symlink, its place in the repository is the one git names
+        // its files by, not the symlink's.
+        var folder = canonicalPath(root.path(percentEncoded: false)).trimmingTrailingSlash
         var below: [String] = []
         while true {
             let dotGit = (folder as NSString).appendingPathComponent(".git")
@@ -113,6 +116,10 @@ nonisolated struct GitPendingOperation: Sendable, Equatable {
         // mark too. Its two ways of working keep their notes in different places.
         for (folder, step, count) in [("rebase-merge", "msgnum", "end"), ("rebase-apply", "next", "last")]
         where files.fileExists(atPath: path(folder)) {
+            // `git am` keeps the patches it is applying in "rebase-apply" as well,
+            // marked "applying". That is no rebase: `rebase --continue` and
+            // `--abort` would find nothing to go on with or call off.
+            if folder == "rebase-apply", files.fileExists(atPath: path(folder + "/applying")) { continue }
             var branch = text(folder + "/head-name")
             if let name = branch, name.hasPrefix("refs/heads/") { branch = String(name.dropFirst("refs/heads/".count)) }
             return GitPendingOperation(
@@ -379,7 +386,9 @@ nonisolated enum GitStatus {
     /// each "." when there is none.
     private static func status(index: Character?, workTree: Character?) -> GitFileStatus {
         if index == "D" || workTree == "D" { return .deleted }
-        if index == "A" { return .added }
+        // "A" in the working tree is a file added with `git add --intent-to-add`:
+        // nothing of it is staged, and the last commit doesn't have it either.
+        if index == "A" || workTree == "A" { return .added }
         if index == "R" || index == "C" { return .renamed }
         return .modified
     }
