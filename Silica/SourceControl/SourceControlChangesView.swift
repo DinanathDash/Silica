@@ -77,7 +77,7 @@ struct SourceControlChangesView: View {
                         .lineLimit(1)
                     }
                     .buttonStyle(.plain)
-                    .help("Switch to Branches tab")
+                    .liquidGlassTooltip("Switch to Branches tab")
 
                     Spacer()
 
@@ -158,7 +158,7 @@ struct SourceControlChangesView: View {
                                 .font(.system(size: 10))
                         }
                         .buttonStyle(.plain)
-                        .help("Unstage all changes")
+                        .liquidGlassTooltip("Unstage all changes")
                     }
                     .padding(.horizontal, 4)
                     .padding(.bottom, 2)
@@ -184,7 +184,7 @@ struct SourceControlChangesView: View {
                                 .font(.system(size: 10))
                         }
                         .buttonStyle(.plain)
-                        .help("Stage all changes")
+                        .liquidGlassTooltip("Stage all changes")
 
                         Button {
                             Task { await model.discardAllChanges() }
@@ -193,7 +193,7 @@ struct SourceControlChangesView: View {
                                 .font(.system(size: 10))
                         }
                         .buttonStyle(.plain)
-                        .help("Discard all changes")
+                        .liquidGlassTooltip("Discard all changes")
                     }
                     .padding(.horizontal, 4)
                     .padding(.bottom, 2)
@@ -251,7 +251,7 @@ struct SourceControlChangesView: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("Clear search")
+                .liquidGlassTooltip("Clear search")
             }
         }
         .padding(.horizontal, 8)
@@ -346,7 +346,7 @@ struct SourceControlChangesView: View {
                             .font(.system(size: 10, weight: .bold))
                     }
                     .buttonStyle(.plain)
-                    .help("Unstage folder")
+                    .liquidGlassTooltip("Unstage folder")
                 } else {
                     Button {
                         Task { await model.stageFolder(node.relativePath) }
@@ -355,7 +355,7 @@ struct SourceControlChangesView: View {
                             .font(.system(size: 10, weight: .bold))
                     }
                     .buttonStyle(.plain)
-                    .help("Stage folder")
+                    .liquidGlassTooltip("Stage folder")
 
                     Button {
                         Task { await model.discardFolderChanges(node.relativePath) }
@@ -364,7 +364,7 @@ struct SourceControlChangesView: View {
                             .font(.system(size: 10))
                     }
                     .buttonStyle(.plain)
-                    .help("Discard folder changes")
+                    .liquidGlassTooltip("Discard folder changes")
                 }
             }
 
@@ -431,7 +431,7 @@ struct SourceControlChangesView: View {
                         .font(.system(size: 10, weight: .bold))
                 }
                 .buttonStyle(.plain)
-                .help(file.isStaged ? "Unstage changes" : "Stage changes")
+                .liquidGlassTooltip(file.isStaged ? "Unstage changes" : "Stage changes")
 
                 if !file.isStaged {
                     Button {
@@ -441,7 +441,7 @@ struct SourceControlChangesView: View {
                             .font(.system(size: 10))
                     }
                     .buttonStyle(.plain)
-                    .help("Discard changes")
+                    .liquidGlassTooltip("Discard changes")
                 }
             }
 

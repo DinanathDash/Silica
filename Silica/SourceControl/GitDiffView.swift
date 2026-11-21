@@ -15,6 +15,7 @@ struct GitDiffView: View {
     @State private var totalAdditions = 0
     @State private var totalDeletions = 0
     @State private var maxVisibleLines = 3000
+    @State private var liveUpdateTask: Task<Void, Never>?
 
     struct DiffLine: Identifiable, Sendable {
         let id: Int
@@ -102,6 +103,28 @@ struct GitDiffView: View {
         .task(id: diff.id) {
             await loadDiff()
         }
+        .onChange(of: workspace.buffers[diff.fileURL]?.isDirty) { _, _ in
+            liveUpdateTask?.cancel()
+            liveUpdateTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                guard !Task.isCancelled else { return }
+                await loadDiff()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .fileDidSave)) { note in
+            if let savedURL = note.object as? URL, savedURL == diff.fileURL {
+                Task { await loadDiff() }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSText.didChangeNotification)) { _ in
+            guard diff.commitHash == nil && diff.compareBranch == nil else { return }
+            liveUpdateTask?.cancel()
+            liveUpdateTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                guard !Task.isCancelled else { return }
+                await loadDiff()
+            }
+        }
     }
 
     // MARK: - Header Bar
@@ -182,7 +205,7 @@ struct GitDiffView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .help("Switch to live code editor")
+            .liquidGlassTooltip("Switch to live code editor")
         }
     }
 

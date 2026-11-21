@@ -33,6 +33,7 @@ struct WorkspaceWindow: View {
                     .frame(minWidth: 500, minHeight: 360)
             }
         }
+        .background(WorkspaceWindowConfigurator(projectID: projectID))
         .onAppear {
             ExternalOpener.shared.openWindow = openWindow
             Self.openCount += 1
@@ -281,7 +282,7 @@ struct SidebarToggleButton: View {
         // Same icon style as the Collapse and Search buttons in the sidebar header.
         .buttonStyle(.titleBarIcon)
         .foregroundStyle(.secondary)
-        .help(workspace.isSidebarVisible ? "Hide Sidebar (⌃⌘S)" : "Show Sidebar (⌃⌘S)")
+        .liquidGlassTooltip(workspace.isSidebarVisible ? "Hide Sidebar (⌃⌘S)" : "Show Sidebar (⌃⌘S)")
     }
 }
 
@@ -384,5 +385,32 @@ struct ToastCard: View {
         }
         .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .onTapGesture(perform: onDismiss)
+    }
+}
+
+/// Prevents tab merging in fullscreen mode and seamlessly promotes new windows to fullscreen when needed.
+struct WorkspaceWindowConfigurator: NSViewRepresentable {
+    let projectID: RecentProject.ID?
+    static var pendingFullScreenIDs: Set<RecentProject.ID> = []
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { [weak view] in
+            guard let window = view?.window else { return }
+            window.tabbingMode = .disallowed
+            if let projectID, Self.pendingFullScreenIDs.remove(projectID) != nil {
+                if !window.styleMask.contains(.fullScreen) {
+                    window.toggleFullScreen(nil)
+                }
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { [weak nsView] in
+            guard let window = nsView?.window else { return }
+            window.tabbingMode = .disallowed
+        }
     }
 }

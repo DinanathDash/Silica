@@ -25,6 +25,9 @@ struct ProjectOpener {
     func open(url: URL) {
         do {
             let project = try store.register(url)
+            if NSApp.keyWindow?.styleMask.contains(.fullScreen) == true {
+                WorkspaceWindowConfigurator.pendingFullScreenIDs.insert(project.id)
+            }
             openWindow(id: WindowID.workspace, value: project.id)
         } catch {
             NSAlert(error: error).runModal()
@@ -38,6 +41,9 @@ struct ProjectOpener {
                 throw CocoaError(.fileNoSuchFile)
             }
             store.markOpened(project.id)
+            if NSApp.keyWindow?.styleMask.contains(.fullScreen) == true {
+                WorkspaceWindowConfigurator.pendingFullScreenIDs.insert(project.id)
+            }
             openWindow(id: WindowID.workspace, value: project.id)
         } catch {
             let alert = NSAlert()

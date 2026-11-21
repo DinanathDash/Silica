@@ -66,7 +66,7 @@ struct SettingsView: View {
                         Image(systemName: "arrow.left")
                             .font(.system(size: 13, weight: .medium))
                     }
-                    .help("Back to your editor")
+                    .liquidGlassTooltip("Back to your editor")
                     .padding(.horizontal, Chrome.listInset)
                     .padding(.top, 6)
                 }
@@ -501,13 +501,101 @@ private struct EditorSettingsPane: View {
     }
 }
 
-/// Source Control preferences: commit instructions, notifications, and git integration matching droppy-code.
+/// Source Control preferences: GitHub connection, commit instructions, notifications, and git integration matching droppy-code.
 private struct SourceControlSettingsPane: View {
     @Bindable private var settings = EditorSettings.shared
     @State private var gitVersion: String = ""
+    @State private var gitHubUser: String?
+    @State private var isCheckingGitHub = false
+    @State private var cloneDirectory: String = UserDefaults.standard.string(forKey: "GitHubCloneDirectory") ?? ("~/Documents/Projects" as NSString).expandingTildeInPath
+
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: Chrome.sectionSpacing) {
+            // 1. GitHub Section
+            ChromeSection(title: "GitHub") {
+                ChromeCard {
+                    if let user = gitHubUser {
+                        HStack(spacing: 10) {
+                            Image(systemName: "person.crop.circle.fill")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 28, height: 28)
+                                .foregroundStyle(Color.accentColor)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(user)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(Chrome.primaryText)
+                                Text("@\(user), using the GitHub CLI login")
+                                    .font(.subheadline)
+                                    .foregroundStyle(Chrome.secondaryText)
+                            }
+
+                            Spacer(minLength: 12)
+
+                            Button("Refresh") {
+                                Task { await checkGitHubStatus() }
+                            }
+                            .glassButtonStyle()
+                            .controlSize(.small)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
+
+                        ChromeRowDivider()
+
+                        ChromeRow(title: "Clone a repository", detail: "Clone one of your repositories and open in Silica.") {
+                            Button("Clone…") {
+                                showClonePrompt()
+                            }
+                            .glassButtonStyle()
+                            .controlSize(.small)
+                        }
+
+                        ChromeRowDivider()
+
+                        ChromeRow(title: "Clone into", detail: (cloneDirectory as NSString).abbreviatingWithTildeInPath) {
+                            Button("Change…") {
+                                chooseCloneDirectory()
+                            }
+                            .glassButtonStyle()
+                            .controlSize(.small)
+                        }
+                    } else if isCheckingGitHub {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("Checking GitHub connection…").foregroundStyle(Chrome.secondaryText)
+                        }
+                        .padding(16)
+                    } else {
+                        ChromeRow(title: "Connect GitHub", detail: "Clone your repositories and let Silica push and open pull requests.") {
+                            Button("Open GitHub") {
+                                if let url = URL(string: "https://github.com") {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            }
+                            .glassButtonStyle()
+                            .controlSize(.small)
+                        }
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Log in with GitHub CLI in terminal: `gh auth login`")
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(Chrome.secondaryText)
+                            Button("Check Status") {
+                                Task { await checkGitHubStatus() }
+                            }
+                            .glassButtonStyle()
+                            .controlSize(.small)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 11)
+                    }
+                }
+            }
+
+            // 2. Commit message instructions
             ChromeSection(title: "Commit message instructions", footer: "Instructions applied when writing commit messages.") {
                 ChromeCard {
                     ZStack(alignment: .topLeading) {
@@ -528,17 +616,19 @@ private struct SourceControlSettingsPane: View {
                 }
             }
 
+            // 3. Terminal & Notifications
             ChromeSection(title: "Terminal & Notifications") {
                 ChromeCard {
                     ChromeRow(
                         title: "Command notifications",
-                        detail: "Show toast notifications when long-running terminal commands finish or fail"
+                        detail: "Show toast notifications when terminal commands finish or fail"
                     ) {
                         SettingsSwitch(isOn: $settings.terminalCommandNotifications)
                     }
                 }
             }
 
+            // 4. Git Integration
             ChromeSection(title: "Git Integration") {
                 ChromeCard {
                     ChromeRow(
@@ -559,6 +649,7 @@ private struct SourceControlSettingsPane: View {
         }
         .task {
             loadGitVersion()
+            await checkGitHubStatus()
         }
     }
 
@@ -567,6 +658,76 @@ private struct SourceControlSettingsPane: View {
             let res = await GitRunner.shared.run(arguments: ["--version"], in: URL(filePath: NSHomeDirectory()))
             await MainActor.run {
                 gitVersion = res.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+    }
+
+    private func checkGitHubStatus() async {
+        isCheckingGitHub = true
+        let res = await GitRunner.shared.runGH(arguments: ["auth", "status"], in: URL(filePath: NSHomeDirectory()))
+        let output = res.stdout + res.stderr
+        var foundUser: String?
+        if let range = output.range(of: "account ") {
+            let sub = output[range.upperBound...]
+            let username = sub.split(separator: " ").first?.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+            if let username, !username.isEmpty {
+                foundUser = username
+            }
+        }
+        let user = foundUser
+        await MainActor.run {
+            self.gitHubUser = user
+            self.isCheckingGitHub = false
+        }
+    }
+
+    private func chooseCloneDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Select"
+        panel.message = "Choose default folder to clone GitHub repositories into"
+        if panel.runModal() == .OK, let url = panel.url {
+            let path = url.path(percentEncoded: false)
+            self.cloneDirectory = path
+            UserDefaults.standard.set(path, forKey: "GitHubCloneDirectory")
+        }
+    }
+
+    private func showClonePrompt() {
+        let alert = NSAlert()
+        alert.messageText = "Clone from GitHub"
+        alert.informativeText = "Enter repository URL (e.g., https://github.com/owner/repo) or repository name (owner/repo):"
+        alert.addButton(withTitle: "Clone")
+        alert.addButton(withTitle: "Cancel")
+
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+        input.placeholderString = "owner/repo"
+        alert.accessoryView = input
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            let repoStr = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !repoStr.isEmpty else { return }
+            let fullURL = repoStr.hasPrefix("https://") || repoStr.hasPrefix("git@")
+                ? repoStr
+                : "https://github.com/\(repoStr).git"
+            let repoName = (repoStr as NSString).lastPathComponent.replacingOccurrences(of: ".git", with: "")
+            let targetDir = URL(filePath: cloneDirectory).appendingPathComponent(repoName)
+
+            Task {
+                let res = await GitRunner.shared.run(arguments: ["clone", fullURL, targetDir.path(percentEncoded: false)], in: URL(filePath: cloneDirectory))
+                await MainActor.run {
+                    if res.isSuccess {
+                        ProjectOpener(openWindow: openWindow).open(url: targetDir)
+                    } else {
+                        let errAlert = NSAlert()
+                        errAlert.alertStyle = .warning
+                        errAlert.messageText = "Clone Failed"
+                        errAlert.informativeText = res.stderr.isEmpty ? "Could not clone repository." : res.stderr
+                        errAlert.runModal()
+                    }
+                }
             }
         }
     }

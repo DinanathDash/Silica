@@ -45,21 +45,21 @@ struct TerminalCard: View {
                 Image(systemName: "plus")
             }
             .buttonStyle(.titleBarIcon)
-            .help("New Terminal (⌃⇧`)")
+            .liquidGlassTooltip("New Terminal (⌃⇧`)")
             Button {
                 workspace.closeTerminal()
             } label: {
                 Image(systemName: "trash")
             }
             .buttonStyle(.titleBarIcon)
-            .help("Kill Terminal")
+            .liquidGlassTooltip("Kill Terminal")
             Button {
                 workspace.hideTerminal()
             } label: {
                 Image(systemName: "chevron.down")
             }
             .buttonStyle(.titleBarIcon)
-            .help("Hide Terminal (⌃`)")
+            .liquidGlassTooltip("Hide Terminal (⌃`)")
         }
         .foregroundStyle(.secondary)
         .padding(.horizontal, 6)
@@ -336,7 +336,7 @@ struct TerminalToggleButton: View {
         .buttonStyle(.titleBarIcon)
         // Tinted while it's on, like the Search button in the sidebar's header.
         .foregroundStyle(workspace.isTerminalVisible ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-        .help(workspace.isTerminalVisible ? "Hide Terminal (⌃`)" : "Show Terminal (⌃`)")
+        .liquidGlassTooltip(workspace.isTerminalVisible ? "Hide Terminal (⌃`)" : "Show Terminal (⌃`)")
     }
 }
 

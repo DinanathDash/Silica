@@ -182,7 +182,7 @@ private struct RecentProjectRow: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .help("Remove from Recents")
+                    .liquidGlassTooltip("Remove from Recents")
                 } else {
                     Text(project.lastOpened.formatted(.relative(presentation: .named)))
                         .font(.caption)

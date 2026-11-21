@@ -54,7 +54,7 @@ struct SourceControlBranchesView: View {
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
-                        .help("Clear search")
+                        .liquidGlassTooltip("Clear search")
                     }
                 }
                 .padding(.horizontal, 8)
@@ -76,7 +76,7 @@ struct SourceControlBranchesView: View {
                 }
                 .buttonStyle(.titleBarIcon)
                 .frame(width: 26, height: 26)
-                .help("Create new branch")
+                .liquidGlassTooltip("Create new branch")
             }
 
             if model.branches.isEmpty {
@@ -202,7 +202,7 @@ struct SourceControlBranchesView: View {
                     .buttonStyle(.titleBarIcon)
                     .frame(width: 20, height: 20)
                     .focusable(false)
-                    .help("New branch from “\(branch.name)”")
+                    .liquidGlassTooltip("New branch from “\(branch.name)”")
 
                     // Compare with current branch
                     if !branch.isCurrent {
@@ -214,7 +214,7 @@ struct SourceControlBranchesView: View {
                         .buttonStyle(.titleBarIcon)
                         .frame(width: 20, height: 20)
                         .focusable(false)
-                        .help("Compare “\(branch.name)” with current branch")
+                        .liquidGlassTooltip("Compare “\(branch.name)” with current branch")
                     }
 
                     // Delete branch (omitted completely for current branch so buttons sit flush to the right)
@@ -229,7 +229,7 @@ struct SourceControlBranchesView: View {
                         .buttonStyle(.titleBarIcon)
                         .frame(width: 20, height: 20)
                         .focusable(false)
-                        .help("Delete branch “\(branch.name)”")
+                        .liquidGlassTooltip("Delete branch “\(branch.name)”")
                     }
                 }
             }
@@ -251,7 +251,7 @@ struct SourceControlBranchesView: View {
         .onTapGesture {
             requestCheckout(branch: branch)
         }
-        .help(branch.name)
+        .liquidGlassTooltip(branch.name)
     }
 
     // MARK: - Checkout Operations

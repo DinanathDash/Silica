@@ -80,7 +80,7 @@ struct FileTreeView: View {
                 } label: {
                     Image(systemName: "rectangle.compress.vertical")
                 }
-                .help("Collapse Folders")
+                .liquidGlassTooltip("Collapse Folders")
             }
         }
         .buttonStyle(.titleBarIcon)
@@ -518,7 +518,7 @@ private struct TreeFilterField: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("Clear Filter")
+                .liquidGlassTooltip("Clear Filter")
             }
         }
         .padding(.horizontal, 10)
@@ -738,7 +738,7 @@ private struct FileNodeRow: View {
                 Circle()
                     .fill(.primary.opacity(0.6))
                     .frame(width: 7, height: 7)
-                    .help("Unsaved changes")
+                    .liquidGlassTooltip("Unsaved changes")
             }
         }
         .padding(.leading, Self.leadingPadding(depth: depth))

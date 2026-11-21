@@ -66,8 +66,25 @@ final class FileNode: Identifiable {
     func reload() {
         guard isDirectory, let old = children else { return }
         childRules = nil
+        let newContents = contents()
+        let oldURLs = Set(old.map(\.url))
+        let newURLs = Set(newContents.map(\.url))
+
+        if oldURLs == newURLs {
+            // Files in folder are identical: update rules in-place to prevent SwiftUI list rebuilding and jump
+            let freshMap = Dictionary(newContents.map { ($0.url, $0) }, uniquingKeysWith: { first, _ in first })
+            for kept in old {
+                if let fresh = freshMap[kept.url] {
+                    kept.isIgnored = fresh.isIgnored
+                    kept.inheritedRules = fresh.inheritedRules
+                }
+                kept.reload()
+            }
+            return
+        }
+
         let existing = Dictionary(old.map { ($0.url, $0) }, uniquingKeysWith: { first, _ in first })
-        let fresh = contents().map { node in
+        let fresh = newContents.map { node in
             guard let kept = existing[node.url] else { return node }
             kept.isIgnored = node.isIgnored
             kept.inheritedRules = node.inheritedRules

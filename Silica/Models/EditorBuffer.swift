@@ -405,6 +405,7 @@ final class EditorBuffer: Identifiable {
         isDirty = false
         isMissingOnDisk = false
         controller.scheduleGitDiffUpdate(delay: .zero)
+        NotificationCenter.default.post(name: .fileDidSave, object: url)
     }
 
     @ObservationIgnored private var autoSaveTask: Task<Void, Never>?

@@ -46,7 +46,7 @@ struct ProjectSearchView: View {
                     }
             }
             .buttonStyle(.plain)
-            .help(model.isCaseSensitive ? "Match Case: On" : "Match Case: Off")
+            .liquidGlassTooltip(model.isCaseSensitive ? "Match Case: On" : "Match Case: Off")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)

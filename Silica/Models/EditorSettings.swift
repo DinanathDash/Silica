@@ -7,6 +7,7 @@ extension Notification.Name {
     /// Font, tab width, line numbers, indent guides or the minimap changed.
     static let editorSettingsDidChange = Notification.Name("EditorSettingsDidChange")
     static let syntaxThemeDidChange = Notification.Name("SyntaxThemeDidChange")
+    static let fileDidSave = Notification.Name("FileDidSave")
 }
 
 /// App-wide editor preferences, saved in UserDefaults. Each value is stored only

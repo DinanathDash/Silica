@@ -35,8 +35,14 @@ struct VisualEffectView: NSViewRepresentable {
 /// in Settings. Open windows follow the setting as it changes.
 struct WindowBackgroundView: View {
     private var settings: EditorSettings { .shared }
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VisualEffectView(settings.windowBackground.material)
+        if settings.windowBackground == .opaque {
+            (colorScheme == .dark ? Color.black : Color(nsColor: .windowBackgroundColor))
+                .ignoresSafeArea()
+        } else {
+            VisualEffectView(settings.windowBackground.material)
+        }
     }
 }

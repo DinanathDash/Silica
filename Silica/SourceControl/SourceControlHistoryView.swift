@@ -75,7 +75,7 @@ struct SourceControlHistoryView: View {
                 }
                 .menuIndicator(.hidden)
                 .buttonStyle(.plain)
-                .help("Select branch to inspect history")
+                .liquidGlassTooltip("Select branch to inspect history")
             }
             .padding(.bottom, 2)
 
@@ -199,7 +199,7 @@ struct SourceControlHistoryView: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("Clear search")
+                .liquidGlassTooltip("Clear search")
             }
         }
         .padding(.horizontal, 8)
@@ -890,9 +890,27 @@ struct CommitDetailsPopoverView: View {
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundStyle(Color.accentColor)
                 }
-                .help(commit.hash)
+                .liquidGlassTooltip(commit.hash)
 
                 Spacer()
+
+                Button {
+                    KeyWorkspace.shared.current?.openCommitDiff(
+                        commitHash: commit.hash,
+                        commitTitle: commit.summary,
+                        relativePath: ""
+                    )
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.up.right.square")
+                            .font(.system(size: 9))
+                        Text("Open")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                }
+                .glassButtonStyle()
+                .controlSize(.small)
+                .liquidGlassTooltip("Inspect commit diff")
 
                 Button {
                     NSPasteboard.general.clearContents()
@@ -915,7 +933,7 @@ struct CommitDetailsPopoverView: View {
             }
         }
         .padding(12)
-        .frame(width: 280)
+        .frame(width: 320)
         .onHover { isInside in
             onHoverChange(isInside)
         }

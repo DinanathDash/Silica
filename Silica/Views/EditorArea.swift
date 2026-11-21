@@ -626,7 +626,7 @@ private struct EditorTab: View {
                     }
                     .buttonStyle(.plain)
                     .opacity(isActive || isHovering ? 1 : 0)
-                    .help("Close")
+                    .liquidGlassTooltip("Close")
                 }
             }
             .frame(width: 16, height: 16)
@@ -736,7 +736,7 @@ private struct StatusBar: View {
                 Text(position)
             }
             .buttonStyle(.plain)
-            .help("Go to Line (⌘L)")
+            .liquidGlassTooltip("Go to Line (⌘L)")
             Text(buffer.indentation.usesTabs ? "Tabs" : "Spaces: \(buffer.indentation.width)")
             Text(buffer.encodingName)
             Text(buffer.lineEndingName)

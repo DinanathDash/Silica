@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Observation
 import SwiftUI
+import UserNotifications
 
 /// State for one open project window: the explorer tree and the open editor tabs.
 @Observable
@@ -95,12 +96,35 @@ final class WorkspaceModel {
 
     func showToast(_ message: String, title: String? = nil, isFailure: Bool = false) {
         toastTask?.cancel()
+        if isFailure {
+            if NSSound(named: "Basso")?.play() != true {
+                NSSound.beep()
+            }
+        } else {
+            if NSSound(named: "Glass")?.play() != true {
+                NSSound.beep()
+            }
+        }
         activeToast = Toast(title: title, message: message, isFailure: isFailure)
         toastTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.2)) {
                 self?.activeToast = nil
+            }
+        }
+
+        // Post native macOS banner with sound
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+            guard granted else { return }
+            let content = UNMutableNotificationContent()
+            content.title = title ?? (isFailure ? "Command Failed" : "Command Succeeded")
+            content.body = message
+            content.sound = isFailure ? .defaultCritical : .default
+            let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+            Task {
+                try? await center.add(request)
             }
         }
     }
@@ -142,7 +166,7 @@ final class WorkspaceModel {
         }
         // Keep the tree and open files in step with changes made by other apps.
         watcher = ProjectWatcher(url: rootURL) { [weak self] in
-            self?.refresh()
+            self?.scheduleRefresh()
         }
         restoreSession()
         terminationObserver = NotificationCenter.default.addObserver(
@@ -499,10 +523,20 @@ final class WorkspaceModel {
         reveal(url)
     }
 
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
+
+    func scheduleRefresh(delay: Duration = .milliseconds(400)) {
+        refreshTask?.cancel()
+        refreshTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            self?.refresh()
+        }
+    }
+
     /// Re-reads the tree and checks open files against the disk.
     func refresh() {
         root.reload()
-        FolderIcons.shared.reload()
         ProjectTypeDetector.invalidateCache(for: rootURL)
         syncOpenFilesWithDisk()
         search.refresh()
