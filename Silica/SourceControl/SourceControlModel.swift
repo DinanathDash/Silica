@@ -9,6 +9,7 @@ final class SourceControlModel {
 
     private(set) var isGitRepository = false
     private(set) var branchName: String?
+    private(set) var remoteHostType: RemoteHostType = .unknown
     private(set) var stagedFiles: [GitFileItem] = []
     private(set) var unstagedFiles: [GitFileItem] = []
     private(set) var commits: [GitCommitItem] = []
@@ -67,6 +68,16 @@ final class SourceControlModel {
         let branchResult = await runner.run(arguments: ["branch", "--show-current"], in: rootURL)
         let rawBranch = branchResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         self.branchName = rawBranch.isEmpty ? "HEAD" : rawBranch
+
+        let remoteResult = await runner.run(arguments: ["config", "--get", "remote.origin.url"], in: rootURL)
+        let remoteStr = remoteResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if remoteStr.contains("github.com") {
+            self.remoteHostType = .github
+        } else if remoteStr.contains("gitlab") {
+            self.remoteHostType = .gitlab
+        } else {
+            self.remoteHostType = .unknown
+        }
 
         let statusResult = await runner.run(arguments: ["status", "--porcelain=v1", "-uall"], in: rootURL)
         guard statusResult.isSuccess else { return }
@@ -171,31 +182,193 @@ final class SourceControlModel {
         self.branches = list
     }
 
+    var maxHistoryLanes: Int {
+        commits.map { $0.timelineNode.lane + 1 }.max() ?? 1
+    }
+
+    private struct RawCommitData {
+        let hash: String
+        let shortHash: String
+        let parentHashes: [String]
+        let authorName: String
+        let authorEmail: String
+        let date: Date
+        let summary: String
+        let body: String
+        let filesChanged: Int
+        let additions: Int
+        let deletions: Int
+    }
+
     private func loadCommits() async {
         let result = await runner.run(arguments: [
-            "log", "-n", "30", "--pretty=format:%H%x00%h%x00%an%x00%at%x00%s"
+            "log", "-n", "50", "--diff-merges=1", "--shortstat",
+            "--pretty=format:\u{1e}%H\u{1f}%h\u{1f}%P\u{1f}%an\u{1f}%ae\u{1f}%at\u{1f}%s\u{1f}%b\u{1f}"
         ], in: rootURL)
         guard result.isSuccess else { return }
 
-        var list: [GitCommitItem] = []
-        for line in result.stdout.split(separator: "\n") {
-            let parts = line.split(separator: "\0", maxSplits: 4, omittingEmptySubsequences: false)
-            guard parts.count == 5 else { continue }
-            let hash = String(parts[0])
-            let shortHash = String(parts[1])
-            let author = String(parts[2])
-            let timestamp = Double(parts[3]) ?? 0
-            let summary = String(parts[4])
+        var rawList: [RawCommitData] = []
+        let records = result.stdout.split(separator: "\u{1e}", omittingEmptySubsequences: true)
 
-            list.append(GitCommitItem(
+        for record in records {
+            let fields = record.split(separator: "\u{1f}", omittingEmptySubsequences: false)
+            guard fields.count >= 8 else { continue }
+
+            let hash = String(fields[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !hash.isEmpty else { continue }
+            let shortHash = String(fields[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let parentHashes = fields[2].split(separator: " ").map(String.init)
+            let authorName = String(fields[3]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let authorEmail = String(fields[4]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let timestamp = Double(fields[5].trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+            let summary = String(fields[6]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let body = String(fields[7]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let statString = fields.count > 8 ? String(fields[8]) : ""
+            let stats = parseDiffStats(statString)
+
+            rawList.append(RawCommitData(
                 hash: hash,
                 shortHash: shortHash,
-                authorName: author,
+                parentHashes: parentHashes,
+                authorName: authorName,
+                authorEmail: authorEmail,
                 date: Date(timeIntervalSince1970: timestamp),
-                summary: summary
+                summary: summary.isEmpty ? "(no commit message)" : summary,
+                body: body,
+                filesChanged: stats.files,
+                additions: stats.additions,
+                deletions: stats.deletions
             ))
         }
-        self.commits = list
+
+        self.commits = computeTimeline(from: rawList)
+    }
+
+    private func parseDiffStats(_ text: String) -> (files: Int, additions: Int, deletions: Int) {
+        var files = 0
+        var additions = 0
+        var deletions = 0
+
+        let parts = text.split(separator: ",")
+        for part in parts {
+            let trimmed = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            let words = trimmed.split(separator: " ")
+            guard let count = words.first.flatMap({ Int($0) }) else { continue }
+            if trimmed.contains("file") {
+                files = count
+            } else if trimmed.contains("insertion") {
+                additions = count
+            } else if trimmed.contains("deletion") {
+                deletions = count
+            }
+        }
+        return (files, additions, deletions)
+    }
+
+    private func computeTimeline(from rawCommits: [RawCommitData]) -> [GitCommitItem] {
+        let maxAllowedLanes = 4
+        var activeLanes: [String?] = []
+        var items: [GitCommitItem] = []
+
+        for (index, raw) in rawCommits.enumerated() {
+            let lane: Int
+            let hadIncoming: Bool
+
+            if let existingIndex = activeLanes.firstIndex(of: raw.hash) {
+                lane = existingIndex
+                hadIncoming = true
+            } else {
+                if let freeIndex = activeLanes.firstIndex(of: nil) {
+                    lane = freeIndex
+                } else {
+                    lane = activeLanes.count
+                    activeLanes.append(nil)
+                }
+                hadIncoming = index > 0 && lane < activeLanes.count
+            }
+
+            let clampedLane = min(lane, maxAllowedLanes - 1)
+
+            var passingLanes: [Int] = []
+            for (i, target) in activeLanes.enumerated() where i != lane && target != nil {
+                passingLanes.append(min(i, maxAllowedLanes - 1))
+            }
+
+            var outgoing: [GitTimelineNode.Connection] = []
+
+            if raw.parentHashes.isEmpty {
+                activeLanes[lane] = nil
+            } else if raw.parentHashes.count == 1 {
+                let p0 = raw.parentHashes[0]
+                if let targetLane = activeLanes.firstIndex(of: p0), targetLane != lane {
+                    outgoing.append(.init(fromLane: clampedLane, toLane: min(targetLane, maxAllowedLanes - 1)))
+                    activeLanes[lane] = nil
+                } else {
+                    activeLanes[lane] = p0
+                    outgoing.append(.init(fromLane: clampedLane, toLane: clampedLane))
+                }
+            } else {
+                // Merge commit with multiple parents
+                let p0 = raw.parentHashes[0]
+                if let targetLane = activeLanes.firstIndex(of: p0), targetLane != lane {
+                    outgoing.append(.init(fromLane: clampedLane, toLane: min(targetLane, maxAllowedLanes - 1)))
+                    activeLanes[lane] = nil
+                } else {
+                    activeLanes[lane] = p0
+                    outgoing.append(.init(fromLane: clampedLane, toLane: clampedLane))
+                }
+
+                for pk in raw.parentHashes.dropFirst() {
+                    if let targetLane = activeLanes.firstIndex(of: pk) {
+                        outgoing.append(.init(fromLane: clampedLane, toLane: min(targetLane, maxAllowedLanes - 1)))
+                    } else {
+                        let newLane: Int
+                        if let free = activeLanes.firstIndex(of: nil) {
+                            newLane = free
+                            activeLanes[free] = pk
+                        } else {
+                            newLane = activeLanes.count
+                            activeLanes.append(pk)
+                        }
+                        outgoing.append(.init(fromLane: clampedLane, toLane: min(newLane, maxAllowedLanes - 1)))
+                    }
+                }
+            }
+
+            while activeLanes.last == Optional<String>.none {
+                activeLanes.removeLast()
+            }
+
+            let allLanesInRow = [clampedLane] + passingLanes + outgoing.map(\.toLane) + outgoing.map(\.fromLane)
+            let rowMaxLane = allLanesInRow.max() ?? clampedLane
+
+            let node = GitTimelineNode(
+                lane: clampedLane,
+                hasIncoming: hadIncoming,
+                outgoingConnections: outgoing,
+                passingLanes: Array(Set(passingLanes)).sorted(),
+                maxLanes: min(max(1, activeLanes.count), maxAllowedLanes),
+                rowMaxLane: rowMaxLane
+            )
+
+            items.append(GitCommitItem(
+                hash: raw.hash,
+                shortHash: raw.shortHash,
+                parentHashes: raw.parentHashes,
+                authorName: raw.authorName,
+                authorEmail: raw.authorEmail,
+                date: raw.date,
+                summary: raw.summary,
+                body: raw.body,
+                filesChanged: raw.filesChanged,
+                additions: raw.additions,
+                deletions: raw.deletions,
+                timelineNode: node
+            ))
+        }
+
+        return items
     }
 
     // MARK: - Actions

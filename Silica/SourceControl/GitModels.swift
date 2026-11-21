@@ -82,6 +82,8 @@ struct GitFileItem: Identifiable, Hashable, Sendable {
     }
 }
 
+import CryptoKit
+
 /// A git branch entry.
 struct GitBranchItem: Identifiable, Hashable, Sendable {
     var id: String { name }
@@ -90,12 +92,68 @@ struct GitBranchItem: Identifiable, Hashable, Sendable {
     let isRemote: Bool
 }
 
-/// A git commit entry.
+/// Hosting platform of the remote origin repository.
+enum RemoteHostType: Sendable {
+    case github
+    case gitlab
+    case unknown
+}
+
+/// Visual timeline graph metadata for branch and merge layout in git history.
+struct GitTimelineNode: Hashable, Sendable {
+    struct Connection: Hashable, Sendable {
+        let fromLane: Int
+        let toLane: Int
+    }
+
+    let lane: Int
+    let hasIncoming: Bool
+    let outgoingConnections: [Connection]
+    let passingLanes: [Int]
+    let maxLanes: Int
+    let rowMaxLane: Int
+}
+
+/// A git commit entry with timeline metadata and diff statistics.
 struct GitCommitItem: Identifiable, Hashable, Sendable {
     var id: String { hash }
     let hash: String
     let shortHash: String
+    let parentHashes: [String]
     let authorName: String
+    let authorEmail: String
     let date: Date
     let summary: String
+    let body: String
+    let filesChanged: Int
+    let additions: Int
+    let deletions: Int
+    var timelineNode: GitTimelineNode
+
+    var isMerge: Bool { parentHashes.count > 1 }
+    var isRoot: Bool { parentHashes.isEmpty }
+
+    var compactRelativeDate: String {
+        let seconds = -Int(date.timeIntervalSinceNow)
+        if seconds < 60 {
+            return "just now"
+        } else if seconds < 3600 {
+            return "\(seconds / 60)m"
+        } else if seconds < 86400 {
+            return "\(seconds / 3600)h"
+        } else if seconds < 86400 * 7 {
+            return "\(seconds / 86400)d"
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "MMM d"
+            return formatter.string(from: date)
+        }
+    }
+}
+
+extension String {
+    var md5Hash: String {
+        let digest = Insecure.MD5.hash(data: Data(self.utf8))
+        return digest.map { String(format: "%02hhx", $0) }.joined()
+    }
 }
