@@ -158,7 +158,7 @@ struct AppCommands: Commands {
 
             Divider()
 
-            // ⇧⌘V itself is handled by KeyWorkspace.installKeyboardShortcuts().
+            // Its keybind is also handled by KeyWorkspace.installKeyboardShortcuts().
             Button(previewToggleTitle) {
                 workspace?.activeBuffer?.togglePreview()
             }
@@ -189,7 +189,8 @@ struct AppCommands: Commands {
 
             // The file tabs, not the window tabs of the Window menu's Show Next Tab, which
             // has ⌃Tab as well: this menu comes first, so the file tabs get the key.
-            // ⇧⌘] and ⇧⌘[ do the same; see KeyWorkspace.installKeyboardShortcuts().
+            // ⇧⌘] and ⇧⌘[ do the same unless a keybind uses them; see
+            // KeyWorkspace.installKeyboardShortcuts().
             // From a terminal with others beside it, they step through the terminals.
             let hasOtherTabs = workspace?.canSelectOtherTab == true
 
