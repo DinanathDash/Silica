@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 import Testing
@@ -28,8 +29,52 @@ private func replacing(_ id: ConfigKeyCommand, in file: KeybindFile, key: String
     )
 }
 
+/// A key press as AppKit would deliver it, for the key with `keyCode` on this Mac's layout.
+private func keyDown(_ keyCode: UInt16, _ flags: NSEvent.ModifierFlags) -> NSEvent {
+    NSEvent.keyEvent(
+        with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0,
+        context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: keyCode
+    )!
+}
+
+/// Whether this Mac's layout puts 1 and V where a U.S. keyboard does, which the event
+/// tests assume.
+private let hasUSKeys = keyDown(18, []).characters(byApplyingModifiers: []) == "1"
+    && keyDown(9, []).characters(byApplyingModifiers: []) == "v"
+
 @Suite("Keybind")
 struct KeybindTests {
+    @Test(.enabled(if: hasUSKeys, "needs a layout with U.S. key positions"))
+    func eventsGiveTheUnshiftedKey() {
+        // ⇧⌘1 is "1" with ⇧⌘, as presets write it, not "!".
+        #expect(Keybind(event: keyDown(18, [.shift, .command])) == keybind("1", [.shift, .command]))
+        #expect(Keybind(event: keyDown(18, [.shift, .command]))?.key == "1")
+        #expect(Keybind(event: keyDown(9, .command)) == keybind("v", .command))
+        #expect(Keybind(event: keyDown(9, [.option, .command])) == keybind("v", [.option, .command]))
+        // ⇧⌘= is the same keystroke as the menus' ⌘+.
+        #expect(Keybind(event: keyDown(24, [.shift, .command])) == keybind("+", .command))
+    }
+
+    @Test(.enabled(if: hasUSKeys, "needs a layout with U.S. key positions"))
+    func eventsWithoutCommandOptionOrControlAreNotKeybinds() {
+        #expect(Keybind(event: keyDown(9, [])) == nil)
+        #expect(Keybind(event: keyDown(9, .shift)) == nil)
+    }
+
+    @Test func decodingRejectsAnUnusableKey() throws {
+        let json = Data(#"{"key":"","modifiers":1}"#.utf8)
+        #expect(throws: DecodingError.self) { try JSONDecoder().decode(Keybind.self, from: json) }
+        let good = try JSONDecoder().decode(Keybind.self, from: Data(#"{"key":"p","modifiers":1}"#.utf8))
+        #expect(good == keybind("p", .command))
+    }
+
+    @Test func onlyTerminalCommandsKeepKeysWithoutCommand() {
+        #expect(ConfigKeyCommand.goToLine.leavesToShell(keybind("g", .control)))
+        #expect(!ConfigKeyCommand.goToLine.leavesToShell(keybind("l", .command)))
+        #expect(!ConfigKeyCommand.toggleTerminal.leavesToShell(keybind("`", .control)))
+        #expect(!ConfigKeyCommand.selectNextTab.leavesToShell(Keybind(key: .tab, modifiers: .control)!))
+    }
+
     @Test func sameKeystrokeIsEqual() {
         // How menus write a shifted key, and how the recorder sees it on a US keyboard.
         #expect(keybind("+", .command) == keybind("=", [.shift, .command]))
@@ -79,6 +124,11 @@ struct KeybindFileTests {
     @Test func rejectsTwoCommandsOnOneKeystroke() throws {
         // ⇧⌘+ is ⌘+ (Increase Font Size) on a US keyboard.
         let file = replacing(.resetFontSize, in: try preset("silica"), key: "+", mods: [.shift, .command])
+        #expect(throws: KeybindFile.LoadError.self) { try KeybindFile.validateFile(file) }
+    }
+
+    @Test func rejectsAnOptionKeyThatTypes() throws {
+        let file = replacing(.quickOpen, in: try preset("silica"), key: "p", mods: [.option])
         #expect(throws: KeybindFile.LoadError.self) { try KeybindFile.validateFile(file) }
     }
 
@@ -138,6 +188,44 @@ final class KeybindSettingsTests {
         #expect(throws: KeybindSettings.Error.commandConflict(keybind, title)) {
             try settings().setKeybind(keybind, for: .goToLine)
         }
+    }
+
+    @Test func windowTabKeysOnlyForTabCommands() throws {
+        let settings = settings()
+        try settings.setActivePreset(id: "vscode") // ⌃Tab is free there.
+        let controlTab = Keybind(key: .tab, modifiers: .control)!
+        #expect(throws: KeybindSettings.Error.commandConflict(controlTab, "Show Next Tab")) {
+            try settings.setKeybind(controlTab, for: .quickOpen)
+        }
+        try settings.setKeybind(controlTab, for: .selectNextTab)
+        #expect(settings.keybind(for: .selectNextTab) == controlTab)
+    }
+
+    @Test func savedKeybindsThatSwapStillLoad() {
+        // Toggle Sidebar moved off ⌃⌘S, and Go to Line took it.
+        defaults.set(Data(#"{"toggle_sidebar":{"key":"b","modifiers":5},"go_to_line":{"key":"s","modifiers":5}}"#.utf8),
+                     forKey: "keybinds.overrides")
+        let settings = settings()
+        #expect(settings.keybind(for: .toggleSidebar) == keybind("b", [.control, .command]))
+        #expect(settings.keybind(for: .goToLine) == keybind("s", [.control, .command]))
+    }
+
+    @Test func savedKeybindsThatNoLongerFitAreDropped() {
+        defaults.set(Data(#"""
+            {"quick_open":{"key":"f","modifiers":1},
+             "filter_tree_files":{"key":"x","modifiers":2},
+             "source_control":{"key":"","modifiers":1},
+             "new_terminal":{"key":"t","modifiers":5}}
+            """#.utf8), forKey: "keybinds.overrides")
+        let settings = settings()
+        // ⌘F is Find, ⌥X types "≈", and an empty key can't be read; ⌃⌘T is fine.
+        #expect(settings.keybind(for: .quickOpen) == keybind("p", .command))
+        #expect(settings.keybind(for: .filterTreeFiles) == keybind("j", [.option, .command]))
+        #expect(settings.keybind(for: .sourceControl) == keybind("g", [.control, .shift]))
+        #expect(settings.keybind(for: .newTerminal) == keybind("t", [.control, .command]))
+        #expect(settings.customKeybindCount == 1)
+        // The cleaned-up list is what's saved now.
+        #expect(self.settings().customKeybindCount == 1)
     }
 
     @Test func optionLetterOnlyForWordWrap() throws {

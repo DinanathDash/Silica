@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 @Observable
 final class KeybindSettings {
@@ -50,16 +51,41 @@ final class KeybindSettings {
         }
 
         guard let overrideData = defaults.data(forKey: DefaultsKey.overrides),
-              let overrideMap = try? JSONDecoder().decode(KeybindOverrideMap.self, from: overrideData)
+              let stored = try? JSONDecoder().decode([ConfigKeyCommand.ID: StoredKeybind].self, from: overrideData)
         else {
             self.overrides = [:]
             return
         }
 
-        // Retain only overrides for commands the current app still supports.
-        self.overrides = overrideMap.filter {
+        // Retain only valid overrides for commands the current app still supports.
+        self.overrides = stored.compactMapValues(\.keybind).filter {
             ConfigKeyCommand(rawValue: $0.key) != nil
         }
+        dropOverridesThatNoLongerFit()
+    }
+    
+    /// A saved keybind, or nil when it can't be read, so one bad entry doesn't lose the rest.
+    private struct StoredKeybind: Decodable {
+        let keybind: Keybind?
+        
+        init(from decoder: Decoder) throws {
+            self.keybind = try? Keybind(from: decoder)
+        }
+    }
+    
+    /// Drops saved keybinds that a newer version of a preset, or a newly reserved
+    /// shortcut, now clashes with, so two commands never share a keystroke. A command
+    /// whose keybind is dropped goes back to its preset's, which could clash in turn,
+    /// so this repeats until nothing does.
+    private func dropOverridesThatNoLongerFit() {
+        var dropped = false
+        while let command = ConfigKeyCommand.allCases.first(where: { command in
+            self.overrides[command.id].map { problem(with: $0, for: command) != nil } ?? false
+        }) {
+            self.overrides.removeValue(forKey: command.id)
+            dropped = true
+        }
+        if dropped { save() }
     }
 
     // Every preset binds every command to a valid keybind: KeybindFile's validation
@@ -129,13 +155,8 @@ final class KeybindSettings {
             save()
             return
         }
-        // Only Toggle Word Wrap is caught before the editor types the character; see
-        // EditorSettings.installKeyboardShortcuts().
-        if keybind.typesCharacter, command != .toggleWordWrap {
-            throw Error.typesCharacter(keybind)
-        }
-        if let conflict = commandTitle(boundTo: keybind, excluding: command) {
-            throw Error.commandConflict(keybind, conflict)
+        if let problem = problem(with: keybind, for: command) {
+            throw problem
         }
         if keybind == presetBinding(for: command).asKeybind() {
             // If keybind is equal to our preset's default, remove the override.
@@ -176,6 +197,31 @@ final class KeybindSettings {
         return binding
     }
 
+    /// Why `command` can't have `keybind`, if it can't.
+    private func problem(with keybind: Keybind, for command: ConfigKeyCommand) -> Error? {
+        // Only Toggle Word Wrap is caught before the editor types the character; see
+        // EditorSettings.installKeyboardShortcuts().
+        if keybind.typesCharacter, command != .toggleWordWrap {
+            return .typesCharacter(keybind)
+        }
+        if let conflict = commandTitle(boundTo: keybind, excluding: command) {
+            return .commandConflict(keybind, conflict)
+        }
+        if let windowTabs = Self.windowTabKeys[keybind],
+           command != .selectNextTab, command != .selectPreviousTab {
+            return .commandConflict(keybind, windowTabs)
+        }
+        return nil
+    }
+    
+    /// The Window menu's items for window tabs, which macOS adds once a window has tabs.
+    /// Only Select Next Tab and Select Previous Tab may take these keys from them, as
+    /// the Silica preset does; otherwise they stay with the window tabs.
+    private static let windowTabKeys: [Keybind: String] = [
+        Keybind(key: .tab, modifiers: .control)!: "Show Next Tab",
+        Keybind(key: .tab, modifiers: [.control, .shift])!: "Show Previous Tab",
+    ]
+    
     /// The title of the command that `candidate` runs, other than `excludedCommand`.
     private func commandTitle(
         boundTo candidate: Keybind,

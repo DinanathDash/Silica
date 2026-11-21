@@ -29,6 +29,10 @@ struct Keybind: Codable, Hashable {
         .init(self.key.first!)
     }
     
+    var shortcut: KeyboardShortcut {
+        KeyboardShortcut(keyEquivalent, modifiers: eventModifiers)
+    }
+    
     var eventModifiers: EventModifiers {
         var eventModifiers = EventModifiers()
         if modifiers.contains(.command) { eventModifiers.insert(.command) }
@@ -105,8 +109,11 @@ struct Keybind: Codable, Hashable {
         // The unshifted character, so ⇧⌘1 is recorded as "1" with ⇧⌘, the way presets
         // write it, not as "!". (`charactersIgnoringModifiers` keeps Shift.) ⌘ stays
         // applied: layouts such as "Dvorak – QWERTY ⌘" switch keys while it's held, and
-        // the menus match key equivalents against that ⌘ layout.
-        guard let key = event.characters(byApplyingModifiers: flags.intersection(.command)) else {
+        // the menus match key equivalents against that ⌘ layout. A dead key (` or ' on
+        // U.S. International) can translate to nothing, so fall back to the key's
+        // character as AppKit reports it.
+        let translated = event.characters(byApplyingModifiers: flags.intersection(.command))
+        guard let key = translated?.isEmpty == false ? translated : event.charactersIgnoringModifiers else {
             return nil
         }
 
@@ -129,6 +136,25 @@ struct Keybind: Codable, Hashable {
                 modifiers: modifiers
             )
         }
+    }
+}
+
+// MARK: Decoding
+
+extension Keybind {
+    
+    /// Decodes through the validating initializer, so a saved keybind can't hold an empty
+    /// or unusable key.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let key = try container.decode(String.self, forKey: .key)
+        let modifiers = try container.decode(Modifiers.self, forKey: .modifiers)
+        guard let keybind = Keybind(key: key, modifiers: modifiers) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .key, in: container, debugDescription: "Not a usable keybind: \(key.debugDescription)"
+            )
+        }
+        self = keybind
     }
 }
 

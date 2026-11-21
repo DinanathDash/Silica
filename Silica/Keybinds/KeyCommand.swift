@@ -59,6 +59,21 @@ enum ConfigKeyCommand: String, KeyCommand {
     case increaseFontSize = "increase_font_size"
     case decreaseFontSize = "decrease_font_size"
     case resetFontSize = "reset_font_size"
+    
+    /// Whether the command is for the terminal too, so its keybind still works while the
+    /// terminal has focus even without ⌘. Other keybinds without ⌘ are left to the shell.
+    var worksInTerminal: Bool {
+        switch self {
+        case .toggleTerminal, .newTerminal, .clearTerminal, .selectNextTab, .selectPreviousTab: true
+        default: false
+        }
+    }
+    
+    /// Whether the keybind, while the terminal has focus, goes to the shell rather than to
+    /// this command: it has no ⌘, so it may be a key the shell uses (⌃R, ⌃G).
+    func leavesToShell(_ keybind: Keybind) -> Bool {
+        !worksInTerminal && !keybind.modifiers.contains(.command)
+    }
 }
 
 // MARK: SystemKeyCommand

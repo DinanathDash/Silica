@@ -36,11 +36,17 @@ final class KeyWorkspace: ObservableObject {
                   event.window?.attachedSheet == nil, NSApp.modalWindow == nil,
                   !keybinds.isRecorderWindow(event.window),
                   let pressed = Keybind(event: event) else { return event }
+            // In the terminal, a keybind without ⌘ goes to the shell; see ConfigKeyCommand.
+            let terminalHasFocus = workspace.terminal?.isFocused == true
+            func runs(_ command: ConfigKeyCommand) -> Bool {
+                pressed == keybinds.keybind(for: command)
+                    && !(terminalHasFocus && command.leavesToShell(pressed))
+            }
             switch pressed {
-            case keybinds.keybind(for: ConfigKeyCommand.togglePreview):
+            case _ where runs(.togglePreview):
                 guard let buffer = workspace.activeBuffer, buffer.previewFormat != nil else { return event }
                 buffer.togglePreview()
-            case keybinds.keybind(for: ConfigKeyCommand.findInProject):
+            case _ where runs(.findInProject):
                 workspace.showSearch()
             case keybinds.keybind(for: FixedKeyCommand.explorer):
                 workspace.showExplorer()
@@ -49,6 +55,14 @@ final class KeyWorkspace: ObservableObject {
                 workspace.saveActiveAs()
             case keybinds.keybind(for: FixedKeyCommand.closeWindow):
                 event.window?.performClose(nil)
+            // Here as well as in the menu, for keybinds such as ⇧⌘]: the menu item could
+            // lose ⇧⌘] to Indent's ⌘].
+            case _ where runs(.selectNextTab):
+                guard workspace.canSelectOtherTab else { return event }
+                workspace.selectTab(offsetBy: 1)
+            case _ where runs(.selectPreviousTab):
+                guard workspace.canSelectOtherTab else { return event }
+                workspace.selectTab(offsetBy: -1)
             // The other usual pair for stepping through tabs, next to the menu's keybind,
             // unless a command uses it.
             case Self.nextTab where !keybinds.isBound(pressed):

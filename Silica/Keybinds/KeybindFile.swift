@@ -125,6 +125,14 @@ extension KeybindFile {
             expectedIds: Set(ConfigKeyCommand.allCases.map(\.id)),
             in: file
         )
+        // A ⌥ keybind that types a character never reaches its menu item from the editor.
+        // Only Toggle Word Wrap is caught before that; see EditorSettings.
+        let typing = file.configurable.first {
+            $0.id != ConfigKeyCommand.toggleWordWrap.id && $0.asKeybind()!.typesCharacter
+        }
+        if typing != nil {
+            throw LoadError.invalidKeybinds(file.id)
+        }
         // One keystroke can only run one command; a menu would silently pick one.
         var used = Set(SystemKeyCommand.allCases.map(\.keybind))
         for keybind in (file.fixed + file.configurable).compactMap({ $0.asKeybind() }) {

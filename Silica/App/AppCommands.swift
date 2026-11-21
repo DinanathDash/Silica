@@ -10,7 +10,9 @@ struct AppCommands: Commands {
 
     private var recents: RecentProjectsStore { .shared }
     private var settings: EditorSettings { .shared }
-    private var keybinds: KeybindSettings { .shared }
+    private var keybinds: MenuKeybinds {
+        MenuKeybinds(settings: .shared, terminalHasFocus: workspace?.terminal?.isFocused == true)
+    }
     private var opener: ProjectOpener { ProjectOpener(openWindow: openWindow) }
 
     /// "Show Markdown", "Show CSV" or "Show HTML" while the preview is up, to go back to the source.
@@ -239,7 +241,7 @@ struct AppCommands: Commands {
 
             Button("Go to Line…") { workspace?.showGoToLine() }
                 .keybindShortcut(for: .goToLine, keybinds)
-                .disabled(!hasText || leavesKeyToTerminal(keybinds.keybind(for: .goToLine)))
+                .disabled(!hasText)
 
             Divider()
 
@@ -263,8 +265,7 @@ struct AppCommands: Commands {
     ) -> some View {
         Button(title) { NSApp.sendAction(action, to: nil, from: nil) }
             .keybindShortcut(for: command, keybinds)
-            .disabled(workspace?.activeBuffer?.textController == nil
-                || leavesKeyToTerminal(keybinds.keybind(for: command)))
+            .disabled(workspace?.activeBuffer?.textController == nil)
     }
     
     private func configurableEditorAction(
@@ -274,15 +275,33 @@ struct AppCommands: Commands {
     ) -> some View {
         Button(title) { NSApp.sendAction(action, to: nil, from: nil) }
             .keybindShortcut(for: command, keybinds)
-            .disabled(workspace?.activeBuffer?.textController == nil
-                || leavesKeyToTerminal(keybinds.keybind(for: command)))
+            .disabled(workspace?.activeBuffer?.textController == nil)
     }
-    
-    /// Whether an editor command should stand aside so the terminal gets its key: the
-    /// terminal has focus and the keybind has no ⌘, so it's a key the shell may use
-    /// (⌃G cancels a history search). The terminal doesn't take key equivalents, so an
-    /// enabled menu item would get the key first.
-    private func leavesKeyToTerminal(_ keybind: Keybind) -> Bool {
-        workspace?.terminal?.isFocused == true && !keybind.modifiers.contains(.command)
+}
+
+/// The keybinds as the menus apply them. While the terminal has focus, a keybind
+/// without ⌘ is left to the shell (⌃R searches its history, ⌃G cancels that): the
+/// terminal doesn't take key equivalents, so a menu item would get the key first.
+private struct MenuKeybinds {
+    let settings: KeybindSettings
+    let terminalHasFocus: Bool
+
+    func shortcut(for command: FixedKeyCommand) -> KeyboardShortcut? {
+        settings.keybind(for: command).shortcut
+    }
+
+    func shortcut(for command: ConfigKeyCommand) -> KeyboardShortcut? {
+        let keybind = settings.keybind(for: command)
+        return terminalHasFocus && command.leavesToShell(keybind) ? nil : keybind.shortcut
+    }
+}
+
+private extension View {
+    func keybindShortcut(for command: FixedKeyCommand, _ keybinds: MenuKeybinds) -> some View {
+        keyboardShortcut(keybinds.shortcut(for: command))
+    }
+
+    func keybindShortcut(for command: ConfigKeyCommand, _ keybinds: MenuKeybinds) -> some View {
+        keyboardShortcut(keybinds.shortcut(for: command))
     }
 }
