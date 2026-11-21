@@ -3,6 +3,28 @@
     <channel>
         <title>Silica</title>
         <item>
+            <title>0.8.0</title>
+            <pubDate>Sat, 21 Nov 2026 21:10:44 +0800</pubDate>
+            <link>https://github.com/dqhieu/Silica</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/dqhieu/Silica/releases</sparkle:fullReleaseNotesLink>
+            <sparkle:version>10</sparkle:version>
+            <sparkle:shortVersionString>0.8.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[### What's new
+
+- **Git support.** In a git repository, the file tree marks changed files and the status bar names the branch. **View › Source Control** (⌃⇧G) lists staged and unstaged changes: select one to see its diff in the file's tab, inline or side by side, and stage, unstage or discard whole files or single changes. From the panel you can commit, amend or undo the last commit, fetch, pull and push, switch, create, merge, rename and delete branches, and work with stashes. **View › Show File History** lists a file's commits, and **View › Line Blame** shows who last changed the current line. A merge or rebase that stops for conflicts gets a banner to continue or abort, and a bar in the editor accepts either side. It uses the git you have installed and stays hidden without it.
+- **Configurable keybinds.** **Settings › Keybinds** has Silica, VS Code and Xcode presets, and you can record your own keybind for any command there. Keybinds work on any keyboard layout, Settings warns when one would clash with another command, and menus, tooltips and hints show your current keys. Contributed by Mitch Treece.
+- **A `silica` command for the terminal.** `silica .` opens the current folder as a project, and `silica <file>` opens a file in its project. Install it from **Settings › General › Command Line**; installing Silica with Homebrew sets it up for you.
+- **Quick Open opens the file you picked.** Pressing Return opened the top result instead of the row selected with the arrow keys. Contributed by Hernan Fernandez.
+
+If you already have Silica, it will offer this update on its own, or choose **Silica › Check for Updates…**.
+
+Found a bug or have an idea? Please [open an issue](https://github.com/dqhieu/Silica/issues).
+
+]]></description>
+            <enclosure url="https://github.com/dqhieu/Silica/releases/download/v0.8.0/Silica-0.8.0.dmg" length="10106126" type="application/octet-stream" sparkle:edSignature="xVEh27mTU/zsp4fUuKBFNzzI4Kj+e+XDU8OFojEtWc6LOeX7SM2dY5Tk2/yDSOZs/s2dzUwG3qg+bQ9jWQLkDw=="/>
+        </item>
+        <item>
             <title>0.7.0</title>
             <pubDate>Wed, 18 Nov 2026 22:27:07 +0800</pubDate>
             <link>https://github.com/dqhieu/Silica</link>
