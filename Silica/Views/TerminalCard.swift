@@ -45,7 +45,7 @@ struct TerminalCard: View {
                 Image(systemName: "plus")
             }
             .buttonStyle(.titleBarIcon)
-            .help("New Terminal (⌃⇧`)")
+            .help(KeybindSettings.shared.help("New Terminal", for: .newTerminal))
             Button {
                 workspace.closeTerminal()
             } label: {
@@ -59,7 +59,7 @@ struct TerminalCard: View {
                 Image(systemName: "chevron.down")
             }
             .buttonStyle(.titleBarIcon)
-            .help("Hide Terminal (⌃`)")
+            .help(KeybindSettings.shared.help("Hide Terminal", for: .toggleTerminal))
         }
         .foregroundStyle(.secondary)
         .padding(.horizontal, 6)
@@ -336,7 +336,7 @@ struct TerminalToggleButton: View {
         .buttonStyle(.titleBarIcon)
         // Tinted while it's on, like the Search button in the sidebar's header.
         .foregroundStyle(workspace.isTerminalVisible ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-        .help(workspace.isTerminalVisible ? "Hide Terminal (⌃`)" : "Show Terminal (⌃`)")
+        .help(KeybindSettings.shared.help(workspace.isTerminalVisible ? "Hide Terminal" : "Show Terminal", for: .toggleTerminal))
     }
 }
 

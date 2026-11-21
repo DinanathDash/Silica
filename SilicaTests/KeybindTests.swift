@@ -179,6 +179,18 @@ final class KeybindSettingsTests {
         #expect(settings().keybind(for: .quickOpen) == keybind("o", [.shift, .command]))
     }
 
+    @Test func tooltipsFollowThePresetAndOverrides() throws {
+        let settings = settings()
+        #expect(settings.help("Hide Sidebar", for: .toggleSidebar) == "Hide Sidebar (⌃⌘S)")
+        try settings.setActivePreset(id: "vscode")
+        #expect(settings.help("Hide Sidebar", for: .toggleSidebar) == "Hide Sidebar (⌘B)")
+        try settings.setKeybind(keybind("t", [.control, .command]), for: .toggleTerminal)
+        #expect(settings.help("Show Terminal", for: .toggleTerminal) == "Show Terminal (⌃⌘T)")
+        try settings.setActivePreset(id: "xcode")
+        #expect(settings.help("Refresh", for: .refreshExplorer) == "Refresh (⇧⌘R)")
+        #expect(settings.help("Show Explorer", for: .explorer) == "Show Explorer (⌘1)")
+    }
+
     @Test func tabAliasIsFreeOnlyWhenUnbound() throws {
         let settings = settings()
         #expect(!settings.isBound(keybind("]", [.shift, .command])))

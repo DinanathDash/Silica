@@ -767,14 +767,14 @@ private struct StatusBar: View {
                         .frame(maxWidth: 160)
                 }
                 .buttonStyle(.plain)
-                .help((branch.name.map { "\($0) · " } ?? "") + "Source Control (⌃⇧G)")
+                .help((branch.name.map { "\($0) · " } ?? "") + KeybindSettings.shared.help("Source Control", for: .sourceControl))
                 .accessibilityLabel("Branch: \(branch.name ?? "Detached")")
             }
             Button(action: workspace.showGoToLine) {
                 Text(position)
             }
             .buttonStyle(.plain)
-            .help("Go to Line (⌘L)")
+            .help(KeybindSettings.shared.help("Go to Line", for: .goToLine))
             if EditorSettings.shared.showsLineBlame, workspace.git.isRepository, !buffer.isUntitled {
                 blame
             }
@@ -851,10 +851,10 @@ private struct PreviewModeToggle: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            option("doc.plaintext", help: "Show \(format.sourceName) (⇧⌘V)", isOn: !buffer.isShowingPreview) {
+            option("doc.plaintext", help: KeybindSettings.shared.help("Show \(format.sourceName)", for: .togglePreview), isOn: !buffer.isShowingPreview) {
                 buffer.setShowingPreview(false)
             }
-            option("eye", help: "Show Preview (⇧⌘V)", isOn: buffer.isShowingPreview) {
+            option("eye", help: KeybindSettings.shared.help("Show Preview", for: .togglePreview), isOn: buffer.isShowingPreview) {
                 buffer.setShowingPreview(true)
             }
         }

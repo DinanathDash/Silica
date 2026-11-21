@@ -170,7 +170,7 @@ struct SidebarToggleButton: View {
         // Same icon style as the Collapse and Search buttons in the sidebar header.
         .buttonStyle(.titleBarIcon)
         .foregroundStyle(.secondary)
-        .help(workspace.isSidebarVisible ? "Hide Sidebar (⌃⌘S)" : "Show Sidebar (⌃⌘S)")
+        .help(KeybindSettings.shared.help(workspace.isSidebarVisible ? "Hide Sidebar" : "Show Sidebar", for: .toggleSidebar))
     }
 }
 

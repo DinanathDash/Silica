@@ -82,6 +82,15 @@ final class KeybindSettings {
         self.overrides[command.id] == nil
     }
 
+    /// A tooltip naming the command's current keybind: "Quick Open (⌘P)".
+    func help(_ title: String, for command: ConfigKeyCommand) -> String {
+        "\(title) (\(keybind(for: command).displayName))"
+    }
+    
+    func help(_ title: String, for command: FixedKeyCommand) -> String {
+        "\(title) (\(keybind(for: command).displayName))"
+    }
+    
     /// Whether `window` is the keybind recorder's, so a key typed in it is being recorded.
     func isRecorderWindow(_ window: AnyObject?) -> Bool {
         window != nil && window === recorderWindow

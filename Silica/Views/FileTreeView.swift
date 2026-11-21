@@ -81,7 +81,9 @@ struct FileTreeView: View {
                     Image(systemName: "arrow.triangle.branch")
                         .foregroundStyle(workspace.sidebarMode == .changes ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                 }
-                .help(workspace.sidebarMode == .changes ? "Show Explorer (⇧⌘E)" : "Source Control (⌃⇧G)")
+                .help(workspace.sidebarMode == .changes
+                    ? KeybindSettings.shared.help("Show Explorer", for: FixedKeyCommand.explorer)
+                    : KeybindSettings.shared.help("Source Control", for: ConfigKeyCommand.sourceControl))
                 .accessibilityLabel("Source Control")
             }
 
@@ -101,7 +103,7 @@ struct FileTreeView: View {
                 } label: {
                     Image(systemName: "arrow.clockwise")
                 }
-                .help("Refresh (⇧⌘R)")
+                .help(KeybindSettings.shared.help("Refresh", for: .refreshExplorer))
             case .search:
                 // Nothing for search, which only needs the room when there's a
                 // Source Control button to keep in place.
@@ -119,7 +121,9 @@ struct FileTreeView: View {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(workspace.sidebarMode == .search ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             }
-            .help(workspace.sidebarMode == .search ? "Show Explorer (⇧⌘E)" : "Find in Project (⇧⌘F)")
+            .help(workspace.sidebarMode == .search
+                ? KeybindSettings.shared.help("Show Explorer", for: FixedKeyCommand.explorer)
+                : KeybindSettings.shared.help("Find in Project", for: ConfigKeyCommand.findInProject))
         }
         .buttonStyle(.titleBarIcon)
         .foregroundStyle(.secondary)
