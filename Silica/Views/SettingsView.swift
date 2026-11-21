@@ -405,6 +405,10 @@ private struct KeybindSettingsPane: View {
                 ForEach(SystemKeyCommand.allCases) { command in
                     fixedRow(command.title, command.keybind)
                 }
+                // Kept for window tabs unless Select Next or Previous Tab takes them.
+                ForEach(KeybindSettings.windowTabKeys.filter { !keybinds.isBound($0.keybind) }, id: \.title) { key in
+                    fixedRow(key.title, key.keybind)
+                }
             }
         }
         .sheet(item: $recording) {

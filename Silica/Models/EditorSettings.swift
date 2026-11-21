@@ -326,13 +326,13 @@ final class EditorSettings {
             let keybinds = KeybindSettings.shared
             guard let self, !keybinds.isRecorderWindow(event.window),
                   let pressed = Keybind(event: event) else { return event }
-            if pressed == Self.zoomIn, !keybinds.isBound(pressed) {
+            if keybinds.isSameKeystroke(pressed, Self.zoomIn), !keybinds.isBound(pressed) {
                 self.increaseFontSize()
                 return nil
             }
             // ⌥Z, as in VS Code. Also in the View menu, but an editor with focus would
             // otherwise type "Ω". The same goes for any ⌥ + letter keybind it's given.
-            if pressed == keybinds.keybind(for: .toggleWordWrap), pressed.typesCharacter,
+            if keybinds.isKeybind(pressed, of: .toggleWordWrap), pressed.typesCharacter,
                event.window?.attachedSheet == nil, NSApp.modalWindow == nil,
                event.window?.firstResponder is EditorTextView {
                 self.wrapsLines.toggle()

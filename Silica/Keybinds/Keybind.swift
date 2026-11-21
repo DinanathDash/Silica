@@ -176,8 +176,29 @@ extension Keybind {
         return Stroke(key: character, modifiers: modifiers)
     }
     
+    /// The keystroke on `layout`: the physical key and every modifier, Shift included.
+    /// Special keys, and characters the layout doesn't type, fall back to `stroke`.
+    func keystroke(on layout: KeyboardLayout) -> Keystroke {
+        let character = key.first!
+        if SpecialKey.byCharacterMap[character] == nil,
+           let found = layout.key(typing: character, withCommand: modifiers.contains(.command)) {
+            return Keystroke(key: .code(found.keyCode), modifiers: found.shift ? modifiers.union(.shift) : modifiers)
+        }
+        return Keystroke(key: .character(stroke.key), modifiers: stroke.modifiers)
+    }
+    
+    struct Keystroke: Hashable {
+        enum Key: Hashable {
+            case code(UInt16)
+            case character(Character)
+        }
+        let key: Key
+        let modifiers: Modifiers
+    }
+    
     /// Characters typed with Shift on a US keyboard, and the key that types them.
-    /// Presets are written for that layout, as the menus' own shortcuts are.
+    /// Presets are written for that layout, as the menus' own shortcuts are; comparing
+    /// keybinds through the user's own layout is `keystroke(on:)`.
     private static let unshiftedKeys: [Character: Character] = [
         "~": "`", "!": "1", "@": "2", "#": "3", "$": "4", "%": "5", "^": "6",
         "&": "7", "*": "8", "(": "9", ")": "0", "_": "-", "+": "=", "{": "[",

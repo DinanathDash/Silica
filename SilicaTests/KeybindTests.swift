@@ -41,6 +41,29 @@ private func keyDown(_ keyCode: UInt16, _ flags: NSEvent.ModifierFlags) -> NSEve
 /// tests assume.
 private let hasUSKeys = keyDown(18, []).characters(byApplyingModifiers: []) == "1"
     && keyDown(9, []).characters(byApplyingModifiers: []) == "v"
+    && keyDown(24, []).characters(byApplyingModifiers: []) == "="
+
+/// A layout given as the characters of its keys, unshifted and shifted, in the same
+/// order, so tests don't depend on the Mac's own layout.
+private struct FakeLayout: KeyboardLayout {
+    let unshifted: [Character]
+    let shifted: [Character]
+
+    func key(typing character: Character, withCommand: Bool) -> (keyCode: UInt16, shift: Bool)? {
+        if let index = unshifted.firstIndex(of: character) { return (UInt16(index), false) }
+        if let index = shifted.firstIndex(of: character) { return (UInt16(index), true) }
+        return nil
+    }
+
+    static let us = FakeLayout(
+        unshifted: Array("1234567890-=qwertyuiop[]\\asdfghjkl;'`zxcvbnm,./"),
+        shifted: Array("!@#$%^&*()_+qwertyuiop{}|asdfghjkl:\"~zxcvbnm<>?")
+    )
+    static let german = FakeLayout(
+        unshifted: Array("1234567890ßqwertzuiopü+asdfghjklöä#<yxcvbnm,.-"),
+        shifted: Array("!\"§$%&/()=?qwertzuiopü*asdfghjklöä'>yxcvbnm;:_")
+    )
+}
 
 @Suite("Keybind")
 struct KeybindTests {
@@ -132,6 +155,15 @@ struct KeybindFileTests {
         #expect(throws: KeybindFile.LoadError.self) { try KeybindFile.validateFile(file) }
     }
 
+    @Test func rejectsAFixedKeyWithoutCommand() throws {
+        let file = try preset("silica")
+        let fixed = file.fixed.map {
+            $0.id == FixedKeyCommand.save.id ? .init(id: $0.id, title: $0.title, key: "s", mods: [.control]) : $0
+        }
+        let changed = KeybindFile(id: file.id, version: file.version, title: file.title, fixed: fixed, configurable: file.configurable)
+        #expect(throws: KeybindFile.LoadError.self) { try KeybindFile.validateFile(changed) }
+    }
+
     @Test func rejectsASystemShortcut() throws {
         let file = replacing(.quickOpen, in: try preset("silica"), key: "c", mods: [.command])
         #expect(throws: KeybindFile.LoadError.self) { try KeybindFile.validateFile(file) }
@@ -153,8 +185,23 @@ final class KeybindSettingsTests {
         UserDefaults().removePersistentDomain(forName: suiteName)
     }
 
-    private func settings() -> KeybindSettings {
-        KeybindSettings(presets: presets, defaults: defaults)
+    private func settings(layout: KeyboardLayout = FakeLayout.us) -> KeybindSettings {
+        KeybindSettings(presets: presets, defaults: defaults, layout: layout)
+    }
+
+    @Test func keystrokesCompareThroughTheLayout() throws {
+        // On a German layout "/" is ⇧7, so a recorded ⇧⌘7 is Toggle Comment's ⌘/.
+        let shiftCommand7 = keybind("7", [.shift, .command])
+        let german = settings(layout: FakeLayout.german)
+        #expect(german.isSameKeystroke(keybind("/", .command), shiftCommand7))
+        #expect(throws: KeybindSettings.Error.commandConflict(shiftCommand7, "Toggle Comment")) {
+            try german.setKeybind(shiftCommand7, for: .quickOpen)
+        }
+        // On a U.S. layout ⇧⌘7 is ⌘&, which nothing uses.
+        let us = settings(layout: FakeLayout.us)
+        #expect(!us.isSameKeystroke(keybind("/", .command), shiftCommand7))
+        try us.setKeybind(shiftCommand7, for: .quickOpen)
+        #expect(us.keybind(for: .quickOpen) == shiftCommand7)
     }
 
     @Test func recordedShiftedDigitConflicts() {
@@ -194,7 +241,7 @@ final class KeybindSettingsTests {
         let settings = settings()
         try settings.setActivePreset(id: "vscode") // ⌃Tab is free there.
         let controlTab = Keybind(key: .tab, modifiers: .control)!
-        #expect(throws: KeybindSettings.Error.commandConflict(controlTab, "Show Next Tab")) {
+        #expect(throws: KeybindSettings.Error.commandConflict(controlTab, "Next Window Tab")) {
             try settings.setKeybind(controlTab, for: .quickOpen)
         }
         try settings.setKeybind(controlTab, for: .selectNextTab)

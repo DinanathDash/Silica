@@ -20,6 +20,7 @@ final class KeybindSettings {
     private(set) var activePresetId: KeybindFile.ID
     private var overrides = KeybindOverrideMap()
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let layout: KeyboardLayout
 
     /// The window of Settings' keybind recorder while it's open. The app's own key
     /// monitors let keys typed there through to the recorder instead of acting on
@@ -39,9 +40,10 @@ final class KeybindSettings {
         getActivePreset()
     }
 
-    init(presets: [KeybindFile], defaults: UserDefaults) {
+    init(presets: [KeybindFile], defaults: UserDefaults, layout: KeyboardLayout = CurrentKeyboardLayout.shared) {
         self.presets = presets
         self.defaults = defaults
+        self.layout = layout
 
         self.activePresetId = if let presetId = defaults.string(forKey: DefaultsKey.presetId),
                                  presets.contains(where: { $0.id == presetId }) {
@@ -125,6 +127,21 @@ final class KeybindSettings {
         window != nil && window === recorderWindow
     }
     
+    /// Whether `a` and `b` are the same keystroke on the user's keyboard layout: on a
+    /// German layout ⌘/ and ⇧⌘7 are, since "/" is ⇧7 there.
+    func isSameKeystroke(_ a: Keybind, _ b: Keybind) -> Bool {
+        a.keystroke(on: layout) == b.keystroke(on: layout)
+    }
+    
+    /// Whether `pressed` is the keystroke `command` is bound to.
+    func isKeybind(_ pressed: Keybind, of command: ConfigKeyCommand) -> Bool {
+        isSameKeystroke(pressed, keybind(for: command))
+    }
+    
+    func isKeybind(_ pressed: Keybind, of command: FixedKeyCommand) -> Bool {
+        isSameKeystroke(pressed, keybind(for: command))
+    }
+    
     /// Whether any command, system ones included, runs on `keybind`.
     func isBound(_ keybind: Keybind) -> Bool {
         commandTitle(boundTo: keybind, excluding: nil) != nil
@@ -158,7 +175,7 @@ final class KeybindSettings {
         if let problem = problem(with: keybind, for: command) {
             throw problem
         }
-        if keybind == presetBinding(for: command).asKeybind() {
+        if isSameKeystroke(keybind, presetBinding(for: command).asKeybind()!) {
             // If keybind is equal to our preset's default, remove the override.
             self.overrides.removeValue(forKey: command.id)
         }
@@ -207,9 +224,9 @@ final class KeybindSettings {
         if let conflict = commandTitle(boundTo: keybind, excluding: command) {
             return .commandConflict(keybind, conflict)
         }
-        if let windowTabs = Self.windowTabKeys[keybind],
+        if let windowTabs = Self.windowTabKeys.first(where: { isSameKeystroke($0.keybind, keybind) }),
            command != .selectNextTab, command != .selectPreviousTab {
-            return .commandConflict(keybind, windowTabs)
+            return .commandConflict(keybind, windowTabs.title)
         }
         return nil
     }
@@ -217,9 +234,9 @@ final class KeybindSettings {
     /// The Window menu's items for window tabs, which macOS adds once a window has tabs.
     /// Only Select Next Tab and Select Previous Tab may take these keys from them, as
     /// the Silica preset does; otherwise they stay with the window tabs.
-    private static let windowTabKeys: [Keybind: String] = [
-        Keybind(key: .tab, modifiers: .control)!: "Show Next Tab",
-        Keybind(key: .tab, modifiers: [.control, .shift])!: "Show Previous Tab",
+    static let windowTabKeys: [(keybind: Keybind, title: String)] = [
+        (Keybind(key: .tab, modifiers: .control)!, "Next Window Tab"),
+        (Keybind(key: .tab, modifiers: [.control, .shift])!, "Previous Window Tab"),
     ]
     
     /// The title of the command that `candidate` runs, other than `excludedCommand`.
@@ -227,14 +244,14 @@ final class KeybindSettings {
         boundTo candidate: Keybind,
         excluding excludedCommand: ConfigKeyCommand?
     ) -> String? {
-        if let system = SystemKeyCommand.allCases.first(where: { $0.keybind == candidate }) {
+        if let system = SystemKeyCommand.allCases.first(where: { isSameKeystroke($0.keybind, candidate) }) {
             return system.title
         }
-        if let fixed = FixedKeyCommand.allCases.first(where: { keybind(for: $0) == candidate }) {
+        if let fixed = FixedKeyCommand.allCases.first(where: { isKeybind(candidate, of: $0) }) {
             return title(for: fixed)
         }
         let config = ConfigKeyCommand.allCases.first {
-            $0 != excludedCommand && keybind(for: $0) == candidate
+            $0 != excludedCommand && isKeybind(candidate, of: $0)
         }
         return config.map { title(for: $0) }
     }

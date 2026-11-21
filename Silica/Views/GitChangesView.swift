@@ -115,7 +115,11 @@ struct GitChangesView: View {
                 .textFieldStyle(.plain)
                 .lineLimit(1...8)
                 .onKeyPress(keys: [.return], phases: .down) { press in
-                    guard press.modifiers.contains(.command) else { return .ignored }
+                    // Exactly ⌘↩, the key Settings reserves for this; a keybind may have
+                    // ⌥⌘↩ or ⇧⌘↩.
+                    guard press.modifiers.intersection([.command, .shift, .option, .control]) == .command else {
+                        return .ignored
+                    }
                     git.commit()
                     return .handled
                 }

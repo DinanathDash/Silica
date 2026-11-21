@@ -133,6 +133,11 @@ extension KeybindFile {
         if typing != nil {
             throw LoadError.invalidKeybinds(file.id)
         }
+        // Fixed commands keep their keys in the terminal too (only configurable ones
+        // stand aside for the shell), so each needs ⌘ to stay clear of the shell's keys.
+        guard file.fixed.allSatisfy({ $0.asKeybind()!.modifiers.contains(.command) }) else {
+            throw LoadError.invalidKeybinds(file.id)
+        }
         // One keystroke can only run one command; a menu would silently pick one.
         var used = Set(SystemKeyCommand.allCases.map(\.keybind))
         for keybind in (file.fixed + file.configurable).compactMap({ $0.asKeybind() }) {
