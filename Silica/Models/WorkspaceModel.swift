@@ -448,6 +448,7 @@ final class WorkspaceModel {
     func refresh() {
         root.reload()
         FolderIcons.shared.reload()
+        ProjectTypeDetector.invalidateCache(for: rootURL)
         syncOpenFilesWithDisk()
         search.refresh()
         // Files may have come or gone: filter a fresh list.

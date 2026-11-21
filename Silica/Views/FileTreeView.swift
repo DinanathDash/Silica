@@ -284,11 +284,12 @@ private struct ProjectTitle: View {
     let workspace: WorkspaceModel
     @State private var isHovering = false
     @State private var icon: NSImage?
+    @State private var isCustomImage = false
 
     var body: some View {
         HStack(spacing: 4) {
-            if isHovering, let icon {
-                FolderProxyIcon(url: workspace.rootURL, icon: icon)
+            if isHovering || isCustomImage, let icon {
+                FolderProxyIcon(url: workspace.rootURL, icon: icon, isCustomImage: isCustomImage)
                     .frame(width: 16, height: 16)
                     .transition(.opacity)
             }
@@ -300,11 +301,26 @@ private struct ProjectTitle: View {
         }
         .onHover { hovering in
             if hovering, icon == nil {
-                let image = NSWorkspace.shared.icon(forFile: workspace.rootURL.path(percentEncoded: false))
-                image.size = NSSize(width: 16, height: 16)
-                icon = image
+                loadIcon()
             }
             withAnimation(.easeInOut(duration: 0.15)) { isHovering = hovering }
+        }
+        .task {
+            loadIcon()
+        }
+    }
+
+    private func loadIcon() {
+        if let detectedPath = workspace.effectiveIcon?.imagePath,
+           let repoImage = NSImage(contentsOfFile: detectedPath) {
+            repoImage.size = NSSize(width: 16, height: 16)
+            icon = repoImage
+            isCustomImage = true
+        } else if icon == nil {
+            let image = NSWorkspace.shared.icon(forFile: workspace.rootURL.path(percentEncoded: false))
+            image.size = NSSize(width: 16, height: 16)
+            icon = image
+            isCustomImage = false
         }
     }
 }
@@ -312,16 +328,30 @@ private struct ProjectTitle: View {
 private struct FolderProxyIcon: NSViewRepresentable {
     let url: URL
     let icon: NSImage
+    var isCustomImage: Bool = false
 
     func makeNSView(context: Context) -> ProxyIconView { ProxyIconView() }
 
     func updateNSView(_ view: ProxyIconView, context: Context) {
         view.url = url
+        view.isCustomImage = isCustomImage
         if view.image !== icon { view.image = icon }
     }
 
     final class ProxyIconView: NSImageView, NSDraggingSource {
         var url: URL?
+        var isCustomImage: Bool = false {
+            didSet {
+                if isCustomImage {
+                    wantsLayer = true
+                    layer?.cornerRadius = 3.5
+                    layer?.masksToBounds = true
+                } else {
+                    layer?.cornerRadius = 0
+                    layer?.masksToBounds = false
+                }
+            }
+        }
 
         override func updateTrackingAreas() {
             super.updateTrackingAreas()

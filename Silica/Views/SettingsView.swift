@@ -286,6 +286,7 @@ private struct GeneralSettingsPane: View {
                                     isInstallingCommand = false
                                 }
                             }
+                            .glassButtonStyle()
                             .controlSize(.small)
                             .disabled(isInstallingCommand || CommandLineTool.unavailableReason != nil)
                         }
@@ -307,6 +308,7 @@ private struct GeneralSettingsPane: View {
                         detail: "Version \(AppInfo.version) (\(AppInfo.build))"
                     ) {
                         Button("Check Now") { updater.checkForUpdates() }
+                            .glassButtonStyle()
                             .controlSize(.small)
                             .disabled(!updater.canCheckForUpdates)
                     }

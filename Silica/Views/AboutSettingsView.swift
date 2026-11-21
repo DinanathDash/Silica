@@ -48,6 +48,7 @@ struct AboutSettingsView: View {
                             detail: "\(acknowledgement.license) · \(acknowledgement.holder)"
                         ) {
                             Button("View License") { shownLicense = acknowledgement }
+                                .glassButtonStyle()
                                 .controlSize(.small)
                         }
                     }
@@ -84,6 +85,8 @@ private struct LicenseSheet: View {
             HStack {
                 Spacer()
                 Button("Done") { dismiss() }
+                    .glassButtonStyle(prominent: true)
+                    .controlSize(.small)
                     .keyboardShortcut(.defaultAction)
             }
         }

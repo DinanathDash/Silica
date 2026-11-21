@@ -67,7 +67,7 @@ struct SourceControlHistoryView: View {
                     }
                 }
 
-                // Paging button: loads 20 older commits at the bottom
+                // Paging button: loads older commits at the bottom
                 if searchQuery.isEmpty && model.hasMoreCommits {
                     Button {
                         Task { await model.loadMoreCommits() }
@@ -80,13 +80,13 @@ struct SourceControlHistoryView: View {
                                 Image(systemName: "arrow.down.circle")
                                     .font(.system(size: 11))
                             }
-                            Text(model.isLoadingMoreCommits ? "Loading older commits…" : "Load 20 More Commits")
+                            Text(model.isLoadingMoreCommits ? "Loading older commits…" : "Load Older Commits")
                                 .font(.system(size: 11, weight: .medium))
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
+                        .padding(.vertical, 5)
                     }
-                    .buttonStyle(.bordered)
+                    .glassButtonStyle()
                     .controlSize(.small)
                     .padding(.top, 6)
                     .padding(.bottom, 12)
@@ -105,36 +105,11 @@ struct SourceControlHistoryView: View {
     // MARK: - Search Bar
 
     private var searchBar: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-
-            TextField("Search history by title, author, hash…", text: $searchQuery)
-                .textFieldStyle(.plain)
-                .font(.system(size: 11))
-
-            if !searchQuery.isEmpty {
-                Button {
-                    searchQuery = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .background {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(Color.secondary.opacity(0.18), lineWidth: 0.5)
-                )
-        }
+        NativeSearchField(
+            prompt: "Search history by message, author, hash…",
+            text: $searchQuery
+        )
+        .frame(height: 28)
     }
 
     // MARK: - Timeline Row
@@ -299,11 +274,11 @@ struct GitTimelineCanvas: View {
                     path.addLine(to: CGPoint(x: toX, y: rowHeight))
                 } else {
                     let dy = rowHeight - centerY
-                    // Soft S-curve transition with smooth vertical tangency at both ends
+                    // Pure smooth S-curve transition with smooth vertical tangency at both ends
                     path.addCurve(
                         to: CGPoint(x: toX, y: rowHeight),
-                        control1: CGPoint(x: fromX, y: centerY + dy * 0.6),
-                        control2: CGPoint(x: toX, y: rowHeight - dy * 0.4)
+                        control1: CGPoint(x: fromX, y: centerY + dy * 0.38),
+                        control2: CGPoint(x: toX, y: rowHeight - dy * 0.38)
                     )
                 }
                 context.stroke(path, with: .color(GitTimelineColors.color(for: conn.toLane)), style: strokeStyle)
@@ -515,11 +490,9 @@ struct CommitDetailsPopoverView: View {
                 Spacer(minLength: 0)
             }
 
-            Divider()
-
-            // 2. Commit Title and Description
+            // 2. Commit Title and Description with Rich Markdown formatting
             VStack(alignment: .leading, spacing: 4) {
-                Text(commit.summary)
+                Text(renderMarkdown(commit.summary))
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.primary)
                     .textSelection(.enabled)
@@ -527,17 +500,16 @@ struct CommitDetailsPopoverView: View {
 
                 if !commit.body.isEmpty {
                     ScrollView(.vertical) {
-                        Text(commit.body)
+                        Text(renderMarkdown(commit.body))
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxHeight: 100)
+                    .frame(maxHeight: 120)
                 }
             }
-
-            Divider()
 
             // 3. Diff statistics: files changed, additions, deletions
             HStack(spacing: 8) {
@@ -567,14 +539,12 @@ struct CommitDetailsPopoverView: View {
                     }
                 }
             }
-            .padding(.vertical, 3)
-            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .padding(.horizontal, 8)
             .background {
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
             }
-
-            Divider()
 
             // 4. Commit hash and copy button
             HStack(spacing: 6) {
@@ -606,14 +576,73 @@ struct CommitDetailsPopoverView: View {
                             .font(.system(size: 10, weight: .medium))
                     }
                 }
-                .buttonStyle(.bordered)
+                .glassButtonStyle()
                 .controlSize(.small)
             }
         }
-        .padding(10)
-        .frame(width: 270)
+        .padding(12)
+        .frame(width: 280)
         .onHover { isInside in
             onHoverChange(isInside)
+        }
+    }
+
+    private func renderMarkdown(_ text: String) -> AttributedString {
+        var options = AttributedString.MarkdownParsingOptions()
+        options.allowsExtendedAttributes = true
+        options.interpretedSyntax = .full
+        if let attr = try? AttributedString(markdown: text, options: options) {
+            return attr
+        }
+        return AttributedString(text)
+    }
+}
+
+/// Native Apple macOS search bar wrapping NSSearchField.
+struct NativeSearchField: NSViewRepresentable {
+    var prompt: String
+    @Binding var text: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = prompt
+        field.bezelStyle = .roundedBezel
+        field.controlSize = .regular
+        field.font = NSFont.systemFont(ofSize: 12)
+        field.lineBreakMode = .byTruncatingTail
+        field.delegate = context.coordinator
+        field.target = context.coordinator
+        field.action = #selector(Coordinator.action(_:))
+        return field
+    }
+
+    func updateNSView(_ nsView: NSSearchField, context: Context) {
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+        if nsView.placeholderString != prompt {
+            nsView.placeholderString = prompt
+        }
+    }
+
+    class Coordinator: NSObject, NSSearchFieldDelegate {
+        var parent: NativeSearchField
+
+        init(_ parent: NativeSearchField) {
+            self.parent = parent
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSSearchField else { return }
+            parent.text = field.stringValue
+        }
+
+        @objc func action(_ sender: NSSearchField) {
+            parent.text = sender.stringValue
         }
     }
 }
