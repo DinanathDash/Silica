@@ -57,10 +57,14 @@ final class KeyWorkspace: ObservableObject {
 
                 if !isEditingField && !isEditorTextView && !isTerminalFocused {
                     if flags == [.command, .option] {
-                        workspace.deleteImmediately(selection)
+                        DispatchQueue.main.async {
+                            workspace.deleteImmediately(selection)
+                        }
                         return nil
                     } else if flags == .command {
-                        workspace.moveToTrash(selection)
+                        DispatchQueue.main.async {
+                            workspace.moveToTrash(selection)
+                        }
                         return nil
                     }
                 }

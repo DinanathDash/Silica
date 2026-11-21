@@ -652,28 +652,6 @@ private struct FileNodeRow: View {
     /// Formats file or folder size into human readable string.
     private var formattedSize: String? {
         if node.isDirectory {
-            guard let enumerator = FileManager.default.enumerator(
-                at: node.url,
-                includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey],
-                options: [.skipsHiddenFiles, .skipsPackageDescendants]
-            ) else {
-                guard let count = (try? FileManager.default.contentsOfDirectory(atPath: node.url.path(percentEncoded: false)))?.count else { return nil }
-                return "\(count) item\(count == 1 ? "" : "s")"
-            }
-            var totalBytes: Int64 = 0
-            var count = 0
-            for case let fileURL as URL in enumerator {
-                count += 1
-                if count > 200 { break }
-                if let vals = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey]),
-                   vals.isDirectory != true,
-                   let size = vals.fileSize {
-                    totalBytes += Int64(size)
-                }
-            }
-            if totalBytes > 0 {
-                return ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)
-            }
             guard let count = (try? FileManager.default.contentsOfDirectory(atPath: node.url.path(percentEncoded: false)))?.count else { return nil }
             return "\(count) item\(count == 1 ? "" : "s")"
         } else {

@@ -34,22 +34,33 @@ actor GitRunner {
         return await withCheckedContinuation { continuation in
             var stdoutData = Data()
             var stderrData = Data()
-            let group = DispatchGroup()
 
-            group.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                group.leave()
+            stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                if !chunk.isEmpty {
+                    stdoutData.append(chunk)
+                }
             }
 
-            group.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                group.leave()
+            stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                if !chunk.isEmpty {
+                    stderrData.append(chunk)
+                }
             }
 
             process.terminationHandler = { proc in
-                group.wait()
+                stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                stderrPipe.fileHandleForReading.readabilityHandler = nil
+
+                let remainingOut = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                if !remainingOut.isEmpty { stdoutData.append(remainingOut) }
+                let remainingErr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                if !remainingErr.isEmpty { stderrData.append(remainingErr) }
+
+                try? stdoutPipe.fileHandleForReading.close()
+                try? stderrPipe.fileHandleForReading.close()
+
                 let stdout = String(decoding: stdoutData, as: UTF8.self)
                 let stderr = String(decoding: stderrData, as: UTF8.self)
                 continuation.resume(returning: Result(
