@@ -343,7 +343,7 @@ private struct KeybindSettingsPane: View {
             }
             Section("Configurable") {
                 ForEach(ConfigKeyCommand.allCases) { command in
-                    LabeledContent(command.title) {
+                    LabeledContent(keybinds.title(for: command)) {
                         HStack(spacing: 8) {
                             Button(keybinds.keybind(for: command).displayName) {
                                 recording = command
@@ -374,11 +374,12 @@ private struct KeybindSettingsPane: View {
             }
             Section("Fixed") {
                 ForEach(FixedKeyCommand.allCases) { command in
-                    LabeledContent(command.title) {
-                        Button(keybinds.keybind(for: command).displayName) {}
-                            .buttonStyle(.bordered)
-                            .disabled(true)
-                    }
+                    fixedRow(keybinds.title(for: command), keybinds.keybind(for: command))
+                }
+            }
+            Section("System") {
+                ForEach(SystemKeyCommand.allCases) { command in
+                    fixedRow(command.title, command.keybind)
                 }
             }
         }
@@ -387,6 +388,14 @@ private struct KeybindSettingsPane: View {
                 command: $0,
                 keybinds: keybinds
             )
+        }
+    }
+    
+    private func fixedRow(_ title: String, _ keybind: Keybind) -> some View {
+        LabeledContent(title) {
+            Button(keybind.displayName) {}
+                .buttonStyle(.bordered)
+                .disabled(true)
         }
     }
 }
@@ -404,7 +413,7 @@ private struct KeybindRecorderView: View {
             Text("Record Keybind")
                 .font(.headline)
 
-            Text("Press a key combination for '\(command.title)'.")
+            Text("Press a key combination for “\(keybinds.title(for: command))”, or Esc to cancel.")
                 .foregroundStyle(.secondary)
             
             if let errorMessage {
@@ -428,6 +437,7 @@ private struct KeybindRecorderView: View {
     
     private func startEventMonitor() {
         guard eventMonitor == nil else { return }
+        keybinds.isRecording = true
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
             record($0)
         }
@@ -438,9 +448,15 @@ private struct KeybindRecorderView: View {
             NSEvent.removeMonitor(eventMonitor)
         }
         eventMonitor = nil
+        keybinds.isRecording = false
     }
     
     private func record(_ event: NSEvent) -> NSEvent? {
+        let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        if flags.isEmpty, event.keyCode == 53 { // Esc
+            dismiss()
+            return nil
+        }
         guard let keybind = Keybind(event: event) else {
             errorMessage = "Keybind must contain ⌘, ⌥ or ⌃, and a valid key."
             return nil

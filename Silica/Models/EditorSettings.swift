@@ -312,24 +312,27 @@ final class EditorSettings {
     // MARK: Keyboard
 
     private var keyMonitor: Any?
+    private static let zoomIn = Keybind(key: "=", modifiers: .command)!
 
-    /// Lets ⌘= (no Shift) zoom in too, the way most apps treat it, and ⌥Z toggle
-    /// word wrap.
+    /// Lets ⌘= (no Shift) zoom in too, the way most apps treat it, and Toggle Word
+    /// Wrap's keybind (⌥Z by default) work while the editor has focus.
     ///
     /// The View menu's "Increase Font Size" item is bound to ⌘+, which on a US
-    /// keyboard needs Shift; menus can't also match the unshifted key.
+    /// keyboard needs Shift; menus can't also match the unshifted key. ⌘= is left
+    /// alone once a keybind uses it.
     func installKeyboardShortcuts() {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
-            guard let self else { return event }
-            if flags == .command, event.charactersIgnoringModifiers == "=" {
+            let keybinds = KeybindSettings.shared
+            guard let self, !keybinds.isRecording,
+                  let pressed = Keybind(event: event) else { return event }
+            if pressed == Self.zoomIn, !keybinds.isBound(pressed) {
                 self.increaseFontSize()
                 return nil
             }
             // ⌥Z, as in VS Code. Also in the View menu, but an editor with focus would
-            // otherwise type "Ω".
-            if flags == .option, event.charactersIgnoringModifiers?.lowercased() == "z",
+            // otherwise type "Ω". The same goes for any ⌥ + letter keybind it's given.
+            if pressed == keybinds.keybind(for: .toggleWordWrap), pressed.typesCharacter,
                event.window?.attachedSheet == nil, NSApp.modalWindow == nil,
                event.window?.firstResponder is EditorTextView {
                 self.wrapsLines.toggle()

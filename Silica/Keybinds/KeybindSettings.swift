@@ -2,39 +2,44 @@ import Foundation
 
 @Observable
 final class KeybindSettings {
-    
+
     typealias KeybindOverrideMap = [ConfigKeyCommand.ID: Keybind]
-    
+
     private enum DefaultsKey {
         static let presetId = "keybinds.presetId"
         static let overrides = "keybinds.overrides"
     }
-    
-    static let shared = KeybindSettings()
-    
+
+    static let shared = KeybindSettings(
+        presets: KeybindFile.loadAllFromBundle(),
+        defaults: .standard
+    )
+
     let presets: [KeybindFile]
     private(set) var activePresetId: KeybindFile.ID
     private var overrides = KeybindOverrideMap()
-    private let defaults = UserDefaults.standard
-    
+    @ObservationIgnored private let defaults: UserDefaults
+
+    /// While Settings records a keybind, the app's own key monitors let every key
+    /// through to the recorder instead of acting on it.
+    @ObservationIgnored var isRecording = false
+
     var hasCustomKeybinds: Bool {
         !self.overrides.isEmpty
     }
-    
-    private init() {
-        self.presets = KeybindFile.loadAllFromBundle()
-        
-        self.activePresetId = if let presetId = self.defaults.string(forKey: DefaultsKey.presetId) {
-            if self.presets.contains(where: { $0.id == presetId }) {
-                presetId
-            } else {
-                KeybindFile.defaultFileId
-            }
+
+    init(presets: [KeybindFile], defaults: UserDefaults) {
+        self.presets = presets
+        self.defaults = defaults
+
+        self.activePresetId = if let presetId = defaults.string(forKey: DefaultsKey.presetId),
+                                 presets.contains(where: { $0.id == presetId }) {
+            presetId
         } else {
             KeybindFile.defaultFileId
         }
-        
-        guard let overrideData = self.defaults.data(forKey: DefaultsKey.overrides),
+
+        guard let overrideData = defaults.data(forKey: DefaultsKey.overrides),
               let overrideMap = try? JSONDecoder().decode(KeybindOverrideMap.self, from: overrideData)
         else {
             self.overrides = [:]
@@ -46,7 +51,7 @@ final class KeybindSettings {
             ConfigKeyCommand(rawValue: $0.key) != nil
         }
     }
-    
+
     func keybind(for command: FixedKeyCommand) -> Keybind {
         let current = getActivePreset().binding(for: command)?.asKeybind()
         return current ?? Keybind.Fallback.fixed(for: command)
@@ -57,14 +62,14 @@ final class KeybindSettings {
         let current = getActivePreset().binding(for: command)?.asKeybind()
         return override ?? current ?? Keybind.Fallback.config(for: command)
     }
-    
+
     func title(for command: FixedKeyCommand) -> String {
         let current = getActivePreset().binding(for: command)?.title
         let `default` = getDefaultPreset().binding(for: command)?.title
         let fallback = command.title
         return current ?? `default` ?? fallback
     }
-    
+
     func title(for command: ConfigKeyCommand) -> String {
         let current = getActivePreset().binding(for: command)?.title
         let `default` = getDefaultPreset().binding(for: command)?.title
@@ -75,7 +80,12 @@ final class KeybindSettings {
     func isDefaultKeybind(for command: ConfigKeyCommand) -> Bool {
         self.overrides[command.id] == nil
     }
-  
+
+    /// Whether any command, system ones included, runs on `keybind`.
+    func isBound(_ keybind: Keybind) -> Bool {
+        commandTitle(boundTo: keybind, excluding: nil) != nil
+    }
+
     func setActivePreset(id: KeybindFile.ID) throws {
         guard let preset = self.presets.first(where: { $0.id == id }) else {
             throw Error.unknownPreset(id)
@@ -84,7 +94,7 @@ final class KeybindSettings {
         self.overrides = [:]
         save()
     }
-    
+
     func setKeybind(
         _ keybind: Keybind?,
         for command: ConfigKeyCommand
@@ -94,8 +104,13 @@ final class KeybindSettings {
             save()
             return
         }
-        if let conflict = conflict(for: keybind, excluding: command) {
-            throw Error.commandConflict(command, conflict)
+        // Only Toggle Word Wrap is caught before the editor types the character; see
+        // EditorSettings.installKeyboardShortcuts().
+        if keybind.typesCharacter, command != .toggleWordWrap {
+            throw Error.typesCharacter(keybind)
+        }
+        if let conflict = commandTitle(boundTo: keybind, excluding: command) {
+            throw Error.commandConflict(keybind, conflict)
         }
         if keybind == getActivePreset().binding(for: command)?.asKeybind() {
             // If keybind is equal to our preset's default, remove the override.
@@ -106,22 +121,22 @@ final class KeybindSettings {
         }
         save()
     }
-    
+
     func reset() {
         guard !self.overrides.isEmpty else { return }
         self.overrides = [:]
         save()
     }
-    
+
     // MARK: Private
-    
+
     private func getActivePreset() -> KeybindFile {
         guard let preset = self.presets.first(where: { $0.id == self.activePresetId }) else {
             preconditionFailure("Current keybind preset is missing.")
         }
         return preset
     }
-    
+
     private func getDefaultPreset() -> KeybindFile {
         guard let preset = self.presets.first(where: { $0.id == KeybindFile.defaultFileId }) else {
             preconditionFailure("Default keybind preset is missing.")
@@ -129,19 +144,23 @@ final class KeybindSettings {
         return preset
     }
 
-    private func conflict(
-        for candidate: Keybind,
-        excluding excludedCommand: ConfigKeyCommand
-    ) -> (any KeyCommand)? {
+    /// The title of the command that `candidate` runs, other than `excludedCommand`.
+    private func commandTitle(
+        boundTo candidate: Keybind,
+        excluding excludedCommand: ConfigKeyCommand?
+    ) -> String? {
+        if let system = SystemKeyCommand.allCases.first(where: { $0.keybind == candidate }) {
+            return system.title
+        }
         if let fixed = FixedKeyCommand.allCases.first(where: { keybind(for: $0) == candidate }) {
-            return fixed
+            return title(for: fixed)
         }
-        return ConfigKeyCommand.allCases.first {
-            guard $0 != excludedCommand else { return false }
-            return keybind(for: $0) == candidate
+        let config = ConfigKeyCommand.allCases.first {
+            $0 != excludedCommand && keybind(for: $0) == candidate
         }
+        return config.map { title(for: $0) }
     }
-    
+
     private func save() {
         self.defaults.set(
             self.activePresetId,
@@ -163,18 +182,21 @@ final class KeybindSettings {
 // MARK: KeybindSettings.Error
 
 extension KeybindSettings {
-    
-    enum Error: LocalizedError {
-        
+
+    enum Error: LocalizedError, Equatable {
+
         case unknownPreset(KeybindFile.ID)
-        case commandConflict(ConfigKeyCommand, any KeyCommand)
+        case commandConflict(Keybind, String)
+        case typesCharacter(Keybind)
 
         var errorDescription: String? {
             switch self {
             case .unknownPreset(let id):
                 "Keybind preset '\(id)' is missing."
-            case let .commandConflict(proposed, existing):
-                "Keybind '\(proposed.title)' conflicts with '\(existing.title)'."
+            case let .commandConflict(keybind, existing):
+                "\(keybind.displayName) is already used by \(existing)."
+            case let .typesCharacter(keybind):
+                "\(keybind.displayName) types a character in the editor. Add ⌘ or ⌃."
             }
         }
     }

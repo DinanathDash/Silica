@@ -6,6 +6,23 @@ struct Keybind: Codable, Hashable {
     let key: String
     let modifiers: Modifiers
     
+    /// Keybinds are equal when they're the same keystroke, so "+" with ⌘ (how a menu
+    /// writes it) matches "=" with ⇧⌘ (what the recorder sees on a US keyboard).
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.stroke == rhs.stroke
+    }
+    
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(stroke)
+    }
+    
+    /// A key that macOS can't use as a shortcut without ⌘ or ⌃: in the editor, ⌥ or
+    /// ⇧⌥ with it types a character ("Ω" for ⌥Z) before a menu item sees the key.
+    var typesCharacter: Bool {
+        modifiers.isDisjoint(with: [.command, .control])
+            && SpecialKey.byCharacterMap[key.first!] == nil
+    }
+    
     var keyEquivalent: KeyEquivalent {
         .init(self.key.first!)
     }
@@ -19,12 +36,13 @@ struct Keybind: Codable, Hashable {
         return eventModifiers
     }
     
+    /// The shortcut as macOS writes it in menus, modifiers in ⌃⌥⇧⌘ order.
     var displayName: String {
         var mods = ""
-        if self.modifiers.contains(.command) { mods += "⌘" }
-        if self.modifiers.contains(.option) { mods += "⌥" }
         if self.modifiers.contains(.control) { mods += "⌃" }
+        if self.modifiers.contains(.option) { mods += "⌥" }
         if self.modifiers.contains(.shift) { mods += "⇧" }
+        if self.modifiers.contains(.command) { mods += "⌘" }
 
         let keyName = SpecialKey.byCharacterMap[self.key.first!]?.title ?? self.key.uppercased()
         return mods + keyName
@@ -82,7 +100,9 @@ struct Keybind: Codable, Hashable {
         if flags.contains(.control) { modifiers.insert(.control) }
         if flags.contains(.shift) { modifiers.insert(.shift) }
 
-        guard let key = event.charactersIgnoringModifiers else {
+        // The unshifted character, so ⇧⌘1 is recorded as "1" with ⇧⌘, the way presets
+        // write it, not as "!". (`charactersIgnoringModifiers` keeps Shift.)
+        guard let key = event.characters(byApplyingModifiers: []) else {
             return nil
         }
 
@@ -106,6 +126,33 @@ struct Keybind: Codable, Hashable {
             )
         }
     }
+}
+
+// MARK: Stroke
+
+extension Keybind {
+    
+    /// The keystroke itself: the unshifted key and every modifier, Shift included.
+    struct Stroke: Hashable {
+        let key: Character
+        let modifiers: Modifiers
+    }
+    
+    var stroke: Stroke {
+        let character = key.first!
+        if let unshifted = Self.unshiftedKeys[character] {
+            return Stroke(key: unshifted, modifiers: modifiers.union(.shift))
+        }
+        return Stroke(key: character, modifiers: modifiers)
+    }
+    
+    /// Characters typed with Shift on a US keyboard, and the key that types them.
+    /// Presets are written for that layout, as the menus' own shortcuts are.
+    private static let unshiftedKeys: [Character: Character] = [
+        "~": "`", "!": "1", "@": "2", "#": "3", "$": "4", "%": "5", "^": "6",
+        "&": "7", "*": "8", "(": "9", ")": "0", "_": "-", "+": "=", "{": "[",
+        "}": "]", "|": "\\", ":": ";", "\"": "'", "<": ",", ">": ".", "?": "/",
+    ]
 }
 
 // MARK: Modifiers
@@ -222,16 +269,6 @@ extension Keybind {
         static let refreshExplorer: Keybind = .init(key: "r", modifiers: [.shift, .command])!
         static let indent: Keybind = .init(key: "]", modifiers: .command)!
         static let outdent: Keybind = .init(key: "[", modifiers: .command)!
-        static let cut: Keybind = .init(key: "x", modifiers: .command)!
-        static let copy: Keybind = .init(key: "c", modifiers: .command)!
-        static let paste: Keybind = .init(key: "v", modifiers: .command)!
-        static let selectAll: Keybind = .init(key: "a", modifiers: .command)!
-        static let undo: Keybind = .init(key: "z", modifiers: .command)!
-        static let redo: Keybind = .init(key: "z", modifiers: [.shift, .command])!
-        static let minimize: Keybind = .init(key: "m", modifiers: .command)!
-        static let hide: Keybind = .init(key: "h", modifiers: .command)!
-        static let hideOthers: Keybind = .init(key: "h", modifiers: [.option, .command])!
-        static let quit: Keybind = .init(key: "q", modifiers: .command)!
         
         static func fixed(for command: FixedKeyCommand) -> Keybind {
             switch command {
@@ -249,24 +286,14 @@ extension Keybind {
             case .refreshExplorer: self.refreshExplorer
             case .indent: self.indent
             case .outdent: self.outdent
-            case .cut: self.cut
-            case .copy: self.copy
-            case .paste: self.paste
-            case .selectAll: self.selectAll
-            case .undo: self.undo
-            case .redo: self.redo
-            case .minimize: self.minimize
-            case .hide: self.hide
-            case .hideOthers: self.hideOthers
-            case .quit: self.quit
             }
         }
         
         // Configurable
         
         static let quickOpen: Keybind = .init(key: "p", modifiers: .command)!
-        static let quickJumpToFile: Keybind = .init(key: "p", modifiers: [.shift, .command])!
         static let findInProject: Keybind = .init(key: "f", modifiers: [.shift, .command])!
+        static let sourceControl: Keybind = .init(key: "g", modifiers: [.control, .shift])!
         static let filterTreeFiles: Keybind = .init(key: "j", modifiers: [.option, .command])!
         static let goToLine: Keybind = .init(key: "l", modifiers: .command)!
         static let togglePreview: Keybind = .init(key: "v", modifiers: [.shift, .command])!
@@ -289,8 +316,8 @@ extension Keybind {
         static func config(for command: ConfigKeyCommand) -> Keybind {
             switch command {
             case .quickOpen: self.quickOpen
-            case .quickJumpToFile: self.quickJumpToFile
             case .findInProject: self.findInProject
+            case .sourceControl: self.sourceControl
             case .filterTreeFiles: self.filterTreeFiles
             case .goToLine: self.goToLine
             case .togglePreview: self.togglePreview

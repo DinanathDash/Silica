@@ -52,7 +52,7 @@ extension KeybindFile {
         case missingDefaultFile
         case uniqueFileIds
         case unsupportedVersion
-        case bindingCollision(KeybindFile.ID)
+        case bindingCollision(KeybindFile.ID, Keybind)
         case bindingMismatch(KeybindFile.ID)
         case invalidKeybinds(KeybindFile.ID)
         
@@ -61,7 +61,7 @@ extension KeybindFile {
             case .missingDefaultFile: "Missing default keybind file."
             case .uniqueFileIds: "Keybind file IDs must be unique."
             case .unsupportedVersion: "Unsupported keybind file version."
-            case let .bindingCollision(fileId): "Keybind file '\(fileId)' assigns keybinds to multiple commands."
+            case let .bindingCollision(fileId, keybind): "Keybind file '\(fileId)' assigns \(keybind.displayName) to more than one command."
             case let .bindingMismatch(fileId): "Keybind file '\(fileId)' does not contain expected bindings."
             case let .invalidKeybinds(fileId): "Keybind file '\(fileId)' contains invalid keybinds."
             }
@@ -111,7 +111,7 @@ extension KeybindFile {
         }
     }
     
-    private static func validateFile(_ file: KeybindFile) throws {
+    static func validateFile(_ file: KeybindFile) throws {
         guard file.version == 1 else {
             throw LoadError.unsupportedVersion
         }
@@ -125,6 +125,13 @@ extension KeybindFile {
             expectedIds: Set(ConfigKeyCommand.allCases.map(\.id)),
             in: file
         )
+        // One keystroke can only run one command; a menu would silently pick one.
+        var used = Set(SystemKeyCommand.allCases.map(\.keybind))
+        for keybind in (file.fixed + file.configurable).compactMap({ $0.asKeybind() }) {
+            guard used.insert(keybind).inserted else {
+                throw LoadError.bindingCollision(file.id, keybind)
+            }
+        }
     }
     
     private static func validateBindings(

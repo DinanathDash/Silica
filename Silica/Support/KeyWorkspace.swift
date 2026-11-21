@@ -9,10 +9,13 @@ final class KeyWorkspace: ObservableObject {
     private init() {}
 
     private var keyMonitor: Any?
+    private static let nextTab = Keybind(key: "]", modifiers: [.shift, .command])!
+    private static let previousTab = Keybind(key: "[", modifiers: [.shift, .command])!
 
-    /// ⇧⌘ shortcuts for the key workspace, handled here as well as in the menus
-    /// because menu items bound to ⇧⌘ + a letter didn't reliably win over the plain
-    /// ⌘ + letter items (⇧⌘V lost to Paste, ⇧⌘F to Find).
+    /// Shortcuts for the key workspace, handled here as well as in the menus because
+    /// menu items bound to ⇧⌘ + a letter didn't reliably win over the plain ⌘ + letter
+    /// items (⇧⌘V lost to Paste, ⇧⌘F to Find). Each one follows its command's keybind,
+    /// so a keybind changed in Settings moves it here too.
     func installKeyboardShortcuts() {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -27,27 +30,30 @@ final class KeyWorkspace: ObservableObject {
                 workspace.quickOpen.query += characters
                 return nil
             }
-            guard flags == [.command, .shift], let workspace = self?.current,
-                  // Not while a sheet or alert is up.
+            let keybinds = KeybindSettings.shared
+            guard let workspace = self?.current,
+                  // Not while a sheet or alert is up, or while Settings records a keybind.
                   event.window?.attachedSheet == nil, NSApp.modalWindow == nil,
-                  let key = event.charactersIgnoringModifiers?.lowercased() else { return event }
-            switch key {
-            case "v":
+                  !keybinds.isRecording,
+                  let pressed = Keybind(event: event) else { return event }
+            switch pressed {
+            case keybinds.keybind(for: ConfigKeyCommand.togglePreview):
                 guard let buffer = workspace.activeBuffer, buffer.previewFormat != nil else { return event }
                 buffer.togglePreview()
-            case "f":
+            case keybinds.keybind(for: ConfigKeyCommand.findInProject):
                 workspace.showSearch()
-            case "e":
+            case keybinds.keybind(for: FixedKeyCommand.explorer):
                 workspace.showExplorer()
-            case "s":
+            case keybinds.keybind(for: FixedKeyCommand.saveAs):
                 guard workspace.activeBuffer?.textController != nil else { return event }
                 workspace.saveActiveAs()
-            case "w":
+            case keybinds.keybind(for: FixedKeyCommand.closeWindow):
                 event.window?.performClose(nil)
-            // The other usual pair for stepping through tabs, next to ⌃Tab in the menu.
-            case "}", "]":
+            // The other usual pair for stepping through tabs, next to the menu's keybind,
+            // unless a command uses it.
+            case Self.nextTab where !keybinds.isBound(pressed):
                 workspace.selectTab(offsetBy: 1)
-            case "{", "[":
+            case Self.previousTab where !keybinds.isBound(pressed):
                 workspace.selectTab(offsetBy: -1)
             default:
                 return event

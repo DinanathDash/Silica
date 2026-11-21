@@ -1194,6 +1194,7 @@ private struct VideoPlayerHost: NSViewRepresentable {
 
 private struct EmptyEditorView: View {
     let workspace: WorkspaceModel
+    private var keybinds: KeybindSettings { .shared }
 
     var body: some View {
         VStack(spacing: 24) {
@@ -1211,9 +1212,9 @@ private struct EmptyEditorView: View {
             }
 
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
-                shortcut("Quick Open", keys: "⌘P")
-                shortcut("Open Another Project", keys: "⌘O")
-                shortcut("Toggle Sidebar", keys: "⌃⌘S")
+                shortcut("Quick Open", keys: keybinds.keybind(for: ConfigKeyCommand.quickOpen).displayName)
+                shortcut("Open Another Project", keys: keybinds.keybind(for: FixedKeyCommand.open).displayName)
+                shortcut("Toggle Sidebar", keys: keybinds.keybind(for: ConfigKeyCommand.toggleSidebar).displayName)
             }
             .font(.callout)
         }

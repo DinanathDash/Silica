@@ -86,66 +86,6 @@
             "title": "Outdent",
             "key": "[",
             "mods": ["cmd"]
-        },
-        {
-            "id": "cut",
-            "title": "Cut",
-            "key": "x",
-            "mods": ["cmd"]
-        },
-        {
-            "id": "copy",
-            "title": "Copy",
-            "key": "c",
-            "mods": ["cmd"]
-        },
-        {
-            "id": "paste",
-            "title": "Paste",
-            "key": "v",
-            "mods": ["cmd"]
-        },
-        {
-            "id": "select_all",
-            "title": "Select All",
-            "key": "a",
-            "mods": ["cmd"]
-        },
-        {
-            "id": "undo",
-            "title": "Undo",
-            "key": "z",
-            "mods": ["cmd"]
-        },
-        {
-            "id": "redo",
-            "title": "Redo",
-            "key": "z",
-            "mods": ["shift", "cmd"]
-        },
-        {
-            "id": "minimize",
-            "title": "Minimize",
-            "key": "m",
-            "mods": ["cmd"]
-        },
-        {
-            "id": "hide",
-            "title": "Hide Silica",
-            "key": "h",
-            "mods": ["cmd"]
-        },
-        {
-            "id": "hide_others",
-            "title": "Hide Others",
-            "key": "h",
-            "mods": ["opt", "cmd"]
-        },
-        {
-            "id": "quit",
-            "title": "Quit Silica",
-            "key": "q",
-            "mods": ["cmd"]
         }
     ],
     "configurable": [
@@ -156,16 +96,16 @@
             "mods": ["cmd"]
         },
         {
-            "id": "quick_jump_to_file",
-            "title": "Quick Jump to File",
-            "key": "p",
-            "mods": ["shift", "cmd"]
-        },
-        {
             "id": "find_in_project",
             "title": "Find in Project",
             "key": "f",
             "mods": ["shift", "cmd"]
+        },
+        {
+            "id": "source_control",
+            "title": "Source Control",
+            "key": "g",
+            "mods": ["ctrl", "shift"]
         },
         {
             "id": "filter_tree_files",

@@ -7,10 +7,10 @@ struct AppCommands: Commands {
     @ObservedObject private var keyWorkspace = KeyWorkspace.shared
     private var workspace: WorkspaceModel? { keyWorkspace.current }
     @ObservedObject private var updater = AppUpdater.shared
-    @Bindable private var keybinds = KeybindSettings.shared
-    
+
     private var recents: RecentProjectsStore { .shared }
     private var settings: EditorSettings { .shared }
+    private var keybinds: KeybindSettings { .shared }
     private var opener: ProjectOpener { ProjectOpener(openWindow: openWindow) }
 
     /// "Show Markdown", "Show CSV" or "Show HTML" while the preview is up, to go back to the source.
@@ -31,10 +31,8 @@ struct AppCommands: Commands {
                 openWindow(id: WindowID.settings)
             }
 
-            Button("Check for Updates…") {
-                updater.checkForUpdates()
-            }
-            .disabled(!updater.canCheckForUpdates)
+            Button("Check for Updates…") { updater.checkForUpdates() }
+                .disabled(!updater.canCheckForUpdates)
         }
 
         // Settings is a regular Window scene (so it can resize), which doesn't get
@@ -75,10 +73,6 @@ struct AppCommands: Commands {
             Button("Quick Open…") { workspace?.toggleQuickOpen() }
                 .keybindShortcut(for: .quickOpen, keybinds)
                 .disabled(workspace == nil)
-            
-            Button("Quick Jump to File") { workspace?.quickJumpToFile() }
-                .keybindShortcut(for: .quickJumpToFile, keybinds)
-                .disabled(workspace == nil)
 
             Divider()
 
@@ -86,7 +80,7 @@ struct AppCommands: Commands {
                 .keybindShortcut(for: .welcomeWindow, keybinds)
         }
 
-        // No printing; ⌘P is our default Quick Open shortcut, as in other code editors.
+        // No printing; ⌘P is Quick Open, as in other code editors.
         CommandGroup(replacing: .printItem) {}
 
         CommandGroup(replacing: .saveItem) {
@@ -114,7 +108,7 @@ struct AppCommands: Commands {
             }
             .keybindShortcut(for: .closeTab, keybinds)
 
-            // ⇧⌘W is also handled by KeyWorkspace.installKeyboardShortcuts().
+            // Its keybind is also handled by KeyWorkspace.installKeyboardShortcuts().
             Button("Close Window") { NSApp.keyWindow?.performClose(nil) }
                 .keybindShortcut(for: .closeWindow, keybinds)
         }
@@ -126,7 +120,8 @@ struct AppCommands: Commands {
             .keybindShortcut(for: .toggleSidebar, keybinds)
             .disabled(workspace == nil)
 
-            // ⇧⌘E, ⇧⌘F and ⇧⌘S are also handled by KeyWorkspace.installKeyboardShortcuts().
+            // Explorer's, Find in Project's and Save As's keybinds are also handled by
+            // KeyWorkspace.installKeyboardShortcuts().
             Button("Explorer") { workspace?.showExplorer() }
                 .keybindShortcut(for: .explorer, keybinds)
                 .disabled(workspace == nil)
@@ -136,7 +131,7 @@ struct AppCommands: Commands {
                 .disabled(workspace == nil)
 
             Button("Source Control") { workspace?.showChanges() }
-                .keyboardShortcut("g", modifiers: [.control, .shift])
+                .keybindShortcut(for: .sourceControl, keybinds)
                 .disabled(workspace?.git.isRepository != true)
 
             Button("Filter Files") { workspace?.focusTreeFilter() }
@@ -223,7 +218,8 @@ struct AppCommands: Commands {
 
             Divider()
 
-            // ⌘= also zooms in; see EditorSettings.installKeyboardShortcuts().
+            // ⌘= also zooms in when nothing else uses it; see
+            // EditorSettings.installKeyboardShortcuts().
             Button("Increase Font Size") { settings.increaseFontSize() }
                 .keybindShortcut(for: .increaseFontSize, keybinds)
                 .disabled(!settings.canIncreaseFontSize)

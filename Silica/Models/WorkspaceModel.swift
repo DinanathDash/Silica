@@ -702,22 +702,19 @@ final class WorkspaceModel {
         }
     }
 
+    /// Go to Line (⌘L): Quick Open with ":" typed, as in VS Code.
+    func showGoToLine() {
+        guard activeBuffer?.textController != nil else { return }
+        showQuickOpen(query: ":")
+    }
+
     private func showQuickOpen(query: String) {
         quickOpen.prepareForPresentation(activeFile: activeTab, query: query)
         if !isQuickOpenVisible {
             withAnimation(.snappy(duration: 0.18)) { isQuickOpenVisible = true }
         }
     }
-    
-    func hideQuickOpen() {
-        guard isQuickOpenVisible else { return }
-        withAnimation(.snappy(duration: 0.18)) { isQuickOpenVisible = false }
-        // Give typing focus back to the editor.
-        if let textView = activeBuffer?.textController?.textView {
-            textView.window?.makeFirstResponder(textView)
-        }
-    }
-    
+
     /// Lines in the active file, for the Go to Line prompt.
     var activeLineCount: Int? {
         activeBuffer?.textController?.lineCount
@@ -735,6 +732,15 @@ final class WorkspaceModel {
         DispatchQueue.main.async { controller.goToLine(line) }
     }
 
+    func hideQuickOpen() {
+        guard isQuickOpenVisible else { return }
+        withAnimation(.snappy(duration: 0.18)) { isQuickOpenVisible = false }
+        // Give typing focus back to the editor.
+        if let textView = activeBuffer?.textController?.textView {
+            textView.window?.makeFirstResponder(textView)
+        }
+    }
+
     /// Opens a Quick Open result; "name:42" also jumps to line 42.
     func openFromQuickOpen(_ url: URL, line: Int? = nil) {
         hideQuickOpen()
@@ -742,22 +748,7 @@ final class WorkspaceModel {
         reveal(url)
         if let line { goToLine(line) }
     }
-    
-    /// Go to Line (⌘L): Quick Open with ":" typed, as in VS Code.
-    func showGoToLine() {
-        guard activeBuffer?.textController != nil else { return }
-        showQuickOpen(query: ":")
-    }
-    
-    // MARK: Quick Jump
-    
-    func quickJumpToFile() {
-        guard let selection else {
-            return
-        }
-        revealInTree(selection)
-    }
-    
+
     /// Expands the folders above `url` so its row exists, selects it and asks the
     /// tree to scroll to it.
     func reveal(_ url: URL) {
