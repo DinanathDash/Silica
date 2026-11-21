@@ -112,6 +112,15 @@ struct Keybind: Codable, Hashable {
         // the menus match key equivalents against that ⌘ layout. A dead key (` or ' on
         // U.S. International) can translate to nothing, so fall back to the key's
         // character as AppKit reports it.
+        // On a non-Latin layout (Russian, Greek), keys without ⌘ type that layout's own
+        // letters, but shortcuts are written in Latin ones: read the key on the Latin
+        // layout macOS keeps beside it, as menus do.
+        if let latin = CurrentKeyboardLayout.shared.latinCharacter(
+            forKeyCode: event.keyCode, withCommand: flags.contains(.command)
+        ) {
+            self.init(key: String(latin), modifiers: modifiers)
+            return
+        }
         let translated = event.characters(byApplyingModifiers: flags.intersection(.command))
         guard let key = translated?.isEmpty == false ? translated : event.charactersIgnoringModifiers else {
             return nil

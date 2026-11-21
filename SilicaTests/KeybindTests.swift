@@ -84,6 +84,19 @@ struct KeybindTests {
         #expect(Keybind(event: keyDown(9, .shift)) == nil)
     }
 
+    @Test(.enabled(if: hasUSKeys, "needs a layout with U.S. key positions"))
+    func currentLayoutFindsKeys() {
+        let layout = CurrentKeyboardLayout.shared
+        #expect(layout.key(typing: "/", withCommand: true)?.keyCode == 44)
+        #expect(layout.key(typing: "/", withCommand: true)?.shift == false)
+        #expect(layout.key(typing: "?", withCommand: true)?.shift == true)
+        #expect(layout.key(typing: "=", withCommand: false)?.keyCode == 24)
+        // Not the keypad's "+": the menus' ⌘+ is ⇧ and the = key.
+        #expect(layout.key(typing: "+", withCommand: true)?.keyCode == 24)
+        // A Latin layout reads keys from the event itself.
+        #expect(layout.latinCharacter(forKeyCode: 5, withCommand: false) == nil)
+    }
+
     @Test func decodingRejectsAnUnusableKey() throws {
         let json = Data(#"{"key":"","modifiers":1}"#.utf8)
         #expect(throws: DecodingError.self) { try JSONDecoder().decode(Keybind.self, from: json) }
@@ -246,6 +259,30 @@ final class KeybindSettingsTests {
         }
         try settings.setKeybind(controlTab, for: .selectNextTab)
         #expect(settings.keybind(for: .selectNextTab) == controlTab)
+    }
+
+    @Test(.enabled(if: hasUSKeys, "needs a layout with U.S. key positions"))
+    func shiftedMenuKeysClashOnTheRealLayout() {
+        // The ⌘ table ignores Shift, so ⌘+ and ⌘? have to come from the Shift table.
+        let settings = settings(layout: CurrentKeyboardLayout.shared)
+        #expect(throws: KeybindSettings.Error.commandConflict(keybind("=", [.shift, .command]), "Increase Font Size")) {
+            try settings.setKeybind(keybind("=", [.shift, .command]), for: .quickOpen)
+        }
+        #expect(throws: KeybindSettings.Error.commandConflict(keybind("/", [.shift, .command]), "Silica Help")) {
+            try settings.setKeybind(keybind("/", [.shift, .command]), for: .quickOpen)
+        }
+        #expect(throws: KeybindSettings.Error.commandConflict(keybind("1", [.shift, .command]), "Welcome Window")) {
+            try settings.setKeybind(keybind("1", [.shift, .command]), for: .quickOpen)
+        }
+    }
+
+    @Test func aClashOnlyThisLayoutHasIsKeptAndShown() {
+        // ⇧⌘7, recorded on a U.S. layout, is Toggle Comment's ⌘/ on a German one.
+        defaults.set(Data(#"{"quick_open":{"key":"7","modifiers":9}}"#.utf8), forKey: "keybinds.overrides")
+        let german = settings(layout: FakeLayout.german)
+        #expect(german.keybind(for: .quickOpen) == keybind("7", [.shift, .command]))
+        #expect(german.layoutClash(for: .quickOpen) == "Toggle Comment")
+        #expect(settings(layout: FakeLayout.us).layoutClash(for: .quickOpen) == nil)
     }
 
     @Test func savedKeybindsThatSwapStillLoad() {

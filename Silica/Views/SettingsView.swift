@@ -369,6 +369,13 @@ private struct KeybindSettingsPane: View {
                             }
                             .buttonStyle(.bordered)
                             
+                            if let clash = keybinds.layoutClash(for: command) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                    .help("Same keystroke as \(clash) on this keyboard layout")
+                                    .accessibilityLabel("Same keystroke as \(clash) on this keyboard layout")
+                            }
+                            
                             if !keybinds.isDefaultKeybind(for: command) {
                                 Button {
                                     do {

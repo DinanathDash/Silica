@@ -26,6 +26,11 @@ final class KeybindSettings {
     /// monitors let keys typed there through to the recorder instead of acting on
     /// them; other windows keep their shortcuts.
     @ObservationIgnored weak var recorderWindow: AnyObject?
+    
+    /// Bumped when the user switches keyboard layouts, so views showing clashes that
+    /// depend on the layout look again.
+    private var layoutVersion = 0
+    @ObservationIgnored private var layoutObserver: Any?
 
     var hasCustomKeybinds: Bool {
         !self.overrides.isEmpty
@@ -50,6 +55,14 @@ final class KeybindSettings {
             presetId
         } else {
             KeybindFile.defaultFileId
+        }
+
+        if layout is CurrentKeyboardLayout {
+            layoutObserver = NotificationCenter.default.addObserver(
+                forName: .keyboardLayoutDidChange, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.layoutVersion += 1 }
+            }
         }
 
         guard let overrideData = defaults.data(forKey: DefaultsKey.overrides),
@@ -79,10 +92,14 @@ final class KeybindSettings {
     /// shortcut, now clashes with, so two commands never share a keystroke. A command
     /// whose keybind is dropped goes back to its preset's, which could clash in turn,
     /// so this repeats until nothing does.
+    ///
+    /// Only clashes on any layout count here (the keybinds as written). One that only
+    /// the current layout has, such as ⇧⌘7 beside ⌘/ on a German layout, may be a
+    /// keybind recorded on another layout: Settings shows it instead of dropping it.
     private func dropOverridesThatNoLongerFit() {
         var dropped = false
         while let command = ConfigKeyCommand.allCases.first(where: { command in
-            self.overrides[command.id].map { problem(with: $0, for: command) != nil } ?? false
+            self.overrides[command.id].map { problem(with: $0, for: command, onAnyLayout: true) != nil } ?? false
         }) {
             self.overrides.removeValue(forKey: command.id)
             dropped = true
@@ -140,6 +157,13 @@ final class KeybindSettings {
     
     func isKeybind(_ pressed: Keybind, of command: FixedKeyCommand) -> Bool {
         isSameKeystroke(pressed, keybind(for: command))
+    }
+    
+    /// The command that `command`'s keybind is also the keystroke of on the current
+    /// keyboard layout, if any: one recorded on another layout can clash here.
+    func layoutClash(for command: ConfigKeyCommand) -> String? {
+        _ = layoutVersion // Looked at again when the user switches layouts.
+        return commandTitle(boundTo: keybind(for: command), excluding: command)
     }
     
     /// Whether any command, system ones included, runs on `keybind`.
@@ -215,16 +239,24 @@ final class KeybindSettings {
     }
 
     /// Why `command` can't have `keybind`, if it can't.
-    private func problem(with keybind: Keybind, for command: ConfigKeyCommand) -> Error? {
+    /// With `onAnyLayout`, only clashes between keybinds as written count, not ones
+    /// that depend on the current keyboard layout.
+    private func problem(with keybind: Keybind, for command: ConfigKeyCommand, onAnyLayout: Bool = false) -> Error? {
+        let same: (Keybind, Keybind) -> Bool
+        if onAnyLayout {
+            same = { $0 == $1 }
+        } else {
+            same = { [unowned self] in isSameKeystroke($0, $1) }
+        }
         // Only Toggle Word Wrap is caught before the editor types the character; see
         // EditorSettings.installKeyboardShortcuts().
         if keybind.typesCharacter, command != .toggleWordWrap {
             return .typesCharacter(keybind)
         }
-        if let conflict = commandTitle(boundTo: keybind, excluding: command) {
+        if let conflict = commandTitle(boundTo: keybind, excluding: command, same: same) {
             return .commandConflict(keybind, conflict)
         }
-        if let windowTabs = Self.windowTabKeys.first(where: { isSameKeystroke($0.keybind, keybind) }),
+        if let windowTabs = Self.windowTabKeys.first(where: { same($0.keybind, keybind) }),
            command != .selectNextTab, command != .selectPreviousTab {
             return .commandConflict(keybind, windowTabs.title)
         }
@@ -242,16 +274,18 @@ final class KeybindSettings {
     /// The title of the command that `candidate` runs, other than `excludedCommand`.
     private func commandTitle(
         boundTo candidate: Keybind,
-        excluding excludedCommand: ConfigKeyCommand?
+        excluding excludedCommand: ConfigKeyCommand?,
+        same: ((Keybind, Keybind) -> Bool)? = nil
     ) -> String? {
-        if let system = SystemKeyCommand.allCases.first(where: { isSameKeystroke($0.keybind, candidate) }) {
+        let same = same ?? { [unowned self] in isSameKeystroke($0, $1) }
+        if let system = SystemKeyCommand.allCases.first(where: { same($0.keybind, candidate) }) {
             return system.title
         }
-        if let fixed = FixedKeyCommand.allCases.first(where: { isKeybind(candidate, of: $0) }) {
+        if let fixed = FixedKeyCommand.allCases.first(where: { same(keybind(for: $0), candidate) }) {
             return title(for: fixed)
         }
         let config = ConfigKeyCommand.allCases.first {
-            $0 != excludedCommand && isKeybind(candidate, of: $0)
+            $0 != excludedCommand && same(keybind(for: $0), candidate)
         }
         return config.map { title(for: $0) }
     }
