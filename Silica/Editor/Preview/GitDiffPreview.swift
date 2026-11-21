@@ -423,6 +423,20 @@ final class GitDiffPreview: NSObject, WKNavigationDelegate {
         }
     }
 
+    /// Gives the changes the keyboard, where they were asked for from the tab:
+    /// now if they're in the window, or else when they're put there, which
+    /// happens a moment after they're asked for.
+    func focus() {
+        if let window = webView.window {
+            window.makeFirstResponder(webView)
+        } else {
+            wantsFocus = true
+        }
+    }
+
+    /// `focus()` was called before the web view was in a window.
+    fileprivate var wantsFocus = false
+
     // MARK: Page
 
     /// The editor's font, size, line spacing, tab width and wrapping, and its
@@ -544,6 +558,11 @@ struct GitDiffHost: NSViewRepresentable {
         webView.frame = container.bounds
         webView.autoresizingMask = [.width, .height]
         container.addSubview(webView)
+        // The keyboard isn't taken unless it was asked for: the changes often
+        // open from the Changes list, which needs it to go on to the next file
+        // with the arrow keys.
+        guard preview.wantsFocus else { return }
+        preview.wantsFocus = false
         DispatchQueue.main.async {
             webView.window?.makeFirstResponder(webView)
         }

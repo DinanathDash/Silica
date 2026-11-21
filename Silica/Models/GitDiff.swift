@@ -169,13 +169,20 @@ nonisolated struct GitDiff: Sendable {
         default:
             // Against the index for what isn't staged, else the last commit.
             let isFromIndex = request.comparison == .unstaged
-            guard let data = committedFile(
+            if let data = committedFile(
                 at: isFromIndex ? request.path : request.originalPath ?? request.path,
                 root: request.root, revision: isFromIndex ? "" : "HEAD"
-            ) else { return .unavailable }
-            guard let (text, isUTF8) = text(of: data, encoding: request.encoding) else { return .notText }
-            oldText = text
-            canRewrite = canRewrite && isUTF8
+            ) {
+                guard let (text, isUTF8) = text(of: data, encoding: request.encoding) else { return .notText }
+                oldText = text
+                canRewrite = canRewrite && isUTF8
+            } else if request.status == .conflicted {
+                // Both branches added the file: the last commit has none, and
+                // all of it is new.
+                oldText = ""
+            } else {
+                return .unavailable
+            }
         }
 
         guard let lines = compare(oldText, newText) else { return .unavailable }

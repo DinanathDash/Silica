@@ -300,8 +300,15 @@ final class WorkspaceModel {
         // A submodule is listed as a whole; there is no file to compare.
         if Self.isDirectory(url) { return }
         open(url)
-        // A conflict is neither: it's shown against the last commit.
-        showChanges(in: url, comparison: change.status == .conflicted ? .all : (change.isStaged ? .staged : .unstaged))
+        // A conflict is settled in the editor, where the conflict bar is, so
+        // that's what selecting it shows: the text with git's markers.
+        if change.status == .conflicted {
+            guard let buffer = buffers[url] else { return }
+            buffer.hideChanges()
+            if buffer.isShowingPreview { buffer.setShowingPreview(false) }
+            return
+        }
+        showChanges(in: url, comparison: change.isStaged ? .staged : .unstaged)
     }
 
     /// How many edited files in the project aren't saved: a commit takes files as
@@ -606,6 +613,9 @@ final class WorkspaceModel {
             buffer.hideChanges()
         } else if hasChanges(buffer) {
             showChanges(in: buffer.url, comparison: .all)
+            // Asked for from the tab, the changes take the keyboard, as the editor
+            // they replace had it: arrows scroll them, typing goes back to the text.
+            buffer.changesPreview?.focus()
         }
     }
 
