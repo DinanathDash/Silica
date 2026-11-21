@@ -9,10 +9,13 @@ final class KeyWorkspace: ObservableObject {
     private init() {}
 
     private var keyMonitor: Any?
+    private static let nextTab = Keybind(key: "]", modifiers: [.shift, .command])!
+    private static let previousTab = Keybind(key: "[", modifiers: [.shift, .command])!
 
-    /// ⇧⌘ shortcuts for the key workspace, handled here as well as in the menus
-    /// because menu items bound to ⇧⌘ + a letter didn't reliably win over the plain
-    /// ⌘ + letter items (⇧⌘V lost to Paste, ⇧⌘F to Find).
+    /// Shortcuts for the key workspace, handled here as well as in the menus because
+    /// menu items bound to ⇧⌘ + a letter didn't reliably win over the plain ⌘ + letter
+    /// items (⇧⌘V lost to Paste, ⇧⌘F to Find). Each one follows its command's keybind,
+    /// so a keybind changed in Settings moves it here too.
     func installKeyboardShortcuts() {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -27,27 +30,44 @@ final class KeyWorkspace: ObservableObject {
                 workspace.quickOpen.query += characters
                 return nil
             }
-            guard flags == [.command, .shift], let workspace = self?.current,
-                  // Not while a sheet or alert is up.
+            let keybinds = KeybindSettings.shared
+            guard let workspace = self?.current,
+                  // Not while a sheet or alert is up, or while Settings records a keybind.
                   event.window?.attachedSheet == nil, NSApp.modalWindow == nil,
-                  let key = event.charactersIgnoringModifiers?.lowercased() else { return event }
-            switch key {
-            case "v":
+                  !keybinds.isRecorderWindow(event.window),
+                  let pressed = Keybind(event: event) else { return event }
+            // In the terminal, a keybind without ⌘ goes to the shell; see ConfigKeyCommand.
+            let terminalHasFocus = workspace.terminal?.isFocused == true
+            func runs(_ command: ConfigKeyCommand) -> Bool {
+                keybinds.isKeybind(pressed, of: command)
+                    && !(terminalHasFocus && command.leavesToShell(pressed))
+            }
+            switch pressed {
+            case _ where runs(.togglePreview):
                 guard let buffer = workspace.activeBuffer, buffer.previewFormat != nil else { return event }
                 buffer.togglePreview()
-            case "f":
+            case _ where runs(.findInProject):
                 workspace.showSearch()
-            case "e":
+            case _ where keybinds.isKeybind(pressed, of: FixedKeyCommand.explorer):
                 workspace.showExplorer()
-            case "s":
+            case _ where keybinds.isKeybind(pressed, of: FixedKeyCommand.saveAs):
                 guard workspace.activeBuffer?.textController != nil else { return event }
                 workspace.saveActiveAs()
-            case "w":
+            case _ where keybinds.isKeybind(pressed, of: FixedKeyCommand.closeWindow):
                 event.window?.performClose(nil)
-            // The other usual pair for stepping through tabs, next to ⌃Tab in the menu.
-            case "}", "]":
+            // Here as well as in the menu, for keybinds such as ⇧⌘]: the menu item could
+            // lose ⇧⌘] to Indent's ⌘].
+            case _ where runs(.selectNextTab):
+                guard workspace.canSelectOtherTab else { return event }
                 workspace.selectTab(offsetBy: 1)
-            case "{", "[":
+            case _ where runs(.selectPreviousTab):
+                guard workspace.canSelectOtherTab else { return event }
+                workspace.selectTab(offsetBy: -1)
+            // The other usual pair for stepping through tabs, next to the menu's keybind,
+            // unless a command uses it.
+            case _ where keybinds.isSameKeystroke(pressed, Self.nextTab) && !keybinds.isBound(pressed):
+                workspace.selectTab(offsetBy: 1)
+            case _ where keybinds.isSameKeystroke(pressed, Self.previousTab) && !keybinds.isBound(pressed):
                 workspace.selectTab(offsetBy: -1)
             default:
                 return event

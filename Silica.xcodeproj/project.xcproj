@@ -40,6 +40,11 @@
           "target": "SilicaTests",
           "inclusions": [
             "Editor/ConflictMarkers.swift",
+            "Keybinds/KeyCommand.swift",
+            "Keybinds/KeyboardLayout.swift",
+            "Keybinds/Keybind.swift",
+            "Keybinds/KeybindFile.swift",
+            "Keybinds/KeybindSettings.swift",
             "Models/GitDiff.swift",
             "Models/GitHistory.swift",
             "Models/GitStatus.swift",

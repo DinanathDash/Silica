@@ -40,6 +40,7 @@ You need Xcode 27 or later. Silica runs on macOS 15 and later.
 | `Silica/Editor` | The AppKit text view, line numbers, minimap, syntax highlighting and the Markdown, CSV and HTML previews |
 | `Silica/Terminal` | The integrated terminal: the shell's process, the libghostty-vt emulator and the view that draws it |
 | `Silica/Models` | Workspace state, open buffers, settings, recent projects, search |
+| `Silica/Keybinds` | Keybind presets (`Presets/*.silicakb`), custom keybinds, and matching keystrokes on the user's keyboard layout |
 | `Silica/Support` | Glue for AppKit, Finder, file watching and updates |
 | `SilicaTests` | Unit tests; see [Tests](#tests) |
 | `Config/Info.plist` | Keys merged into the generated Info.plist |
@@ -66,8 +67,9 @@ itself. Code is main-actor isolated by default.
 
 `SilicaTests` has unit tests for code that can be checked without running the app.
 So far that is the part of the git support that reads what git prints and what it
-leaves in its directory: status, diffs, conflict markers, and a merge or rebase
-under way. Run them in Xcode with the SilicaTests scheme (⌘U), or from the command
+leaves in its directory (status, diffs, conflict markers, and a merge or rebase
+under way), and the keybinds: the bundled presets, conflict checks, and matching
+keystrokes on real and simulated keyboard layouts. Run them in Xcode with the SilicaTests scheme (⌘U), or from the command
 line:
 
 ```sh

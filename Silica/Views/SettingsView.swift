@@ -5,13 +5,18 @@ import SwiftUI
 /// Silica › About Silica shows) is the last pane.
 struct SettingsView: View {
     enum Pane: String, CaseIterable, Identifiable {
-        case general, fontsAndColors, editor, about
+        case general
+        case keybinds
+        case fontsAndColors
+        case editor
+        case about
 
         var id: String { rawValue }
 
         var title: String {
             switch self {
             case .general: "General"
+            case .keybinds: "Keybinds"
             case .fontsAndColors: "Fonts & Colors"
             case .editor: "Editor"
             case .about: "About"
@@ -21,6 +26,7 @@ struct SettingsView: View {
         var symbol: String {
             switch self {
             case .general: "gearshape.fill"
+            case .keybinds: "keyboard"
             case .fontsAndColors: "textformat"
             case .editor: "text.cursor"
             case .about: "info"
@@ -30,6 +36,7 @@ struct SettingsView: View {
         var tint: Color {
             switch self {
             case .general: .gray
+            case .keybinds: .mint
             case .fontsAndColors: .blue
             case .editor: .orange
             case .about: .gray
@@ -41,7 +48,7 @@ struct SettingsView: View {
     static let paneKey = "settingsTab"
 
     /// Panes in the sidebar's sections.
-    private static let sections: [[Pane]] = [[.general, .fontsAndColors, .editor], [.about]]
+    private static let sections: [[Pane]] = [[.general, .keybinds, .fontsAndColors, .editor], [.about]]
 
     var body: some View {
         // A fixed sidebar: always shown, one width, no toggle button.
@@ -77,6 +84,7 @@ struct SettingsView: View {
         case .general: GeneralSettingsPane()
         case .fontsAndColors: FontsAndColorsSettingsPane()
         case .editor: EditorSettingsPane()
+        case .keybinds: KeybindSettingsPane()
         case .about: AboutSettingsView()
         }
     }
@@ -98,6 +106,8 @@ struct SettingsIcon: View {
             }
     }
 }
+
+// MARK: General
 
 /// Appearance, how projects open and show their files, and update checks.
 private struct GeneralSettingsPane: View {
@@ -173,6 +183,8 @@ private struct GeneralSettingsPane: View {
         }
     }
 }
+
+// MARK: Fonts & Colors
 
 /// Editor font and syntax colors, with a live sample, and the sidebar's font size.
 /// Changes apply to open windows at once.
@@ -264,6 +276,8 @@ private struct FontsAndColorsSettingsPane: View {
     }
 }
 
+// MARK: Editor
+
 /// What the editor shows beside the text, and indentation for new files.
 private struct EditorSettingsPane: View {
     @Bindable private var settings = EditorSettings.shared
@@ -292,6 +306,271 @@ private struct EditorSettingsPane: View {
             } footer: {
                 Text("Files that are already indented keep their own style.")
             }
+        }
+    }
+}
+
+// MARK: Keybinds
+
+/// Keybind configuration and options.
+private struct KeybindSettingsPane: View {
+    @Bindable private var keybinds = KeybindSettings.shared
+    @State private var recording: ConfigKeyCommand?
+    @State private var restoreError: String?
+    /// A preset chosen while some keybinds are custom, waiting for the user to confirm
+    /// that switching drops them.
+    @State private var pendingPreset: KeybindFile?
+    
+    /// The active preset, and whether keybinds have been changed on top of it.
+    private var presetLabel: String {
+        let title = keybinds.activePreset.title
+        return keybinds.hasCustomKeybinds ? "\(title) (Custom)" : title
+    }
+    
+    /// Switches presets, asking first if that would drop custom keybinds.
+    private var presetSelection: Binding<KeybindFile.ID> {
+        Binding {
+            keybinds.activePresetId
+        } set: { id in
+            guard id != keybinds.activePresetId,
+                  let preset = keybinds.presets.first(where: { $0.id == id }) else { return }
+            if keybinds.hasCustomKeybinds {
+                pendingPreset = preset
+            } else {
+                try? keybinds.setActivePreset(id: id)
+            }
+        }
+    }
+    
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("Preset") {
+                    HStack {
+                        Menu(presetLabel) {
+                            // A picker, so the active preset has a checkmark.
+                            Picker("Preset", selection: presetSelection) {
+                                ForEach(keybinds.presets) { preset in
+                                    Text(preset.title).tag(preset.id)
+                                }
+                            }
+                            .pickerStyle(.inline)
+                            .labelsHidden()
+                        }
+                    }
+                }
+            }
+            Section("Configurable") {
+                ForEach(ConfigKeyCommand.allCases) { command in
+                    LabeledContent(keybinds.title(for: command)) {
+                        HStack(spacing: 8) {
+                            Button(keybinds.keybind(for: command).displayName) {
+                                recording = command
+                            }
+                            .buttonStyle(.bordered)
+                            
+                            if let clash = keybinds.layoutClash(for: command) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                    .help("Same keystroke as \(clash) on this keyboard layout")
+                                    .accessibilityLabel("Same keystroke as \(clash) on this keyboard layout")
+                            }
+                            
+                            if !keybinds.isDefaultKeybind(for: command) {
+                                Button {
+                                    do {
+                                        try keybinds.setKeybind(nil, for: command)
+                                    } catch {
+                                        restoreError = error.localizedDescription
+                                    }
+                                } label: {
+                                    Image(systemName: "arrow.counterclockwise")
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Restore Default")
+                                .accessibilityLabel("Restore Default for \(keybinds.title(for: command))")
+                            }
+                        }
+                    }
+                }
+                HStack {
+                    Spacer()
+                    Button("Restore Defaults") {
+                        keybinds.reset()
+                    }
+                    .disabled(ConfigKeyCommand.allCases.allSatisfy {
+                        keybinds.isDefaultKeybind(for: $0)
+                    })
+                }
+            }
+            Section("Fixed") {
+                ForEach(FixedKeyCommand.allCases) { command in
+                    fixedRow(keybinds.title(for: command), keybinds.keybind(for: command))
+                }
+            }
+            Section("Reserved") {
+                ForEach(SystemKeyCommand.allCases) { command in
+                    fixedRow(command.title, command.keybind)
+                }
+                // Kept for window tabs unless Select Next or Previous Tab takes them.
+                ForEach(KeybindSettings.windowTabKeys.filter { !keybinds.isBound($0.keybind) }, id: \.title) { key in
+                    fixedRow(key.title, key.keybind)
+                }
+            }
+        }
+        .sheet(item: $recording) {
+            KeybindRecorderView(
+                command: $0,
+                keybinds: keybinds
+            )
+        }
+        .alert(
+            pendingPreset.map { "Switch to the \($0.title) Preset?" } ?? "",
+            isPresented: Binding(get: { pendingPreset != nil }, set: { if !$0 { pendingPreset = nil } }),
+            presenting: pendingPreset
+        ) { preset in
+            Button("Switch", role: .destructive) {
+                try? keybinds.setActivePreset(id: preset.id)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text(keybinds.customKeybindCount == 1
+                 ? "Your custom keybind will be replaced by the preset’s."
+                 : "Your \(keybinds.customKeybindCount) custom keybinds will be replaced by the preset’s.")
+        }
+        .alert(
+            "Can’t Restore the Default Keybind",
+            isPresented: Binding(get: { restoreError != nil }, set: { if !$0 { restoreError = nil } }),
+            presenting: restoreError
+        ) { _ in
+            Button("OK") {}
+        } message: { message in
+            Text("\(message) Change that command’s keybind first.")
+        }
+    }
+    
+    private func fixedRow(_ title: String, _ keybind: Keybind) -> some View {
+        LabeledContent(title) {
+            Button(keybind.displayName) {}
+                .buttonStyle(.bordered)
+                .disabled(true)
+        }
+    }
+}
+
+private struct KeybindRecorderView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var eventMonitor: Any?
+    @State private var errorMessage: String?
+    /// The sheet's window. Only keys typed there are recorded; the project windows stay
+    /// usable while the sheet is open.
+    @State private var window: NSWindow?
+    
+    let command: ConfigKeyCommand
+    let keybinds: KeybindSettings
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Record Keybind")
+                .font(.headline)
+
+            Text("Press a key combination for “\(keybinds.title(for: command))”, or Esc to cancel.")
+                .foregroundStyle(.secondary)
+            
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+            }
+            
+            HStack {
+                Spacer()
+                Button("Cancel") {
+                    dismiss()
+                }
+            }
+        }
+        .padding(20)
+        .frame(width: 360)
+        .background(WindowReader { newWindow in
+            window = newWindow
+            if let newWindow { keybinds.recorderWindow = newWindow }
+        })
+        .onAppear(perform: startEventMonitor)
+        .onDisappear(perform: stopEventMonitor)
+    }
+    
+    private func startEventMonitor() {
+        guard eventMonitor == nil else { return }
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+            record($0)
+        }
+    }
+    
+    private func stopEventMonitor() {
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+        }
+        eventMonitor = nil
+        if keybinds.isRecorderWindow(window) { keybinds.recorderWindow = nil }
+    }
+    
+    private func record(_ event: NSEvent) -> NSEvent? {
+        guard let window, event.window === window else { return event }
+        let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        if flags.isEmpty, event.keyCode == 53 { // Esc
+            dismiss()
+            return nil
+        }
+        guard let keybind = Keybind(event: event) else {
+            errorMessage = "Keybind must contain ⌘, ⌥ or ⌃, and a valid key."
+            return nil
+        }
+
+        do {
+            try keybinds.setKeybind(keybind, for: command)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+
+        // Prevent the captured shortcut from invoking
+        // a menu command while recording.
+        return nil
+    }
+}
+
+// MARK: Helpers
+
+/// Reports the window its view is in, and nil when the view leaves it.
+private struct WindowReader: NSViewRepresentable {
+    let onChange: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> ReaderView {
+        ReaderView(onChange: onChange)
+    }
+
+    func updateNSView(_ nsView: ReaderView, context: Context) {}
+
+    final class ReaderView: NSView {
+        let onChange: (NSWindow?) -> Void
+
+        init(onChange: @escaping (NSWindow?) -> Void) {
+            self.onChange = onChange
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        /// A turn later: this can be reached during a SwiftUI update, where changing
+        /// the recorder's state isn't allowed.
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            let window = self.window
+            DispatchQueue.main.async { [onChange] in onChange(window) }
         }
     }
 }
