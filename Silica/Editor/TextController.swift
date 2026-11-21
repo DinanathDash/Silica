@@ -314,11 +314,19 @@ final class TextController: NSObject, NSTextViewDelegate {
         EditorSettings.shared.editorFont(ofSize: size)
     }
 
+    private static let lineHeightMultiple: CGFloat = 1.15
+
+    /// How tall a line of text in `font` is in the editor, for views that show
+    /// code beside it.
+    static func lineHeight(of font: NSFont) -> CGFloat {
+        NSLayoutManager().defaultLineHeight(for: font) * lineHeightMultiple
+    }
+
     /// Line spacing, plus tab stops every `EditorTextView.tabWidth` columns of the
     /// monospaced font, so tabs line up with space indentation and the indent guides.
     private func applyParagraphStyle(for font: NSFont) {
         let paragraph = NSMutableParagraphStyle()
-        paragraph.lineHeightMultiple = 1.15
+        paragraph.lineHeightMultiple = Self.lineHeightMultiple
         paragraph.tabStops = []
         paragraph.defaultTabInterval = (" " as NSString).size(withAttributes: [.font: font]).width
             * CGFloat(EditorTextView.tabWidth)
@@ -370,6 +378,7 @@ final class TextController: NSObject, NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
         highlighter?.textDidChange()
         lineNumbers?.textDidChange()
+        buffer?.textRevision &+= 1
         if !isReplacingText, buffer?.isDirty == false {
             buffer?.isDirty = true
         }

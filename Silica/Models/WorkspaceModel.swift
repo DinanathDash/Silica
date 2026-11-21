@@ -15,9 +15,11 @@ final class WorkspaceModel {
     private(set) var revealedURL: URL?
     private(set) var revealCount = 0
     var isSidebarVisible = true
-    /// What the sidebar shows: the file tree or Find in Project.
+    /// What the sidebar shows: the file tree, Find in Project or the changed files.
     var sidebarMode: SidebarMode = .explorer
     let search: ProjectSearchModel
+    /// The project's git status: the badges on the tree's rows and the Changes list.
+    let git: GitModel
     /// A rename or new file/folder name being typed in the tree.
     var treeEdit: TreeEdit?
 
@@ -72,6 +74,7 @@ final class WorkspaceModel {
         self.root = FileNode(root: rootURL)
         self.quickOpen = QuickOpenModel(rootURL: rootURL)
         self.search = ProjectSearchModel(rootURL: rootURL)
+        self.git = GitModel(rootURL: rootURL)
         root.isExpanded = true
         root.loadChildrenIfNeeded()
         search.unsavedTexts = { [weak self] in
@@ -85,6 +88,17 @@ final class WorkspaceModel {
         // Keep the tree and open files in step with changes made by other apps.
         watcher = ProjectWatcher(url: rootURL) { [weak self] in
             self?.refresh()
+        } onGitChange: { [weak self] in
+            self?.git.refresh()
+        }
+        git.onChange = { [weak self] in
+            guard let self else { return }
+            self.refreshShownChanges()
+            // The button that leaves the Changes list goes away with the repository.
+            if !self.git.isRepository, self.sidebarMode == .changes { self.sidebarMode = .explorer }
+        }
+        git.onFailure = { [weak self] failure in
+            self?.present(failure)
         }
         restoreSession()
         terminationObserver = NotificationCenter.default.addObserver(
@@ -104,6 +118,7 @@ final class WorkspaceModel {
         }
         watcher?.stop()
         watcher = nil
+        git.stop()
         for terminal in terminals { terminal.close() }
         terminals = []
         terminal = nil
@@ -263,12 +278,399 @@ final class WorkspaceModel {
     // MARK: Sidebar modes
 
     enum SidebarMode {
-        case explorer, search
+        case explorer, search, changes
     }
 
     func showExplorer() {
         if !isSidebarVisible { toggleSidebar() }
         sidebarMode = .explorer
+    }
+
+    /// Source Control: shows the files git reports as changed.
+    func showChanges() {
+        guard git.isRepository else { return }
+        if !isSidebarVisible { toggleSidebar() }
+        sidebarMode = .changes
+    }
+
+    /// From the Changes list: opens the file showing what changed in it. A deleted
+    /// file gets a tab too, with the lines it had.
+    func openChanges(_ change: GitChange) {
+        let url = url(forRelativePath: change.path)
+        // A submodule is listed as a whole; there is no file to compare.
+        if Self.isDirectory(url) { return }
+        open(url)
+        // A conflict is settled in the editor, where the conflict bar is, so
+        // that's what selecting it shows: the text with git's markers.
+        if change.status == .conflicted {
+            guard let buffer = buffers[url] else { return }
+            buffer.hideChanges()
+            if buffer.isShowingPreview { buffer.setShowingPreview(false) }
+            return
+        }
+        showChanges(in: url, comparison: change.isStaged ? .staged : .unstaged)
+    }
+
+    /// How many edited files in the project aren't saved: a commit takes files as
+    /// they are on disk.
+    var unsavedFileCount: Int {
+        buffers.values.count { $0.isDirty && !$0.isUntitled }
+    }
+
+    private static func isDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path(percentEncoded: false), isDirectory: &isDirectory)
+            && isDirectory.boolValue
+    }
+
+    // MARK: Discarding changes
+
+    /// From the Changes panel: asks, then undoes the unstaged changes. Edited and
+    /// deleted files go back to how they are staged or were last committed, for
+    /// good; untracked files, which git has no copy of, go to the Trash.
+    func discardChanges(_ changes: [GitChange]) {
+        let changes = changes.filter { change in
+            guard !change.isStaged, change.status.isDiscardable else { return false }
+            // A nested repository is listed as one untracked folder; that's more
+            // than a file's changes to throw away.
+            return change.status != .untracked || !Self.isDirectory(url(forRelativePath: change.path))
+        }
+        guard !changes.isEmpty, git.activity == nil else { return }
+        let untracked = changes.filter { $0.status == .untracked }
+        let tracked = changes.filter { $0.status != .untracked }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        let name = (changes[0].path as NSString).lastPathComponent
+        var details: [String] = []
+        if changes.count == 1 {
+            alert.messageText = tracked.isEmpty ? "Move “\(name)” to the Trash?" : "Discard the changes in “\(name)”?"
+        } else {
+            alert.messageText = "Discard the changes in \(changes.count.formatted()) files?"
+        }
+        if !tracked.isEmpty {
+            let files = changes.count == 1 ? "The file goes" : (tracked.count == 1 ? "1 file goes" : "\(tracked.count.formatted()) files go")
+            details.append("\(files) back to how \(tracked.count == 1 ? "it was" : "they were") staged or last committed. This can’t be undone.")
+        }
+        if !untracked.isEmpty {
+            let files = changes.count == 1 ? "It isn’t" : (untracked.count == 1 ? "1 file isn’t" : "\(untracked.count.formatted()) files aren’t")
+            details.append("\(files) tracked by git, so \(untracked.count == 1 ? "it moves" : "they move") to the Trash.")
+        }
+        alert.informativeText = details.joined(separator: " ")
+        let discard = alert.addButton(withTitle: tracked.isEmpty ? "Move to Trash" : "Discard Changes")
+        discard.hasDestructiveAction = true
+        // Not what Return does: this is the one thing here that can't be taken back.
+        discard.keyEquivalent = ""
+        alert.addButton(withTitle: "Cancel")
+
+        let proceed: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.discard(tracked: tracked, untracked: untracked)
+        }
+        if let window {
+            alert.beginSheetModal(for: window, completionHandler: proceed)
+        } else {
+            proceed(alert.runModal())
+        }
+    }
+
+    private func discard(tracked: [GitChange], untracked: [GitChange]) {
+        // All of it or none: not the untracked files to the Trash and then no
+        // room for git to undo the rest, if something began while the sheet was up.
+        guard git.isIdle else {
+            git.reportBusy()
+            return
+        }
+        var failure: Error?
+        for change in untracked {
+            let url = url(forRelativePath: change.path)
+            do {
+                try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            } catch {
+                failure = failure ?? error
+                continue
+            }
+            // As when a file is moved to the Trash in the tree: a tab with unsaved
+            // edits stays, so nothing typed is lost.
+            if buffers[url]?.isDirty != true { closeTab(url) }
+            if selection == url { selection = nil }
+        }
+        if let failure { NSAlert(error: failure).runModal() }
+        guard !tracked.isEmpty else {
+            refresh()
+            return
+        }
+        git.discard(tracked.map(\.path)) { [weak self] in
+            guard let self else { return }
+            // Unsaved edits to a file are changes to it too. An open file without
+            // any is read again as the tree refreshes.
+            for change in tracked {
+                if let buffer = self.buffers[self.url(forRelativePath: change.path)], buffer.isDirty {
+                    buffer.revertToDisk()
+                }
+            }
+            self.refresh()
+        }
+    }
+
+    /// Asks before something that can't be taken back, in a sheet on the window.
+    /// Return doesn't choose it; it has to be clicked.
+    private func confirm(_ title: String, _ text: String, button: String, then proceed: @escaping () -> Void) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = text
+        let action = alert.addButton(withTitle: button)
+        action.hasDestructiveAction = true
+        action.keyEquivalent = ""
+        alert.addButton(withTitle: "Cancel")
+        let respond: (NSApplication.ModalResponse) -> Void = { response in
+            if response == .alertFirstButtonReturn { proceed() }
+        }
+        if let window {
+            alert.beginSheetModal(for: window, completionHandler: respond)
+        } else {
+            respond(alert.runModal())
+        }
+    }
+
+    /// Lists the commits that changed a file, in the Changes panel's history.
+    func showFileHistory(_ url: URL) {
+        guard git.isRepository, !url.isUntitled else { return }
+        git.historyFile = relativePath(of: url)
+        git.isHistoryExpanded = true
+        showChanges()
+    }
+
+    /// From the bar over a conflicted file: saves it and stages it, which is how
+    /// git is told its conflicts are settled.
+    func markResolved(_ buffer: EditorBuffer) {
+        guard !buffer.isDirty || save(buffer) else { return }
+        git.stage([GitChange(path: relativePath(of: buffer.url), status: .conflicted, isStaged: false)])
+    }
+
+    /// Stages a file from the Changes list. Staging a file in conflict tells git
+    /// the conflict is settled, so one that still has git's markers in it is asked
+    /// about first.
+    func stage(_ change: GitChange) {
+        let url = url(forRelativePath: change.path)
+        // What's staged is the file on disk, and so is what's checked for
+        // markers: a conflict settled in the tab but not saved yet is saved
+        // first, as the conflict bar's own Save and Stage does.
+        if change.status == .conflicted, let buffer = buffers[url], buffer.isDirty, !save(buffer) { return }
+        guard change.status == .conflicted,
+              let data = try? Data(contentsOf: url),
+              !ConflictMarkers.regions(in: String(decoding: data, as: UTF8.self) as NSString).isEmpty else {
+            git.stage([change])
+            return
+        }
+        confirm(
+            "“\(url.lastPathComponent)” still has conflict markers.",
+            "Staging it tells git the conflict is settled, and the <<<<<<< and >>>>>>> lines would be committed as they are.",
+            button: "Stage Anyway"
+        ) { [weak self] in
+            self?.git.stage([change])
+        }
+    }
+
+    /// Whether git has the file down as in conflict.
+    func isConflicted(_ buffer: EditorBuffer) -> Bool {
+        !buffer.isUntitled && git.snapshot?.files[relativePath(of: buffer.url)] == .conflicted
+    }
+
+    // MARK: Branches
+
+    /// From the branch picker: asks, then deletes a local branch.
+    func deleteBranch(_ name: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Delete the branch “\(name)”?"
+        alert.informativeText = "Only the branch here is deleted, not one of its name on a remote. git refuses if it has commits that aren’t merged anywhere, unless you tick the box."
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Delete it even with unmerged commits"
+        let delete = alert.addButton(withTitle: "Delete Branch")
+        delete.hasDestructiveAction = true
+        delete.keyEquivalent = ""
+        alert.addButton(withTitle: "Cancel")
+        let respond: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.git.deleteBranch(name, force: alert.suppressionButton?.state == .on)
+        }
+        if let window {
+            alert.beginSheetModal(for: window, completionHandler: respond)
+        } else {
+            respond(alert.runModal())
+        }
+    }
+
+    /// From the branch picker: asks for the new name.
+    func renameBranch(_ name: String) {
+        let alert = NSAlert()
+        alert.messageText = "Rename the branch “\(name)”"
+        alert.informativeText = "A branch of this name on a remote keeps its name."
+        let field = NSTextField(string: name)
+        field.frame = NSRect(x: 0, y: 0, width: 260, height: 22)
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+        let respond: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.git.renameBranch(name, to: field.stringValue)
+        }
+        if let window {
+            alert.beginSheetModal(for: window, completionHandler: respond)
+        } else {
+            respond(alert.runModal())
+        }
+    }
+
+    /// Amend Last Commit and Undo Last Commit, from the Changes panel. Changing a
+    /// commit that has been pushed is asked about first.
+    func amendLastCommit() {
+        rewritingLastCommit(named: "Amend") { [weak self] in self?.git.amend() }
+    }
+
+    func undoLastCommit() {
+        rewritingLastCommit(named: "Undo") { [weak self] in self?.git.undoLastCommit() }
+    }
+
+    private func rewritingLastCommit(named name: String, _ proceed: @escaping () -> Void) {
+        guard git.lastCommitIsPushed else {
+            proceed()
+            return
+        }
+        confirm(
+            "\(name) a commit that has been pushed?",
+            "The remote has this commit. After changing it here, the branch can only be pushed by forcing, which Silica doesn’t do.",
+            button: "\(name) Commit", then: proceed
+        )
+    }
+
+    /// From the Changes panel: asks, then calls off the merge or rebase in progress.
+    func abortPendingOperation() {
+        guard let pending = git.snapshot?.pending else { return }
+        let name = pending.kind.command
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Abort the \(name)?"
+        alert.informativeText = "The files go back to how they were before the \(name) began. Conflicts settled since are lost."
+        let abort = alert.addButton(withTitle: "Abort \(name.prefix(1).uppercased() + name.dropFirst())")
+        abort.hasDestructiveAction = true
+        abort.keyEquivalent = ""
+        alert.addButton(withTitle: "Cancel")
+        let proceed: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.git.abortPending { [weak self] in self?.refresh() }
+        }
+        if let window {
+            alert.beginSheetModal(for: window, completionHandler: proceed)
+        } else {
+            proceed(alert.runModal())
+        }
+    }
+
+    /// From the Changes panel: asks, then deletes the stash and the changes in it.
+    func dropStash(_ stash: GitStash) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Drop the stash “\(stash.commit.subject)”?"
+        alert.informativeText = "The changes in it are deleted. This can’t be undone."
+        let drop = alert.addButton(withTitle: "Drop Stash")
+        drop.hasDestructiveAction = true
+        drop.keyEquivalent = ""
+        alert.addButton(withTitle: "Cancel")
+        let proceed: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            if response == .alertFirstButtonReturn { self?.git.drop(stash) }
+        }
+        if let window {
+            alert.beginSheetModal(for: window, completionHandler: proceed)
+        } else {
+            proceed(alert.runModal())
+        }
+    }
+
+    /// git refused or failed at something the Changes panel asked for.
+    private func present(_ failure: GitModel.Failure) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = failure.title
+        // The end of what git and its hooks said, which is where the reason is.
+        let details = failure.details.isEmpty ? "git gave no reason." : failure.details
+        alert.informativeText = details.count > 1_200 ? "…" + details.suffix(1_200) : details
+        if let window {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
+    }
+
+    /// Whether the tab can switch to its changes: a file git reports as changed.
+    func hasChanges(_ buffer: EditorBuffer) -> Bool {
+        !buffer.isUntitled && git.snapshot?.files[relativePath(of: buffer.url)] != nil
+    }
+
+    /// Show Changes / Hide Changes, for the active tab.
+    func toggleChanges() {
+        guard let buffer = activeBuffer else { return }
+        if buffer.isShowingChanges {
+            buffer.hideChanges()
+        } else if hasChanges(buffer) {
+            showChanges(in: buffer.url, comparison: .all)
+            // Asked for from the tab, the changes take the keyboard, as the editor
+            // they replace had it: arrows scroll them, typing goes back to the text.
+            buffer.changesPreview?.focus()
+        }
+    }
+
+    /// Shows a file's changes, or brings them up to date: all of them, or with
+    /// `comparison`, only the staged or the unstaged ones.
+    private func showChanges(in url: URL, comparison: GitDiff.Request.Comparison) {
+        let path = relativePath(of: url)
+        let snapshot = git.snapshot
+        // What git says of the file for that comparison; a rename is staged.
+        let status: GitFileStatus? = switch comparison {
+        case .all: snapshot?.files[path]
+        case .unstaged: snapshot?.unstaged.first { $0.path == path }?.status
+        case .staged: snapshot?.staged.first { $0.path == path }?.status
+        }
+        buffers[url]?.showChanges(
+            path: path, status: status, originalPath: comparison == .unstaged ? nil : snapshot?.renamedFrom[path],
+            comparison: comparison
+        )
+    }
+
+    /// Compares again in the tabs that show their changes: the file or what git
+    /// says of it has changed.
+    private func refreshShownChanges() {
+        // What a commit changed stays as it is.
+        for (url, buffer) in buffers where buffer.isShowingChanges && buffer.shownCommit == nil {
+            // A file that has come into conflict has no staged or unstaged
+            // changes to show, only a conflict to settle, in the editor: as when
+            // it's selected in the Changes list.
+            if buffer.shownComparison != .all, git.snapshot?.files[relativePath(of: url)] == .conflicted {
+                buffer.hideChanges()
+                continue
+            }
+            showChanges(in: url, comparison: buffer.shownComparison)
+        }
+    }
+
+    /// From the history: opens the file showing what the commit changed in it.
+    /// A file that has since been deleted or moved gets a tab too.
+    func openChanges(_ file: GitCommitFile, in commit: GitCommit) {
+        let url = url(forRelativePath: file.path)
+        if Self.isDirectory(url) { return }
+        open(url)
+        buffers[url]?.showChanges(
+            path: file.path, status: file.status, originalPath: file.originalPath, commit: commit
+        )
+    }
+
+    /// The file at `path` from the project root, as the tree's rows name it.
+    func url(forRelativePath path: String) -> URL {
+        let rootPath = rootURL.path(percentEncoded: false).trimmingTrailingSlash
+        return URL(filePath: rootPath + "/" + path, directoryHint: .notDirectory)
     }
 
     /// Find in Project: shows the search sidebar and focuses its field.
@@ -282,6 +684,7 @@ final class WorkspaceModel {
     func openSearchMatch(_ url: URL, range: NSRange) {
         open(url)
         guard let buffer = buffers[url] else { return }
+        buffer.hideChanges()
         if buffer.isShowingPreview { buffer.setShowingPreview(false) }
         // Once the editor for the file is in the window.
         DispatchQueue.main.async {
@@ -324,6 +727,7 @@ final class WorkspaceModel {
 
     private func goToLine(_ line: Int) {
         guard let buffer = activeBuffer, let controller = buffer.textController else { return }
+        buffer.hideChanges()
         if buffer.isShowingPreview { buffer.setShowingPreview(false) }
         DispatchQueue.main.async { controller.goToLine(line) }
     }
@@ -397,6 +801,8 @@ final class WorkspaceModel {
         FolderIcons.shared.reload()
         syncOpenFilesWithDisk()
         search.refresh()
+        git.refresh()
+        refreshShownChanges()
         // Files may have come or gone: filter a fresh list.
         treeFilterItems = nil
         if treeFilterResult != nil { scheduleTreeFilter(after: .milliseconds(300)) }
@@ -501,6 +907,13 @@ final class WorkspaceModel {
     private func makeBuffer(for url: URL) -> EditorBuffer {
         let buffer = EditorBuffer(url: url)
         buffer.projectURL = rootURL
+        buffer.setIndexContent = { [weak self, weak buffer] path, content, savesFirst in
+            guard let self, let buffer else { return }
+            // The same save as ⌘S: it asks before writing over a file another app
+            // has changed, and says so if it fails. No save, no staging.
+            if savesFirst, buffer.isDirty, !self.save(buffer) { return }
+            self.git.setIndexContent(of: path, to: content)
+        }
         // Links in a preview open other project files here, like Quick Open.
         buffer.openFile = { [weak self] target in
             self?.open(target)

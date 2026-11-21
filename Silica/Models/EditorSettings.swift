@@ -7,6 +7,7 @@ extension Notification.Name {
     /// Font, tab width, line numbers, indent guides or the minimap changed.
     static let editorSettingsDidChange = Notification.Name("EditorSettingsDidChange")
     static let syntaxThemeDidChange = Notification.Name("SyntaxThemeDidChange")
+    static let changesLayoutDidChange = Notification.Name("ChangesLayoutDidChange")
 }
 
 /// App-wide editor preferences, saved in UserDefaults. Each value is stored only
@@ -32,6 +33,9 @@ final class EditorSettings {
         static let showsLineNumbers = "editorShowsLineNumbers"
         static let showsIndentGuides = "editorShowsIndentGuides"
         static let showsMinimap = "editorShowsMinimap"
+        static let showsChangesSideBySide = "changesSideBySide"
+        static let fetchesAutomatically = "gitFetchesAutomatically"
+        static let showsLineBlame = "gitShowsLineBlame"
         static let syntaxTheme = "syntaxTheme"
         static let appearance = "appearance"
         static let windowBackground = "windowBackground"
@@ -115,6 +119,36 @@ final class EditorSettings {
             guard showsMinimap != oldValue else { return }
             store(showsMinimap, Key.showsMinimap, isDefault: !showsMinimap)
             NotificationCenter.default.post(name: .editorSettingsDidChange, object: self)
+        }
+    }
+
+    /// A file's changes with the old text on the left and the new on the right,
+    /// instead of in one column with removed lines above added ones.
+    var showsChangesSideBySide: Bool {
+        didSet {
+            guard showsChangesSideBySide != oldValue else { return }
+            store(showsChangesSideBySide, Key.showsChangesSideBySide, isDefault: !showsChangesSideBySide)
+            NotificationCenter.default.post(name: .changesLayoutDidChange, object: self)
+        }
+    }
+
+    /// Asks a project's git remote for new commits every few minutes, so the
+    /// count of commits to pull is current without pressing Fetch. Off unless
+    /// it's turned on: it goes to the network unasked, and where each use of an
+    /// SSH key is approved (1Password, Touch ID, a hardware key), it would ask
+    /// for that every time.
+    var fetchesAutomatically: Bool {
+        didSet {
+            guard fetchesAutomatically != oldValue else { return }
+            store(fetchesAutomatically, Key.fetchesAutomatically, isDefault: !fetchesAutomatically)
+        }
+    }
+
+    /// Shows in the status bar who last changed the line the cursor is on.
+    var showsLineBlame: Bool {
+        didSet {
+            guard showsLineBlame != oldValue else { return }
+            store(showsLineBlame, Key.showsLineBlame, isDefault: !showsLineBlame)
         }
     }
 
@@ -208,6 +242,9 @@ final class EditorSettings {
         showsLineNumbers = defaults.object(forKey: Key.showsLineNumbers) as? Bool ?? true
         showsIndentGuides = defaults.object(forKey: Key.showsIndentGuides) as? Bool ?? true
         showsMinimap = defaults.bool(forKey: Key.showsMinimap)
+        showsChangesSideBySide = defaults.bool(forKey: Key.showsChangesSideBySide)
+        fetchesAutomatically = defaults.bool(forKey: Key.fetchesAutomatically)
+        showsLineBlame = defaults.bool(forKey: Key.showsLineBlame)
         syntaxTheme = defaults.string(forKey: Key.syntaxTheme).flatMap(SyntaxTheme.init(rawValue:)) ?? .default
         appearance = defaults.string(forKey: Key.appearance).flatMap(Appearance.init(rawValue:)) ?? .system
         windowBackground = defaults.string(forKey: Key.windowBackground)

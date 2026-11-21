@@ -337,7 +337,7 @@ final class DocumentPreview: NSObject, WKNavigationDelegate {
         String(format: "#%06X", value)
     }
 
-    private static var tokenCSS: (light: String, dark: String) {
+    static var tokenCSS: (light: String, dark: String) {
         var light = "", dark = ""
         let theme = EditorSettings.shared.syntaxTheme
         for kind in TokenKind.allCases {
