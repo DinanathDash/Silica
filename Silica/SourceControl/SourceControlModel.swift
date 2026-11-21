@@ -168,7 +168,7 @@ final class SourceControlModel {
     }
 
     private func loadBranches() async {
-        let result = await runner.run(arguments: ["branch", "-a", "--format=%(HEAD) %(refname:short)"], in: rootURL)
+        let result = await runner.run(arguments: ["branch", "-a", "--format=%(HEAD) %(refname) %(refname:short)"], in: rootURL)
         guard result.isSuccess else { return }
 
         var list: [GitBranchItem] = []
@@ -176,9 +176,17 @@ final class SourceControlModel {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty else { continue }
             let isCurrent = trimmed.hasPrefix("*")
-            let name = trimmed.replacingOccurrences(of: "*", with: "").trimmingCharacters(in: .whitespaces)
-            let isRemote = name.contains("/")
-            list.append(GitBranchItem(name: name, isCurrent: isCurrent, isRemote: isRemote))
+            let stripped = trimmed.replacingOccurrences(of: "*", with: "").trimmingCharacters(in: .whitespaces)
+            let tokens = stripped.split(separator: " ", maxSplits: 1)
+            guard tokens.count == 2 else { continue }
+            let refname = String(tokens[0])
+            let shortName = String(tokens[1])
+
+            // Skip symbolic remote HEAD refs like origin/HEAD
+            if refname.hasSuffix("/HEAD") { continue }
+
+            let isRemote = refname.hasPrefix("refs/remotes/")
+            list.append(GitBranchItem(name: shortName, isCurrent: isCurrent, isRemote: isRemote))
         }
         self.branches = list
     }
@@ -487,21 +495,59 @@ final class SourceControlModel {
         }
     }
 
-    func checkout(branch: GitBranchItem) async {
+    @discardableResult
+    func checkout(branch: GitBranchItem) async -> (success: Bool, error: String?) {
         let branchName = branch.isRemote ? String(branch.name.split(separator: "/").dropFirst().joined(separator: "/")) : branch.name
         let result = await runner.run(arguments: ["checkout", branchName], in: rootURL)
         if result.isSuccess {
             errorMessage = nil
             await refresh()
+            return (true, nil)
         } else {
             errorMessage = result.stderr
+            return (false, result.stderr)
         }
     }
 
-    func createBranch(name: String) async -> Bool {
+    func createBranch(name: String, from baseBranch: String? = nil) async -> Bool {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
-        let result = await runner.run(arguments: ["checkout", "-b", trimmed], in: rootURL)
+        var args = ["checkout", "-b", trimmed]
+        if let base = baseBranch?.trimmingCharacters(in: .whitespacesAndNewlines), !base.isEmpty {
+            args.append(base)
+        }
+        let result = await runner.run(arguments: args, in: rootURL)
+        if result.isSuccess {
+            errorMessage = nil
+            await refresh()
+            return true
+        } else {
+            errorMessage = result.stderr
+            return false
+        }
+    }
+
+    func deleteBranch(branch: GitBranchItem, force: Bool = true) async -> Bool {
+        guard !branch.isCurrent else { return false }
+        let result: GitRunner.Result
+        if branch.isRemote {
+            let parts = branch.name.split(separator: "/", maxSplits: 1)
+            if parts.count == 2 {
+                let remote = String(parts[0])
+                let remoteBranch = String(parts[1])
+                result = await runner.run(arguments: ["push", remote, "--delete", remoteBranch], in: rootURL)
+            } else {
+                result = await runner.run(arguments: ["branch", "-r", "-d", branch.name], in: rootURL)
+            }
+        } else {
+            let safeResult = await runner.run(arguments: ["branch", "-d", branch.name], in: rootURL)
+            if !safeResult.isSuccess && force {
+                result = await runner.run(arguments: ["branch", "-D", branch.name], in: rootURL)
+            } else {
+                result = safeResult
+            }
+        }
+
         if result.isSuccess {
             errorMessage = nil
             await refresh()

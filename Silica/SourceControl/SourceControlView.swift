@@ -79,8 +79,7 @@ struct SourceControlView: View {
     private var headerBar: some View {
         HStack(spacing: 8) {
             HStack(spacing: 6) {
-                Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: 13, weight: .semibold))
+                SourceControlIcon(type: .branch, size: 14)
                     .foregroundStyle(Color.accentColor)
 
                 Text("Source Control")
@@ -129,8 +128,7 @@ struct SourceControlView: View {
     private var notRepositoryView: some View {
         VStack(spacing: 12) {
             Spacer()
-            Image(systemName: "arrow.triangle.branch")
-                .font(.system(size: 32))
+            SourceControlIcon(type: .branch, size: 36)
                 .foregroundStyle(.secondary)
             Text("No Git Repository Found")
                 .font(.system(size: 14, weight: .medium))
@@ -158,7 +156,7 @@ struct SourceControlToggleButton: View {
         Button {
             workspace.toggleSourceControl()
         } label: {
-            Image(systemName: "arrow.triangle.branch")
+            SourceControlIcon(type: .branch, size: 13)
         }
         .buttonStyle(.titleBarIcon)
         .foregroundStyle(workspace.isSourceControlVisible ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))

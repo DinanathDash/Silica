@@ -10,9 +10,8 @@ struct SourceControlChangesView: View {
             // Commit Composer card
             VStack(alignment: .leading, spacing: 8) {
                 if let branch = model.branchName {
-                    HStack(spacing: 4) {
-                        Image(systemName: "point.topleft.down.to.point.bottomright.filled")
-                            .font(.system(size: 10))
+                    HStack(spacing: 5) {
+                        SourceControlIcon(type: .branch, size: 12)
                         Text(branch)
                             .font(.system(size: 11, weight: .semibold))
                         Spacer()
