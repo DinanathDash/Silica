@@ -459,7 +459,9 @@ final class EditorBuffer: Identifiable {
             return
         }
         let replacement = ConflictMarkers.resolution(of: regions[index], in: text, taking: choice)
-        controller.textView.insertText(replacement, replacementRange: regions[index].whole)
+        // Not as typing, which it would be joined with: an edit made in the
+        // conflict just before would be undone along with this.
+        controller.textView.applyEdit(in: regions[index].whole, with: replacement, actionName: "Resolve Conflict")
         controller.textView.setSelectedRange(NSRange(location: regions[index].whole.location, length: 0))
         showConflict(offsetBy: 0)
     }
