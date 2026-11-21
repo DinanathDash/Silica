@@ -131,6 +131,8 @@ struct KeybindTests {
         #expect(keybind("s", [.command, .control]).displayName == "⌃⌘S")
         #expect(keybind("n", [.command, .option]).displayName == "⌥⌘N")
         #expect(Keybind(key: .tab, modifiers: [.shift, .control])!.displayName == "⌃⇧Tab")
+        // Return as macOS menus write it.
+        #expect(Keybind(key: .return, modifiers: [.option, .command])!.displayName == "⌥⌘↩")
     }
 
     @Test func optionWithLetterTypesCharacter() {

@@ -265,6 +265,8 @@ extension Keybind {
         var title: String {
             switch self {
             case .escape: "esc"
+            // As macOS menus write it; preset files name the key "⏎".
+            case .return: "↩"
             default: self.rawValue.capitalized
             }
         }
