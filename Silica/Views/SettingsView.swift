@@ -316,6 +316,7 @@ private struct EditorSettingsPane: View {
 private struct KeybindSettingsPane: View {
     @Bindable private var keybinds = KeybindSettings.shared
     @State private var recording: ConfigKeyCommand?
+    @State private var restoreError: String?
     
     private var presetLabel: String {
         guard !keybinds.hasCustomKeybinds else {
@@ -352,12 +353,17 @@ private struct KeybindSettingsPane: View {
                             
                             if !keybinds.isDefaultKeybind(for: command) {
                                 Button {
-                                    try? keybinds.setKeybind(nil, for: command)
+                                    do {
+                                        try keybinds.setKeybind(nil, for: command)
+                                    } catch {
+                                        restoreError = error.localizedDescription
+                                    }
                                 } label: {
                                     Image(systemName: "arrow.counterclockwise")
                                 }
                                 .buttonStyle(.borderless)
                                 .help("Restore Default")
+                                .accessibilityLabel("Restore Default for \(keybinds.title(for: command))")
                             }
                         }
                     }
@@ -389,6 +395,15 @@ private struct KeybindSettingsPane: View {
                 keybinds: keybinds
             )
         }
+        .alert(
+            "Can’t Restore the Default Keybind",
+            isPresented: Binding(get: { restoreError != nil }, set: { if !$0 { restoreError = nil } }),
+            presenting: restoreError
+        ) { _ in
+            Button("OK") {}
+        } message: { message in
+            Text("\(message) Change that command’s keybind first.")
+        }
     }
     
     private func fixedRow(_ title: String, _ keybind: Keybind) -> some View {
@@ -404,6 +419,9 @@ private struct KeybindRecorderView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var eventMonitor: Any?
     @State private var errorMessage: String?
+    /// The sheet's window. Only keys typed there are recorded; the project windows stay
+    /// usable while the sheet is open.
+    @State private var window: NSWindow?
     
     let command: ConfigKeyCommand
     let keybinds: KeybindSettings
@@ -431,13 +449,16 @@ private struct KeybindRecorderView: View {
         }
         .padding(20)
         .frame(width: 360)
+        .background(WindowReader { newWindow in
+            window = newWindow
+            if let newWindow { keybinds.recorderWindow = newWindow }
+        })
         .onAppear(perform: startEventMonitor)
         .onDisappear(perform: stopEventMonitor)
     }
     
     private func startEventMonitor() {
         guard eventMonitor == nil else { return }
-        keybinds.isRecording = true
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
             record($0)
         }
@@ -448,10 +469,11 @@ private struct KeybindRecorderView: View {
             NSEvent.removeMonitor(eventMonitor)
         }
         eventMonitor = nil
-        keybinds.isRecording = false
+        if keybinds.isRecorderWindow(window) { keybinds.recorderWindow = nil }
     }
     
     private func record(_ event: NSEvent) -> NSEvent? {
+        guard let window, event.window === window else { return event }
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
         if flags.isEmpty, event.keyCode == 53 { // Esc
             dismiss()
@@ -476,6 +498,39 @@ private struct KeybindRecorderView: View {
 }
 
 // MARK: Helpers
+
+/// Reports the window its view is in, and nil when the view leaves it.
+private struct WindowReader: NSViewRepresentable {
+    let onChange: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> ReaderView {
+        ReaderView(onChange: onChange)
+    }
+
+    func updateNSView(_ nsView: ReaderView, context: Context) {}
+
+    final class ReaderView: NSView {
+        let onChange: (NSWindow?) -> Void
+
+        init(onChange: @escaping (NSWindow?) -> Void) {
+            self.onChange = onChange
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        /// A turn later: this can be reached during a SwiftUI update, where changing
+        /// the recorder's state isn't allowed.
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            let window = self.window
+            DispatchQueue.main.async { [onChange] in onChange(window) }
+        }
+    }
+}
 
 private extension View {
     /// The capsule tabs treatment macOS 27 gives a picker, or plain segments before it.

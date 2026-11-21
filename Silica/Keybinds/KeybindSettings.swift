@@ -20,9 +20,10 @@ final class KeybindSettings {
     private var overrides = KeybindOverrideMap()
     @ObservationIgnored private let defaults: UserDefaults
 
-    /// While Settings records a keybind, the app's own key monitors let every key
-    /// through to the recorder instead of acting on it.
-    @ObservationIgnored var isRecording = false
+    /// The window of Settings' keybind recorder while it's open. The app's own key
+    /// monitors let keys typed there through to the recorder instead of acting on
+    /// them; other windows keep their shortcuts.
+    @ObservationIgnored weak var recorderWindow: AnyObject?
 
     var hasCustomKeybinds: Bool {
         !self.overrides.isEmpty
@@ -81,6 +82,11 @@ final class KeybindSettings {
         self.overrides[command.id] == nil
     }
 
+    /// Whether `window` is the keybind recorder's, so a key typed in it is being recorded.
+    func isRecorderWindow(_ window: AnyObject?) -> Bool {
+        window != nil && window === recorderWindow
+    }
+    
     /// Whether any command, system ones included, runs on `keybind`.
     func isBound(_ keybind: Keybind) -> Bool {
         commandTitle(boundTo: keybind, excluding: nil) != nil
@@ -100,6 +106,11 @@ final class KeybindSettings {
         for command: ConfigKeyCommand
     ) throws {
         guard let keybind else {
+            // Another command may have taken the preset's keystroke in the meantime.
+            if let preset = getActivePreset().binding(for: command)?.asKeybind(),
+               let conflict = commandTitle(boundTo: preset, excluding: command) {
+                throw Error.commandConflict(preset, conflict)
+            }
             self.overrides.removeValue(forKey: command.id)
             save()
             return

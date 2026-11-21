@@ -34,7 +34,7 @@ final class KeyWorkspace: ObservableObject {
             guard let workspace = self?.current,
                   // Not while a sheet or alert is up, or while Settings records a keybind.
                   event.window?.attachedSheet == nil, NSApp.modalWindow == nil,
-                  !keybinds.isRecording,
+                  !keybinds.isRecorderWindow(event.window),
                   let pressed = Keybind(event: event) else { return event }
             switch pressed {
             case keybinds.keybind(for: ConfigKeyCommand.togglePreview):

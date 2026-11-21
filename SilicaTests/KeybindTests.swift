@@ -154,6 +154,20 @@ final class KeybindSettingsTests {
         #expect(settings.isDefaultKeybind(for: .quickOpen))
     }
 
+    @Test func restoringADefaultChecksForConflicts() throws {
+        let settings = settings()
+        try settings.setKeybind(keybind("b", [.control, .command]), for: .toggleSidebar)
+        try settings.setKeybind(keybind("s", [.control, .command]), for: .goToLine)
+        #expect(throws: KeybindSettings.Error.commandConflict(keybind("s", [.control, .command]), "Go to Line")) {
+            try settings.setKeybind(nil, for: .toggleSidebar)
+        }
+        #expect(settings.keybind(for: .toggleSidebar) == keybind("b", [.control, .command]))
+
+        try settings.setKeybind(nil, for: .goToLine)
+        try settings.setKeybind(nil, for: .toggleSidebar)
+        #expect(!settings.hasCustomKeybinds)
+    }
+
     @Test func overridesPersistAndPresetChangeClearsThem() throws {
         try settings().setKeybind(keybind("p", [.control, .command]), for: .quickOpen)
         let reloaded = settings()

@@ -324,7 +324,7 @@ final class EditorSettings {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let keybinds = KeybindSettings.shared
-            guard let self, !keybinds.isRecording,
+            guard let self, !keybinds.isRecorderWindow(event.window),
                   let pressed = Keybind(event: event) else { return event }
             if pressed == Self.zoomIn, !keybinds.isBound(pressed) {
                 self.increaseFontSize()
