@@ -33,7 +33,13 @@ final class EditorBuffer: Identifiable {
     private(set) var isMissingOnDisk = false
     /// The file on disk as Silica last read or wrote it, to tell when another app
     /// changes it.
-    @ObservationIgnored private var diskSnapshot: DiskSnapshot?
+    @ObservationIgnored private var diskSnapshot: DiskSnapshot? {
+        didSet { diskRevision &+= 1 }
+    }
+    /// Goes up whenever the file on disk is read or written again, for what is
+    /// worked out from the file there (who last changed each line) and has to be
+    /// worked out again.
+    private(set) var diskRevision = 0
 
     /// Where the cursor is, for the status bar.
     struct CursorStatus: Equatable {
@@ -51,6 +57,21 @@ final class EditorBuffer: Identifiable {
     private(set) var isShowingPreview = false
     /// Created the first time the preview is shown, then kept with the tab.
     @ObservationIgnored private(set) var preview: DocumentPreview?
+    /// The file's changes since the last commit are shown in place of the editor
+    /// (or of whatever else the tab holds: a deleted file has only its changes).
+    private(set) var isShowingChanges = false
+    /// While the changes shown are one commit's, from the history, not those
+    /// since the last commit.
+    private(set) var shownCommit: GitCommit?
+    /// Which of the file's changes are shown: all of them, or only the staged
+    /// or the unstaged ones.
+    private(set) var shownComparison = GitDiff.Request.Comparison.all
+    /// Makes the index hold this content for the file at this path in the
+    /// project. With `true`, the content has the tab's unsaved edits in it, so
+    /// the file is saved first.
+    @ObservationIgnored var setIndexContent: ((String, Data, Bool) -> Void)?
+    /// Created the first time the changes are shown, then kept with the tab.
+    @ObservationIgnored private(set) var changesPreview: GitDiffPreview?
     /// Opens a project file a preview link points to.
     @ObservationIgnored var openFile: ((URL) -> Void)?
     /// The project folder, which an HTML preview may load files from.
@@ -359,6 +380,8 @@ final class EditorBuffer: Identifiable {
     /// Switches between source and preview, keeping roughly the same place in the
     /// document.
     func setShowingPreview(_ show: Bool) {
+        // The changes cover both the source and the preview.
+        hideChanges()
         guard let format = previewFormat, let controller = textController, show != isShowingPreview else { return }
         if show {
             let preview = self.preview ?? makePreview(for: controller, format: format)
@@ -388,6 +411,150 @@ final class EditorBuffer: Identifiable {
             // Once the editor is back in the card, type the character there.
             DispatchQueue.main.async {
                 controller.textView.insertText(characters, replacementRange: controller.textView.selectedRange())
+            }
+        }
+        return preview
+    }
+
+    // MARK: Conflicts
+
+    /// Goes up with every edit to the text, for what is worked out from the
+    /// text and shouldn't be worked out again when only the cursor has moved.
+    var textRevision = 0
+    @ObservationIgnored private var foundConflicts: (revision: Int, length: Int, regions: [ConflictMarkers.Region])?
+
+    /// The conflicts git has marked in the text. Found once per edit: a file
+    /// that ends up in conflict is often a long one (a lock file, a project file).
+    var conflicts: [ConflictMarkers.Region] {
+        guard let controller = textController else { return [] }
+        let text = controller.textView.string as NSString
+        let revision = textRevision
+        if let found = foundConflicts, found.revision == revision, found.length == text.length { return found.regions }
+        // Most of the time there are none, which one search can tell.
+        let regions = text.range(of: "<<<<<<<").location == NSNotFound ? [] : ConflictMarkers.regions(in: text)
+        foundConflicts = (revision, text.length, regions)
+        return regions
+    }
+
+    /// The conflict the cursor is in, or else the next one below it, or the first.
+    private func conflictAtCursor(in regions: [ConflictMarkers.Region]) -> Int? {
+        guard let controller = textController, !regions.isEmpty else { return nil }
+        let cursor = controller.textView.selectedRange().location
+        return regions.firstIndex { NSMaxRange($0.whole) > cursor } ?? 0
+    }
+
+    /// Replaces the conflict the cursor is in with one of its sides, or both. One
+    /// undoable edit; the next conflict is then shown. With the cursor outside
+    /// any conflict nothing is replaced: the conflict that would be is shown
+    /// instead, so that what gets rewritten is what's on screen, and asking again
+    /// settles it.
+    func resolveConflict(taking choice: ConflictMarkers.Choice) {
+        guard let controller = textController else { return }
+        let text = controller.textView.string as NSString
+        let regions = conflicts
+        guard let index = conflictAtCursor(in: regions) else { return }
+        let cursor = controller.textView.selectedRange().location
+        guard NSLocationInRange(cursor, regions[index].whole) else {
+            showConflict(offsetBy: 0)
+            return
+        }
+        let replacement = ConflictMarkers.resolution(of: regions[index], in: text, taking: choice)
+        // Not as typing, which it would be joined with: an edit made in the
+        // conflict just before would be undone along with this.
+        controller.textView.applyEdit(in: regions[index].whole, with: replacement, actionName: "Resolve Conflict")
+        controller.textView.setSelectedRange(NSRange(location: regions[index].whole.location, length: 0))
+        showConflict(offsetBy: 0)
+    }
+
+    /// Moves to the next conflict (1), the previous one (-1), or the one at the
+    /// cursor (0), and selects its first line.
+    func showConflict(offsetBy offset: Int) {
+        guard let controller = textController else { return }
+        let text = controller.textView.string as NSString
+        let regions = conflicts
+        guard var index = conflictAtCursor(in: regions) else { return }
+        let cursor = controller.textView.selectedRange().location
+        // From inside a conflict, "next" is the one after it. From between two,
+        // or from below the last (when the first stands in for "at the cursor"),
+        // it's the one that was found: stepping from the one before lands on it.
+        if offset > 0, regions[index].whole.location > cursor || NSMaxRange(regions[index].whole) <= cursor { index -= 1 }
+        index = (index + offset + regions.count) % regions.count
+        let first = text.lineRange(for: NSRange(location: regions[index].whole.location, length: 0))
+        controller.reveal(NSRange(location: first.location, length: max(first.length - 1, 0)))
+    }
+
+    // MARK: Blame
+
+    /// Who last changed each line of the file on disk, once that has been read;
+    /// see the status bar.
+    var blame: [GitBlameLine]?
+
+    // MARK: Changes
+
+    /// Shows what has changed in the file since the last commit, or brings the
+    /// changes already showing up to date. `path` is the file's path in the project;
+    /// `status` and `originalPath` are what git reports for it. With `commit`, shows
+    /// what that commit did to the file instead.
+    func showChanges(
+        path: String, status: GitFileStatus?, originalPath: String?, commit: GitCommit? = nil,
+        comparison: GitDiff.Request.Comparison = .all
+    ) {
+        guard !isUntitled, let projectURL else { return }
+        let current: GitDiff.Request.Current
+        // Missing comes first: a file deleted while its tab was open still has
+        // its text in the editor, and that text against the last commit would
+        // show no change where every line is gone.
+        if isMissingOnDisk || !FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
+            current = .missing
+        } else if let controller = textController {
+            current = .text(controller.textView.string)
+        } else {
+            current = .notText
+        }
+        let request = GitDiff.Request(
+            root: projectURL, path: path, originalPath: originalPath, status: status,
+            current: current, encoding: encoding, commit: commit?.hash, comparison: comparison
+        )
+        let preview = changesPreview ?? makeChangesPreview()
+        changesPreview = preview
+        preview.show(
+            request, language: language,
+            isRefresh: isShowingChanges && shownCommit == commit && shownComparison == comparison
+        )
+        if shownCommit != commit { shownCommit = commit }
+        if shownComparison != comparison { shownComparison = comparison }
+        isShowingChanges = true
+    }
+
+    func hideChanges() {
+        if isShowingChanges { isShowingChanges = false }
+        if shownCommit != nil { shownCommit = nil }
+    }
+
+    private func makeChangesPreview() -> GitDiffPreview {
+        let preview = GitDiffPreview()
+        // "Stage Change" or "Unstage Change" over one change of the file: the
+        // index gets the file with that change made, or taken back, and no other.
+        preview.onChangeAction = { [weak self] number, diff, request in
+            guard let self, diff.canRewrite else { return }
+            // Staging takes the change from the editor's text, unsaved edits
+            // included, and the file should have them too: whoever takes this
+            // saves it first, asking as any save does if another app has changed
+            // the file meanwhile. Unstaging only puts back what the last commit
+            // has, and leaves the tab's edits unsaved as they were.
+            let isStaging = request.comparison == .unstaged
+            let text = diff.text(applying: isStaging, change: number)
+            self.setIndexContent?(request.path, Data(text.utf8), isStaging)
+        }
+        // The changes are read-only; typing goes back to the text and lands there.
+        if let controller = textController {
+            preview.onType = { [weak self] characters in
+                guard let self else { return }
+                self.hideChanges()
+                self.isShowingPreview = false
+                DispatchQueue.main.async {
+                    controller.textView.insertText(characters, replacementRange: controller.textView.selectedRange())
+                }
             }
         }
         return preview

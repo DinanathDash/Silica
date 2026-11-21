@@ -113,6 +113,12 @@ struct SettingsIcon: View {
 private struct GeneralSettingsPane: View {
     @Bindable private var settings = EditorSettings.shared
     @ObservedObject private var updater = AppUpdater.shared
+    /// The link on PATH that runs this copy's `silica` script, once installed.
+    @State private var commandPath = CommandLineTool.installedPath
+    /// While the password prompt is up, so a second click doesn't raise another.
+    @State private var isInstallingCommand = false
+
+    private let commandHint = "Open a project from the terminal with “silica .”, or a file with “silica <file>”."
 
     var body: some View {
         Form {
@@ -137,6 +143,34 @@ private struct GeneralSettingsPane: View {
             Section("Projects") {
                 Toggle("Reopen a project’s tabs where you left them", isOn: $settings.restoresTabs)
                 Toggle("Keep parent folders in view while scrolling the file tree", isOn: $settings.pinsParentFolders)
+                Toggle("Fetch from a project’s git remote every few minutes", isOn: $settings.fetchesAutomatically)
+                    .help("Keeps the count of commits to pull current without pressing Fetch. If you approve each use of your SSH key, you’d be asked each time.")
+            }
+
+            Section {
+                LabeledContent("“\(CommandLineTool.name)” command") {
+                    if let commandPath {
+                        Text("Installed in \((commandPath as NSString).deletingLastPathComponent)")
+                    } else {
+                        Button("Install") {
+                            isInstallingCommand = true
+                            Task {
+                                await CommandLineTool.install()
+                                commandPath = CommandLineTool.installedPath
+                                isInstallingCommand = false
+                            }
+                        }
+                        .disabled(isInstallingCommand || CommandLineTool.unavailableReason != nil)
+                    }
+                }
+            } header: {
+                Text("Command Line")
+            } footer: {
+                Text(commandPath == nil ? CommandLineTool.unavailableReason ?? commandHint : commandHint)
+            }
+            // Coming back from Terminal, where the command may just have been installed.
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                commandPath = CommandLineTool.installedPath
             }
 
             Section("Updates") {

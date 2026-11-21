@@ -41,6 +41,7 @@ You need Xcode 27 or later. Silica runs on macOS 15 and later.
 | `Silica/Terminal` | The integrated terminal: the shell's process, the libghostty-vt emulator and the view that draws it |
 | `Silica/Models` | Workspace state, open buffers, settings, recent projects, search |
 | `Silica/Support` | Glue for AppKit, Finder, file watching and updates |
+| `SilicaTests` | Unit tests; see [Tests](#tests) |
 | `Config/Info.plist` | Keys merged into the generated Info.plist |
 | `Vendor/GhosttyVt` | A local Swift package that fetches the prebuilt libghostty-vt library |
 
@@ -55,10 +56,35 @@ itself. Code is main-actor isolated by default.
 - **Comment the why, not the what.** If something is done in a non-obvious way
   (a workaround for a SwiftUI behavior, say), leave a short comment explaining why.
 - **Keep pull requests focused** on one change. Unrelated cleanups go in their own PR.
-- **Check it by hand.** There's no test suite yet, so run the app and try your
-  change, in both light and dark appearance if it touches the UI. Include a
-  screenshot or recording in the PR for visual changes.
+- **Run the tests, and check it by hand.** The [tests](#tests) cover only a small
+  part of the code, so also run the app and try your change, in both light and dark
+  appearance if it touches the UI. Include a screenshot or recording in the PR for
+  visual changes.
 - **Build without new warnings.**
+
+## Tests
+
+`SilicaTests` has unit tests for code that can be checked without running the app.
+So far that is the part of the git support that reads what git prints and what it
+leaves in its directory: status, diffs, conflict markers, and a merge or rebase
+under way. Run them in Xcode with the SilicaTests scheme (⌘U), or from the command
+line:
+
+```sh
+xcodebuild test -project Silica.xcodeproj -scheme SilicaTests -derivedDataPath build/test-dd
+```
+
+The tests don't launch Silica and don't run git. Instead of loading the app, the
+test target compiles the source files it tests itself: the ones listed for it under
+`membership-exceptions` in `Silica.xcodeproj/project.xcproj`. To test code in another
+file, add that file to the SilicaTests target as well (in Xcode, Target Membership
+in the File inspector). That works for files that stand apart from the rest of the
+app: models and parsers, not views.
+
+The tests use [Swift Testing](https://developer.apple.com/documentation/testing).
+If you fix a bug, add a test that fails without the fix where one can be written.
+A check wrapped in `withKnownIssue` records a bug that isn't fixed yet; when you
+fix it, the test tells you to take the wrapper off.
 
 ## Commit messages
 

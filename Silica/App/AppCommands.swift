@@ -135,6 +135,10 @@ struct AppCommands: Commands {
                 .keybindShortcut(for: .findInProject, keybinds)
                 .disabled(workspace == nil)
 
+            Button("Source Control") { workspace?.showChanges() }
+                .keyboardShortcut("g", modifiers: [.control, .shift])
+                .disabled(workspace?.git.isRepository != true)
+
             Button("Filter Files") { workspace?.focusTreeFilter() }
                 .keybindShortcut(for: .filterTreeFiles, keybinds)
                 .disabled(workspace == nil)
@@ -165,6 +169,26 @@ struct AppCommands: Commands {
             }
             .keybindShortcut(for: .togglePreview, keybinds)
             .disabled(workspace?.activeBuffer?.previewFormat == nil)
+
+            Button(workspace?.activeBuffer?.isShowingChanges == true ? "Hide Changes" : "Show Changes") {
+                workspace?.toggleChanges()
+            }
+            .disabled(workspace?.activeBuffer.map { $0.isShowingChanges || workspace?.hasChanges($0) == true } != true)
+
+            Toggle("Changes Side by Side", isOn: Binding(
+                get: { settings.showsChangesSideBySide },
+                set: { settings.showsChangesSideBySide = $0 }
+            ))
+
+            Button("Show File History") {
+                if let url = workspace?.activeBuffer?.url { workspace?.showFileHistory(url) }
+            }
+            .disabled(workspace?.git.isRepository != true || workspace?.activeBuffer?.isUntitled != false)
+
+            Toggle("Line Blame", isOn: Binding(
+                get: { settings.showsLineBlame },
+                set: { settings.showsLineBlame = $0 }
+            ))
 
             Divider()
 
