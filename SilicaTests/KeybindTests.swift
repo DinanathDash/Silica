@@ -189,6 +189,9 @@ final class KeybindSettingsTests {
         try settings.setActivePreset(id: "xcode")
         #expect(settings.help("Refresh", for: .refreshExplorer) == "Refresh (⇧⌘R)")
         #expect(settings.help("Show Explorer", for: .explorer) == "Show Explorer (⌘1)")
+        // As in Xcode: ⌘0 hides the navigator, ⇧⌘1 opens the Welcome window.
+        #expect(settings.help("Hide Sidebar", for: .toggleSidebar) == "Hide Sidebar (⌘0)")
+        #expect(settings.keybind(for: .welcomeWindow) == keybind("1", [.shift, .command]))
     }
 
     @Test func tabAliasIsFreeOnlyWhenUnbound() throws {

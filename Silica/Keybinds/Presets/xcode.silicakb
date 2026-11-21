@@ -30,8 +30,8 @@
         {
             "id": "welcome_window",
             "title": "Welcome Window",
-            "key": "0",
-            "mods": ["cmd"]
+            "key": "1",
+            "mods": ["shift", "cmd"]
         },
         {
             "id": "save",
@@ -128,8 +128,8 @@
         {
             "id": "toggle_sidebar",
             "title": "Toggle Sidebar",
-            "key": "1",
-            "mods": ["shift", "cmd"]
+            "key": "0",
+            "mods": ["cmd"]
         },
         {
             "id": "toggle_terminal",
