@@ -1,7 +1,7 @@
 {
     "version": 1,
     "id": "vscode",
-    "title": "VSCode",
+    "title": "VS Code",
     "fixed": [
         {
             "id": "settings",

@@ -317,14 +317,29 @@ private struct KeybindSettingsPane: View {
     @Bindable private var keybinds = KeybindSettings.shared
     @State private var recording: ConfigKeyCommand?
     @State private var restoreError: String?
+    /// A preset chosen while some keybinds are custom, waiting for the user to confirm
+    /// that switching drops them.
+    @State private var pendingPreset: KeybindFile?
     
+    /// The active preset, and whether keybinds have been changed on top of it.
     private var presetLabel: String {
-        guard !keybinds.hasCustomKeybinds else {
-            return "Custom"
+        let title = keybinds.activePreset.title
+        return keybinds.hasCustomKeybinds ? "\(title) (Custom)" : title
+    }
+    
+    /// Switches presets, asking first if that would drop custom keybinds.
+    private var presetSelection: Binding<KeybindFile.ID> {
+        Binding {
+            keybinds.activePresetId
+        } set: { id in
+            guard id != keybinds.activePresetId,
+                  let preset = keybinds.presets.first(where: { $0.id == id }) else { return }
+            if keybinds.hasCustomKeybinds {
+                pendingPreset = preset
+            } else {
+                try? keybinds.setActivePreset(id: id)
+            }
         }
-        return keybinds.presets.first(where: {
-            $0.id == keybinds.activePresetId
-        })?.title ?? "Custom"
     }
     
     var body: some View {
@@ -333,11 +348,14 @@ private struct KeybindSettingsPane: View {
                 LabeledContent("Preset") {
                     HStack {
                         Menu(presetLabel) {
-                            ForEach(keybinds.presets) { preset in
-                                Button(preset.title) {
-                                    try? keybinds.setActivePreset(id: preset.id)
+                            // A picker, so the active preset has a checkmark.
+                            Picker("Preset", selection: presetSelection) {
+                                ForEach(keybinds.presets) { preset in
+                                    Text(preset.title).tag(preset.id)
                                 }
                             }
+                            .pickerStyle(.inline)
+                            .labelsHidden()
                         }
                     }
                 }
@@ -394,6 +412,20 @@ private struct KeybindSettingsPane: View {
                 command: $0,
                 keybinds: keybinds
             )
+        }
+        .alert(
+            pendingPreset.map { "Switch to the \($0.title) Preset?" } ?? "",
+            isPresented: Binding(get: { pendingPreset != nil }, set: { if !$0 { pendingPreset = nil } }),
+            presenting: pendingPreset
+        ) { preset in
+            Button("Switch", role: .destructive) {
+                try? keybinds.setActivePreset(id: preset.id)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text(keybinds.customKeybindCount == 1
+                 ? "Your custom keybind will be replaced by the preset’s."
+                 : "Your \(keybinds.customKeybindCount) custom keybinds will be replaced by the preset’s.")
         }
         .alert(
             "Can’t Restore the Default Keybind",

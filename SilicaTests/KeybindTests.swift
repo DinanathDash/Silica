@@ -168,6 +168,14 @@ final class KeybindSettingsTests {
         #expect(!settings.hasCustomKeybinds)
     }
 
+    @Test func choosingTheActivePresetKeepsCustomKeybinds() throws {
+        let settings = settings()
+        try settings.setKeybind(keybind("p", [.control, .command]), for: .quickOpen)
+        try settings.setActivePreset(id: "silica")
+        #expect(settings.customKeybindCount == 1)
+        #expect(settings.keybind(for: .quickOpen) == keybind("p", [.control, .command]))
+    }
+
     @Test func overridesPersistAndPresetChangeClearsThem() throws {
         try settings().setKeybind(keybind("p", [.control, .command]), for: .quickOpen)
         let reloaded = settings()

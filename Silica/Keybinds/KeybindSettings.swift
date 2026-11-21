@@ -28,6 +28,15 @@ final class KeybindSettings {
     var hasCustomKeybinds: Bool {
         !self.overrides.isEmpty
     }
+    
+    /// How many commands have a keybind of their own instead of the preset's.
+    var customKeybindCount: Int {
+        self.overrides.count
+    }
+    
+    var activePreset: KeybindFile {
+        getActivePreset()
+    }
 
     init(presets: [KeybindFile], defaults: UserDefaults) {
         self.presets = presets
@@ -105,6 +114,8 @@ final class KeybindSettings {
         guard let preset = self.presets.first(where: { $0.id == id }) else {
             throw Error.unknownPreset(id)
         }
+        // Choosing the preset already in use keeps the keybinds set on top of it.
+        guard preset.id != self.activePresetId else { return }
         self.activePresetId = preset.id
         self.overrides = [:]
         save()
