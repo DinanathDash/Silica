@@ -39,7 +39,10 @@ nonisolated struct GitRepository: Sendable, Equatable {
 
     static func locate(containing root: URL) -> GitRepository? {
         let files = FileManager.default
-        var folder = root.path(percentEncoded: false).trimmingTrailingSlash
+        // From where the folder really is, as git looks from there too: reached
+        // through a symlink, its place in the repository is the one git names
+        // its files by, not the symlink's.
+        var folder = canonicalPath(root.path(percentEncoded: false)).trimmingTrailingSlash
         var below: [String] = []
         while true {
             let dotGit = (folder as NSString).appendingPathComponent(".git")
@@ -379,7 +382,9 @@ nonisolated enum GitStatus {
     /// each "." when there is none.
     private static func status(index: Character?, workTree: Character?) -> GitFileStatus {
         if index == "D" || workTree == "D" { return .deleted }
-        if index == "A" { return .added }
+        // "A" in the working tree is a file added with `git add --intent-to-add`:
+        // nothing of it is staged, and the last commit doesn't have it either.
+        if index == "A" || workTree == "A" { return .added }
         if index == "R" || index == "C" { return .renamed }
         return .modified
     }

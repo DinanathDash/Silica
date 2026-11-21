@@ -227,13 +227,46 @@ struct GitRepositoryLocateTests {
         try FileManager.default.createSymbolicLink(
             atPath: scratch.path("repository/current"), withDestinationPath: scratch.path("repository/packages/editor")
         )
+        // Not "current/", which no path in git's status starts with: every
+        // change would be dropped.
         let found = GitRepository.locate(containing: URL(filePath: scratch.path("repository/current"), directoryHint: .isDirectory))
-        #expect(found?.gitDirectory == scratch.path("repository/.git"))
-        // The prefix is taken from the path as written, "current/", which no
-        // path in git's status starts with: every change is then dropped. Take
-        // this wrapper off once the prefix follows the symlink.
-        withKnownIssue("the prefix is the symlink's name, not the folder's place in the repository") {
-            #expect(found?.prefix == "packages/editor/")
-        }
+        #expect(found == GitRepository(gitDirectory: scratch.path("repository/.git"), prefix: "packages/editor/"))
+    }
+
+    /// Likewise through a symlink that is outside the repository: the folder
+    /// it leads to is in one.
+    @Test func aProjectReachedThroughASymlinkFromOutsideItsRepository() throws {
+        let scratch = try ScratchFolder()
+        defer { scratch.remove() }
+        try scratch.folder("repository/.git")
+        try scratch.folder("repository/packages/editor")
+        try scratch.folder("elsewhere")
+        try FileManager.default.createSymbolicLink(
+            atPath: scratch.path("elsewhere/editor"), withDestinationPath: scratch.path("repository/packages/editor")
+        )
+        let found = GitRepository.locate(containing: URL(filePath: scratch.path("elsewhere/editor"), directoryHint: .isDirectory))
+        #expect(found == GitRepository(gitDirectory: scratch.path("repository/.git"), prefix: "packages/editor/"))
+    }
+
+    /// And the other way round: a symlink in a repository to a folder outside
+    /// it is not in that repository, whatever its path says.
+    @Test func aSymlinkInARepositoryToAFolderOutsideIt() throws {
+        let scratch = try ScratchFolder()
+        defer { scratch.remove() }
+        try scratch.folder("repository/.git")
+        try scratch.folder("elsewhere/plain")
+        try FileManager.default.createSymbolicLink(
+            atPath: scratch.path("repository/linked"), withDestinationPath: scratch.path("elsewhere/plain")
+        )
+        #expect(GitRepository.locate(containing: URL(filePath: scratch.path("repository/linked"), directoryHint: .isDirectory)) == nil)
+    }
+
+    /// A folder that isn't there (deleted while open) is looked for as written.
+    @Test func aFolderThatIsMissingIsLookedForByItsPath() throws {
+        let scratch = try ScratchFolder()
+        defer { scratch.remove() }
+        try scratch.folder("repository/.git")
+        let found = GitRepository.locate(containing: URL(filePath: scratch.path("repository/gone/deeper"), directoryHint: .isDirectory))
+        #expect(found == GitRepository(gitDirectory: scratch.path("repository/.git"), prefix: "gone/deeper/"))
     }
 }

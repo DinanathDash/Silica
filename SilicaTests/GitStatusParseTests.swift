@@ -149,17 +149,13 @@ struct GitStatusEntryTests {
     }
 
     /// `git add --intent-to-add` gives ".A": a file the last commit doesn't
-    /// have, with nothing of it staged.
+    /// have, with nothing of it staged. Were it reported as modified, its diff
+    /// would look in the last commit for an old side that isn't there.
     @Test func aFileAddedWithIntentToAddIsUnstagedAndNew() {
         let report = parse([ordinary(".A", "src/new.swift")])
+        #expect(report.files == ["src/new.swift": .added])
         #expect(report.staged.isEmpty)
         #expect(report.unstaged == ["src/new.swift": .added])
-        // Reported as modified, though the last commit has no such file, so a
-        // diff against the last commit has no old side to read. Take this
-        // wrapper off once it is reported as added.
-        withKnownIssue("an intent-to-add file is reported as modified, not added") {
-            #expect(report.files == ["src/new.swift": .added])
-        }
     }
 
     @Test(arguments: [
