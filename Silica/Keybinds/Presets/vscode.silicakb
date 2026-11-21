@@ -110,7 +110,7 @@
         {
             "id": "filter_tree_files",
             "title": "Filter Files",
-            "key": "f",
+            "key": "j",
             "mods": ["opt", "cmd"]
         },
         {

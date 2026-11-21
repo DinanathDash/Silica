@@ -17,10 +17,12 @@ struct Keybind: Codable, Hashable {
     }
     
     /// A key that macOS can't use as a shortcut without ⌘ or ⌃: in the editor, ⌥ or
-    /// ⇧⌥ with it types a character ("Ω" for ⌥Z) before a menu item sees the key.
+    /// ⇧⌥ with it types a character ("Ω" for ⌥Z, a no-break space for ⌥Space) before a
+    /// menu item sees the key. Only the arrows, which are function keys, are safe.
     var typesCharacter: Bool {
-        modifiers.isDisjoint(with: [.command, .control])
-            && SpecialKey.byCharacterMap[key.first!] == nil
+        guard modifiers.isDisjoint(with: [.command, .control]) else { return false }
+        let scalar = key.unicodeScalars.first!.value
+        return !(0xF700...0xF8FF).contains(scalar)
     }
     
     var keyEquivalent: KeyEquivalent {

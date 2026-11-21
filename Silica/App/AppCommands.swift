@@ -238,7 +238,7 @@ struct AppCommands: Commands {
 
             Button("Go to Line…") { workspace?.showGoToLine() }
                 .keybindShortcut(for: .goToLine, keybinds)
-                .disabled(!hasText)
+                .disabled(!hasText || leavesKeyToTerminal(keybinds.keybind(for: .goToLine)))
 
             Divider()
 
@@ -262,7 +262,8 @@ struct AppCommands: Commands {
     ) -> some View {
         Button(title) { NSApp.sendAction(action, to: nil, from: nil) }
             .keybindShortcut(for: command, keybinds)
-            .disabled(workspace?.activeBuffer?.textController == nil)
+            .disabled(workspace?.activeBuffer?.textController == nil
+                || leavesKeyToTerminal(keybinds.keybind(for: command)))
     }
     
     private func configurableEditorAction(
@@ -272,6 +273,15 @@ struct AppCommands: Commands {
     ) -> some View {
         Button(title) { NSApp.sendAction(action, to: nil, from: nil) }
             .keybindShortcut(for: command, keybinds)
-            .disabled(workspace?.activeBuffer?.textController == nil)
+            .disabled(workspace?.activeBuffer?.textController == nil
+                || leavesKeyToTerminal(keybinds.keybind(for: command)))
+    }
+    
+    /// Whether an editor command should stand aside so the terminal gets its key: the
+    /// terminal has focus and the keybind has no ⌘, so it's a key the shell may use
+    /// (⌃G cancels a history search). The terminal doesn't take key equivalents, so an
+    /// enabled menu item would get the key first.
+    private func leavesKeyToTerminal(_ keybind: Keybind) -> Bool {
+        workspace?.terminal?.isFocused == true && !keybind.modifiers.contains(.command)
     }
 }

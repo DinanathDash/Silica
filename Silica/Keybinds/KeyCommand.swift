@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// Protocol describing a key command.
 protocol KeyCommand: Identifiable, CaseIterable, RawRepresentable where RawValue == String {}
@@ -72,52 +73,111 @@ enum ConfigKeyCommand: String, KeyCommand {
 
 // MARK: SystemKeyCommand
 
-/// A command whose menu item comes from macOS rather than from `AppCommands`, so its
-/// shortcut can't change. Listed so a keybind can't take its shortcut.
+/// A menu item that comes from macOS or from SwiftUI's `TextEditingCommands` rather
+/// than from `AppCommands`, so its shortcut can't change. Listed so a keybind can't
+/// take its shortcut. Items bound only with the Globe key (the Window menu's tiling,
+/// Emoji & Symbols) are left out: the recorder can't record that key.
 enum SystemKeyCommand: String, CaseIterable, Identifiable {
-
+    
     var id: String {
         self.rawValue
     }
-
+    
+    // Silica menu
+    case hide
+    case hideOthers
+    case quit
+    case quitAndKeepWindows
+    // Edit menu
+    case undo
+    case redo
     case cut
     case copy
     case paste
     case selectAll
-    case undo
-    case redo
+    case find
+    case findAndReplace
+    case findNext
+    case findPrevious
+    case useSelectionForFind
+    case jumpToSelection
+    case showSpellingAndGrammar
+    case checkDocumentNow
+    // View menu
+    case showAllTabs
+    case enterFullScreen
+    // Window menu
     case minimize
-    case hide
-    case hideOthers
-    case quit
-
+    case minimizeAll
+    // Apple menu
+    case forceQuit
+    case forceQuitSilica
+    case lockScreen
+    case logOut
+    case logOutNow
+    
     var title: String {
         switch self {
+        case .hide: "Hide Silica"
+        case .hideOthers: "Hide Others"
+        case .quit: "Quit Silica"
+        case .quitAndKeepWindows: "Quit and Keep Windows"
+        case .undo: "Undo"
+        case .redo: "Redo"
         case .cut: "Cut"
         case .copy: "Copy"
         case .paste: "Paste"
         case .selectAll: "Select All"
-        case .undo: "Undo"
-        case .redo: "Redo"
+        case .find: "Find"
+        case .findAndReplace: "Find and Replace"
+        case .findNext: "Find Next"
+        case .findPrevious: "Find Previous"
+        case .useSelectionForFind: "Use Selection for Find"
+        case .jumpToSelection: "Jump to Selection"
+        case .showSpellingAndGrammar: "Show Spelling and Grammar"
+        case .checkDocumentNow: "Check Document Now"
+        case .showAllTabs: "Show All Tabs"
+        // Shown as 🌐F, but ⌃⌘F still works.
+        case .enterFullScreen: "Enter Full Screen"
         case .minimize: "Minimize"
-        case .hide: "Hide Silica"
-        case .hideOthers: "Hide Others"
-        case .quit: "Quit Silica"
+        case .minimizeAll: "Minimize All"
+        case .forceQuit: "Force Quit"
+        case .forceQuitSilica: "Force Quit Silica"
+        case .lockScreen: "Lock Screen"
+        case .logOut: "Log Out"
+        case .logOutNow: "Log Out Without Asking"
         }
     }
-
+    
     var keybind: Keybind {
         switch self {
+        case .hide: .init(key: "h", modifiers: .command)!
+        case .hideOthers: .init(key: "h", modifiers: [.option, .command])!
+        case .quit: .init(key: "q", modifiers: .command)!
+        case .quitAndKeepWindows: .init(key: "q", modifiers: [.option, .command])!
+        case .undo: .init(key: "z", modifiers: .command)!
+        case .redo: .init(key: "z", modifiers: [.shift, .command])!
         case .cut: .init(key: "x", modifiers: .command)!
         case .copy: .init(key: "c", modifiers: .command)!
         case .paste: .init(key: "v", modifiers: .command)!
         case .selectAll: .init(key: "a", modifiers: .command)!
-        case .undo: .init(key: "z", modifiers: .command)!
-        case .redo: .init(key: "z", modifiers: [.shift, .command])!
+        case .find: .init(key: "f", modifiers: .command)!
+        case .findAndReplace: .init(key: "f", modifiers: [.option, .command])!
+        case .findNext: .init(key: "g", modifiers: .command)!
+        case .findPrevious: .init(key: "g", modifiers: [.shift, .command])!
+        case .useSelectionForFind: .init(key: "e", modifiers: .command)!
+        case .jumpToSelection: .init(key: "j", modifiers: .command)!
+        case .showSpellingAndGrammar: .init(key: ":", modifiers: .command)!
+        case .checkDocumentNow: .init(key: ";", modifiers: .command)!
+        case .showAllTabs: .init(key: "\\", modifiers: [.shift, .command])!
+        case .enterFullScreen: .init(key: "f", modifiers: [.control, .command])!
         case .minimize: .init(key: "m", modifiers: .command)!
-        case .hide: .init(key: "h", modifiers: .command)!
-        case .hideOthers: .init(key: "h", modifiers: [.option, .command])!
-        case .quit: .init(key: "q", modifiers: .command)!
+        case .minimizeAll: .init(key: "m", modifiers: [.option, .command])!
+        case .forceQuit: .init(key: .escape, modifiers: [.option, .command])!
+        case .forceQuitSilica: .init(key: .escape, modifiers: [.option, .shift, .command])!
+        case .lockScreen: .init(key: "q", modifiers: [.control, .command])!
+        case .logOut: .init(key: "q", modifiers: [.shift, .command])!
+        case .logOutNow: .init(key: "q", modifiers: [.option, .shift, .command])!
         }
     }
 }

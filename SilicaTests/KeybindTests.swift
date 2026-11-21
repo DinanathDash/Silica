@@ -56,6 +56,10 @@ struct KeybindTests {
         #expect(keybind("z", [.option, .shift]).typesCharacter)
         #expect(!keybind("z", [.option, .command]).typesCharacter)
         #expect(!Keybind(key: .upArrow, modifiers: .option)!.typesCharacter)
+        // A no-break space, a tab and a line break: only the arrows are function keys.
+        #expect(Keybind(key: .space, modifiers: .option)!.typesCharacter)
+        #expect(Keybind(key: .tab, modifiers: .option)!.typesCharacter)
+        #expect(Keybind(key: .return, modifiers: [.option, .shift])!.typesCharacter)
     }
 
     @Test func needsCommandOptionOrControl() {
@@ -117,6 +121,19 @@ final class KeybindSettingsTests {
     @Test func systemShortcutConflicts() {
         #expect(throws: KeybindSettings.Error.commandConflict(keybind("c", .command), "Copy")) {
             try settings().setKeybind(keybind("c", .command), for: .quickOpen)
+        }
+    }
+
+    @Test(arguments: [
+        (keybind("f", .command), "Find"),
+        (keybind("g", [.shift, .command]), "Find Previous"),
+        (keybind(";", [.shift, .command]), "Show Spelling and Grammar"),
+        (keybind("f", [.control, .command]), "Enter Full Screen"),
+        (keybind("q", [.option, .command]), "Quit and Keep Windows"),
+    ])
+    func editAndWindowMenuShortcutsConflict(keybind: Keybind, title: String) {
+        #expect(throws: KeybindSettings.Error.commandConflict(keybind, title)) {
+            try settings().setKeybind(keybind, for: .goToLine)
         }
     }
 
