@@ -29,12 +29,32 @@
     },
   ],
   "files": [
-    { "kind": "folder", "path": "Silica", "target-membership": [ "Silica" ] },
+    {
+      "kind": "folder",
+      "path": "Silica",
+      "target-membership": [
+        "Silica",
+      ],
+      "membership-exceptions": [
+        {
+          "target": "SilicaTests",
+          "inclusions": [
+            "Editor/ConflictMarkers.swift",
+            "Models/GitDiff.swift",
+            "Models/GitHistory.swift",
+            "Models/GitStatus.swift",
+            "Models/RecentProjectsStore.swift",
+          ],
+        },
+      ],
+    },
+    { "kind": "folder", "path": "SilicaTests", "target-membership": [ "SilicaTests" ] },
     {
       "kind": "group",
       "name": "Products",
       "children": [
         { "path": "<PRODUCTS>/Silica.app", "id": "000000000000000000000120", "type": "wrapper.application", "index": false },
+        { "path": "<PRODUCTS>/SilicaTests.xctest", "id": "000000000000000000000121", "type": "wrapper.cfbundle", "index": false },
       ],
     },
   ],
@@ -100,6 +120,29 @@
         "SWIFT_APPROACHABLE_CONCURRENCY": "YES",
         "SWIFT_DEFAULT_ACTOR_ISOLATION": "MainActor",
         "SWIFT_EMIT_LOC_STRINGS": "YES",
+        "SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY": "YES",
+        "SWIFT_VERSION": "5.0",
+      },
+    }, {
+      "name": "SilicaTests",
+      "id": "000000000000000100000001",
+      "product": "Products/SilicaTests.xctest",
+      "product-type": "bundle.unit-test",
+      "build-phases": [
+        "compile-sources",
+        "frameworks",
+      ],
+      "build-settings": {
+        "CODE_SIGN_IDENTITY": "-",
+        "CODE_SIGN_STYLE": "Automatic",
+        "GENERATE_INFOPLIST_FILE": "YES",
+        "PRODUCT_BUNDLE_IDENTIFIER": "com.hieudinh.SilicaTests",
+        "PRODUCT_NAME": "$(TARGET_NAME)",
+        "SDKROOT": "auto",
+        "SUPPORTED_PLATFORMS": "macosx",
+        "SWIFT_APPROACHABLE_CONCURRENCY": "YES",
+        "SWIFT_DEFAULT_ACTOR_ISOLATION": "MainActor",
+        "SWIFT_EMIT_LOC_STRINGS": "NO",
         "SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY": "YES",
         "SWIFT_VERSION": "5.0",
       },
