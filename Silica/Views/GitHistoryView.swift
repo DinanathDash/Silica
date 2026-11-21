@@ -146,10 +146,13 @@ private struct GitStashRow: View {
                 .truncationMode(.tail)
                 .layoutPriority(1)
             Spacer(minLength: 4)
+            // The subject takes the room first, so the date has to refuse to
+            // shrink or a long subject squeezes it down to a clipped digit.
             Text(stash.commit.date, format: .relative(presentation: .numeric, unitsStyle: .narrow))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .fixedSize()
             Button {
                 git.apply(stash, keeping: false)
             } label: {
@@ -236,10 +239,12 @@ private struct GitCommitRow: View {
                 .truncationMode(.tail)
                 .layoutPriority(1)
             Spacer(minLength: 4)
+            // As in the stash row: keep the date whole beside a long subject.
             Text(commit.date, format: .relative(presentation: .numeric, unitsStyle: .narrow))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .fixedSize()
         }
         .font(.system(size: EditorSettings.shared.sidebarFontSize))
         .contextMenu {
