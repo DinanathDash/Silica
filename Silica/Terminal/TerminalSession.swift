@@ -19,8 +19,15 @@ final class TerminalSession {
     var linkDestination: String?
     /// "zsh", for the card's header until there's a title.
     let shellName: String
-    /// What the card's header and the terminal's tab call it.
-    var name: String { title.isEmpty ? shellName : title }
+    /// What the card's header and the terminal's tab call it. Defaults to directory name when title is empty or the shell name.
+    var name: String {
+        let folderName = directory.lastPathComponent.isEmpty ? "Terminal" : directory.lastPathComponent
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == shellName || trimmed.lowercased() == "zsh" || trimmed.lowercased() == "bash" || trimmed.lowercased() == "sh" {
+            return folderName
+        }
+        return trimmed
+    }
 
     /// The emulator; `nil` once the session is closed.
     @ObservationIgnored private(set) var terminal: GhosttyTerminal?
@@ -181,7 +188,7 @@ final class TerminalSession {
                     let folderName = directory.lastPathComponent.isEmpty ? "Terminal" : directory.lastPathComponent
                     let durStr = duration >= 60 ? String(format: "%.1fm", duration / 60) : String(format: "%.1fs", duration)
                     let isFailure = str.contains("command not found") || str.contains("error:") || str.contains("FAILED") || str.contains("Error:") || str.contains("fatal:")
-                    let title = isFailure ? "Command Failed (\(folderName))" : "Command Succeeded (\(folderName))"
+                    let title = isFailure ? "Command Failed \(folderName)" : "Command Succeeded \(folderName)"
                     let msg = isFailure ? "Process finished with error after \(durStr)" : "Completed in \(durStr)"
                     DispatchQueue.main.async { [weak self] in
                         self?.onCommandFinished?(msg, title, isFailure)

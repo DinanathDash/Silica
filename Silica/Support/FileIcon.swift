@@ -7,9 +7,10 @@ struct FileIcon: View {
     let url: URL
     var isDirectory = false
     var isExpanded = false
-    var width: CGFloat = 16
+    var width: CGFloat? = nil
 
     var body: some View {
+        let effectiveWidth = width ?? EditorSettings.shared.sidebarIconWidth
         let (iconName, fallbackSymbol, color) = Self.style(for: url, isDirectory: isDirectory, isExpanded: isExpanded)
         if let iconName, let nsImage = PierreIconCache.shared.image(named: iconName) {
             Image(nsImage: nsImage)
@@ -17,16 +18,16 @@ struct FileIcon: View {
                 .renderingMode(.template)
                 .aspectRatio(contentMode: .fit)
                 .foregroundStyle(color)
-                .frame(width: width, height: width)
+                .frame(width: effectiveWidth, height: effectiveWidth)
         } else if isDirectory {
             Image(nsImage: FolderIcons.shared.icon(for: url))
                 .resizable()
                 .interpolation(.high)
-                .frame(width: width, height: width)
+                .frame(width: effectiveWidth, height: effectiveWidth)
         } else {
             Image(systemName: fallbackSymbol)
                 .foregroundStyle(color)
-                .frame(width: width)
+                .frame(width: effectiveWidth, height: effectiveWidth)
         }
     }
 
@@ -163,7 +164,7 @@ final class FolderIcons {
 /// Xcode-style icon colors: blue folders and orange Swift files, plus a hue per
 /// file family, each with a deeper light-mode and a brighter dark-mode shade.
 enum FileIconPalette {
-    static let folder = dynamic(light: 0x6E7681, dark: 0xF0F6FC)
+    static let folder = dynamic(light: 0x5F7C9B, dark: 0x8FAECB)
     static let swift = dynamic(light: 0xF05138, dark: 0xF4693F)
 
     static let blue = dynamic(light: 0x2F74C0, dark: 0x5E9BEA)

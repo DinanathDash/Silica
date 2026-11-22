@@ -653,54 +653,7 @@ struct GitTimelineCanvas: View {
     }
 }
 
-// MARK: - Caching & Avatar Service
-
-/// In-memory and disk-backed image cache to prevent duplicate network calls and memory leaks.
-@MainActor
-final class AvatarImageCache {
-    static let shared = AvatarImageCache()
-
-    private let cache = NSCache<NSString, NSImage>()
-    private var inFlight: [String: Task<NSImage?, Never>] = [:]
-
-    private init() {
-        cache.countLimit = 150
-        cache.totalCostLimit = 30 * 1024 * 1024 // 30MB max memory footprint
-    }
-
-    func image(for url: URL) async -> NSImage? {
-        let key = url.absoluteString as NSString
-        if let cached = cache.object(forKey: key) {
-            return cached
-        }
-
-        if let existing = inFlight[url.absoluteString] {
-            return await existing.value
-        }
-
-        let task = Task<NSImage?, Never>.detached(priority: .userInitiated) {
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 4
-            guard let (data, response) = try? await URLSession.shared.data(for: request),
-                  let http = response as? HTTPURLResponse,
-                  http.statusCode == 200,
-                  let image = NSImage(data: data) else {
-                return nil
-            }
-            return image
-        }
-
-        inFlight[url.absoluteString] = task
-        let result = await task.value
-        inFlight.removeValue(forKey: url.absoluteString)
-
-        if let result {
-            let cost = Int(result.size.width * result.size.height * 4)
-            cache.setObject(result, forKey: key, cost: cost)
-        }
-        return result
-    }
-}
+// MARK: - Avatar View
 
 /// Displays author profile picture according to repository remote origin (GitHub vs GitLab) with fallback badge.
 struct CommitAuthorAvatarView: View {
@@ -778,8 +731,17 @@ struct CommitAuthorAvatarView: View {
                 initialsBadge
             }
         }
+        .onAppear {
+            if let url = avatarURL, let cached = AvatarImageCache.shared.cachedImage(for: url) {
+                self.loadedImage = cached
+            }
+        }
         .task(id: avatarURL) {
             guard let url = avatarURL else { return }
+            if let cached = AvatarImageCache.shared.cachedImage(for: url) {
+                self.loadedImage = cached
+                return
+            }
             loadedImage = await AvatarImageCache.shared.image(for: url)
         }
     }

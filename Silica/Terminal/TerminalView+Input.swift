@@ -32,8 +32,17 @@ extension TerminalView {
             didType()
             return
         }
+        // ⌘K: clear terminal outputs
+        if modifiers == .command && (event.keyCode == 40 || event.charactersIgnoringModifiers == "k") {
+            session.clear()
+            return
+        }
+
         // The rest of the ⌘ keys are the menus', and mean nothing to a terminal.
-        guard !modifiers.contains(.command) else { return }
+        guard !modifiers.contains(.command) else {
+            super.keyDown(with: event)
+            return
+        }
 
         // The input system turns the press into text: through the keyboard layout,
         // a dead key, or an input method that composes several presses into one

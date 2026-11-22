@@ -88,10 +88,10 @@ final class EditorSettings {
         }
     }
 
-    /// The width of a file icon beside sidebar text: 16pt at the default size,
+    /// The width of a file icon beside sidebar text: 13pt at the default size,
     /// growing with the text so larger icons don't run into the names.
     var sidebarIconWidth: CGFloat {
-        (sidebarFontSize * 16 / Self.defaultSidebarFontSize).rounded()
+        (sidebarFontSize * 13 / Self.defaultSidebarFontSize).rounded()
     }
 
     /// Long lines wrap to the editor's width; off, they scroll sideways.

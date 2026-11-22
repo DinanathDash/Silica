@@ -95,36 +95,39 @@ final class WorkspaceModel {
     @ObservationIgnored private var toastTask: Task<Void, Never>?
 
     func showToast(_ message: String, title: String? = nil, isFailure: Bool = false) {
-        toastTask?.cancel()
-        if isFailure {
-            if NSSound(named: "Basso")?.play() != true {
-                NSSound.beep()
+        if NSApp.isActive {
+            // When user is in the app, only show in-app toast
+            toastTask?.cancel()
+            if isFailure {
+                if NSSound(named: "Basso")?.play() != true {
+                    NSSound.beep()
+                }
+            } else {
+                if NSSound(named: "Glass")?.play() != true {
+                    NSSound.beep()
+                }
+            }
+            activeToast = Toast(title: title, message: message, isFailure: isFailure)
+            toastTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: 0.2)) {
+                    self?.activeToast = nil
+                }
             }
         } else {
-            if NSSound(named: "Glass")?.play() != true {
-                NSSound.beep()
-            }
-        }
-        activeToast = Toast(title: title, message: message, isFailure: isFailure)
-        toastTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.2)) {
-                self?.activeToast = nil
-            }
-        }
-
-        // Post native macOS banner with sound
-        let center = UNUserNotificationCenter.current()
-        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
-            guard granted else { return }
-            let content = UNMutableNotificationContent()
-            content.title = title ?? (isFailure ? "Command Failed" : "Command Succeeded")
-            content.body = message
-            content.sound = isFailure ? .defaultCritical : .default
-            let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-            Task {
-                try? await center.add(request)
+            // When user is outside the app, show system notification instead of toast
+            let center = UNUserNotificationCenter.current()
+            center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+                guard granted else { return }
+                let content = UNMutableNotificationContent()
+                content.title = title ?? (isFailure ? "Command Failed" : "Command Succeeded")
+                content.body = message
+                content.sound = isFailure ? .defaultCritical : .default
+                let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+                Task {
+                    try? await center.add(request)
+                }
             }
         }
     }

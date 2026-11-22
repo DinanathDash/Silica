@@ -18,6 +18,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
+        let isActive = await MainActor.run { NSApp.isActive }
+        if isActive {
+            return []
+        }
         return [.banner, .sound]
     }
 

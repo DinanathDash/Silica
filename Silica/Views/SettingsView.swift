@@ -517,23 +517,13 @@ private struct SourceControlSettingsPane: View {
                 ChromeCard {
                     if let user = gitHub.user {
                         HStack(spacing: 12) {
-                            AsyncImage(url: gitHub.avatarURL ?? URL(string: "https://github.com/\(user).png?size=96")) { phase in
-                                if let image = phase.image {
-                                    image
-                                        .resizable()
-                                        .scaledToFill()
-                                } else {
-                                    Image(systemName: "person.crop.circle.fill")
-                                        .resizable()
-                                        .scaledToFit()
-                                        .foregroundStyle(Color.accentColor)
-                                }
-                            }
+                            CachedAvatarView(
+                                url: gitHub.avatarURL ?? URL(string: "https://github.com/\(user).png?size=96"),
+                                fallbackText: String(user.prefix(1)).uppercased(),
+                                fallbackColor: .accentColor
+                            )
                             .frame(width: 32, height: 32)
-                            .clipShape(Circle())
-                            .overlay {
-                                Circle().strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
-                            }
+
 
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(gitHub.displayName ?? user)
