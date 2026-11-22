@@ -122,6 +122,10 @@ final class TextController: NSObject, NSTextViewDelegate {
     private func finishSetup() {
         shared.editors.add(self)
         textView.delegate = self
+        textView.isCovered = { [weak view] point in
+            guard let view else { return false }
+            return view.arrowCursorRect.contains(view.convert(point, from: nil))
+        }
 
         let ruler = LineNumberRulerView(textView: textView, scrollView: scrollView, editorFontSize: EditorSettings.shared.fontSize)
         scrollView.verticalRulerView = ruler
@@ -620,6 +624,9 @@ struct TextViewHost: NSViewRepresentable {
     /// out can be updated once more with the editor it had, after the pane that
     /// took the tab over has it: it mustn't take the view back.
     var isCurrent: () -> Bool = { true }
+    /// Where something floats over the text (the status bar), in the card's own
+    /// space: the pointer stays an arrow there, as over any button.
+    var arrowCursorRect = CGRect.zero
 
     func makeNSView(context: Context) -> HostView {
         HostView()
@@ -628,6 +635,7 @@ struct TextViewHost: NSViewRepresentable {
     func updateNSView(_ nsView: HostView, context: Context) {
         guard isCurrent() else { return }
         nsView.show(controller, takesFocus: takesFocus)
+        controller.view.arrowCursorRect = arrowCursorRect
     }
 
     final class HostView: NSView {
@@ -722,6 +730,10 @@ final class EditorContainerView: NSView {
     var showsMinimap = true {
         didSet { needsLayout = true }
     }
+
+    /// Where a SwiftUI view floats over the text, from the top left of this view.
+    /// The text view under it would otherwise show its I-beam there.
+    var arrowCursorRect = CGRect.zero
 
     init(scrollView: NSScrollView) {
         self.scrollView = scrollView

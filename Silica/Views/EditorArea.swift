@@ -902,6 +902,10 @@ private struct BufferView: View {
         }
     }
 
+    /// Where the status bar is over the editor, which keeps the pointer an arrow there.
+    @State private var statusBarFrame = CGRect.zero
+    private static let editorSpace: NamedCoordinateSpace = .named("Editor")
+
     var body: some View {
         if workspace.showsChanges(buffer, in: pane), let changes = buffer.changesPreview {
             GitDiffHost(preview: changes, isCurrent: isAuxiliaryHost)
@@ -925,14 +929,19 @@ private struct BufferView: View {
                     if workspace.isConflicted(buffer) {
                         ConflictBar(buffer: buffer, workspace: workspace)
                     }
-                    TextViewHost(controller: controller, takesFocus: isFocused, isCurrent: isCurrent)
-                        .overlay(alignment: .bottomTrailing) {
-                            if isFocused {
-                                StatusBar(buffer: buffer, workspace: workspace)
-                                    .padding(4)
-                                    .padding(.trailing, EditorSettings.shared.showsMinimap ? MinimapView.width : 0)
-                            }
+                    TextViewHost(
+                        controller: controller, takesFocus: isFocused, isCurrent: isCurrent,
+                        arrowCursorRect: isFocused ? statusBarFrame : .zero
+                    )
+                    .overlay(alignment: .bottomTrailing) {
+                        if isFocused {
+                            StatusBar(buffer: buffer, workspace: workspace)
+                                .onGeometryChange(for: CGRect.self) { $0.frame(in: Self.editorSpace) } action: { statusBarFrame = $0 }
+                                .padding(4)
+                                .padding(.trailing, EditorSettings.shared.showsMinimap ? MinimapView.width : 0)
                         }
+                    }
+                    .coordinateSpace(Self.editorSpace)
                 }
             }
         case .image(let file):
@@ -1079,6 +1088,15 @@ private struct StatusBar: View {
             if detail != .position {
                 Text(buffer.language?.displayName ?? "Plain Text")
             }
+            // Last, and at every width: where a new pane is asked for with the pointer.
+            HStack(spacing: 2) {
+                splitButton("rectangle.split.2x1", "Split Right", .splitRight, along: .horizontal)
+                splitButton("rectangle.split.1x2", "Split Down", .splitDown, along: .vertical)
+            }
+            // The fill under the pointer is taller than the text and wider than the
+            // icon: the bar keeps its height, and the icons their place at its end.
+            .padding(.vertical, -3)
+            .padding(.horizontal, -4)
         }
         .font(.caption)
         .monospacedDigit()
@@ -1088,6 +1106,24 @@ private struct StatusBar: View {
         .padding(.vertical, 4)
         .glassSurface(in: .capsule)
         .fixedSize()
+    }
+
+    /// Divides the pane the bar is in, which is the focused one, the new pane
+    /// showing the same file.
+    private func splitButton(
+        _ symbol: String, _ title: String, _ command: ConfigKeyCommand, along axis: PaneLayout.Axis
+    ) -> some View {
+        Button {
+            workspace.splitPane(axis)
+        } label: {
+            Image(systemName: symbol)
+                // A little larger than the text beside it, which the outlines look small next to.
+                .imageScale(.large)
+        }
+        // Lit under the pointer, like the buttons over the file tree.
+        .buttonStyle(.statusBarIcon)
+        .help(KeybindSettings.shared.help(title, for: command))
+        .accessibilityLabel(title)
     }
 
     /// Who last changed the line the cursor is on. Read again when the file

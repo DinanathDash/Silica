@@ -182,22 +182,28 @@ struct SidebarToggleButton: View {
 /// A plain icon button for the title bar row that shows a soft rounded fill under
 /// the pointer, darker while pressed, like the toolbar buttons of system apps.
 struct TitleBarIconButtonStyle: ButtonStyle {
+    /// The size of the button and of the fill under the pointer.
+    var size = CGSize(width: 26, height: 22)
+    var cornerRadius: CGFloat = 6
+
     func makeBody(configuration: Configuration) -> some View {
-        IconLabel(configuration: configuration)
+        IconLabel(configuration: configuration, size: size, cornerRadius: cornerRadius)
     }
 
     private struct IconLabel: View {
         let configuration: Configuration
+        let size: CGSize
+        let cornerRadius: CGFloat
         @State private var isHovering = false
 
         var body: some View {
             configuration.label
-                .frame(width: 26, height: 22)
+                .frame(width: size.width, height: size.height)
                 .background(
                     Color.primary.opacity(configuration.isPressed ? 0.14 : isHovering ? 0.08 : 0),
-                    in: .rect(cornerRadius: 6, style: .continuous)
+                    in: .rect(cornerRadius: cornerRadius, style: .continuous)
                 )
-                .contentShape(.rect(cornerRadius: 6, style: .continuous))
+                .contentShape(.rect(cornerRadius: cornerRadius, style: .continuous))
                 .onHover { isHovering = $0 }
                 .animation(.easeOut(duration: 0.12), value: isHovering)
         }
@@ -206,4 +212,9 @@ struct TitleBarIconButtonStyle: ButtonStyle {
 
 extension ButtonStyle where Self == TitleBarIconButtonStyle {
     static var titleBarIcon: TitleBarIconButtonStyle { TitleBarIconButtonStyle() }
+
+    /// The same, at the size of the status bar's text.
+    static var statusBarIcon: TitleBarIconButtonStyle {
+        TitleBarIconButtonStyle(size: CGSize(width: 22, height: 18), cornerRadius: 5)
+    }
 }
