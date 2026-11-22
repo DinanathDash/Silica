@@ -136,6 +136,7 @@ private struct EditorTabBar: View {
                             isActive: url == workspace.activeTab,
                             isDirty: workspace.buffers[url]?.isDirty == true,
                             isMissing: workspace.buffers[url]?.isMissingOnDisk == true,
+                            isChangedOnDisk: workspace.buffers[url]?.isChangedOnDisk == true,
                             select: { workspace.activate(url) },
                             close: { withAnimation(.snappy) { workspace.closeTab(url) } },
                             closeOthers: { withAnimation(.snappy) { workspace.closeOtherTabs(than: url) } },
@@ -546,6 +547,8 @@ private struct EditorTab: View {
     let isDirty: Bool
     /// Deleted or moved on disk since it was opened.
     let isMissing: Bool
+    /// Changed on disk while it had unsaved edits.
+    let isChangedOnDisk: Bool
     let select: () -> Void
     let close: () -> Void
     let closeOthers: () -> Void
@@ -567,12 +570,13 @@ private struct EditorTab: View {
                 .font(.callout)
                 .lineLimit(1)
                 .strikethrough(isMissing)
-                .help(isMissing ? "Deleted from disk. Save to write it again." : "")
+                .help(isMissing ? "Deleted from disk. Save to write it again."
+                    : isChangedOnDisk ? "Changed on disk since you started editing it." : "")
 
             ZStack {
                 if isDirty && !isHovering {
                     Circle()
-                        .fill(.primary.opacity(0.7))
+                        .fill(isChangedOnDisk ? AnyShapeStyle(.orange) : AnyShapeStyle(.primary.opacity(0.7)))
                         .frame(width: 7, height: 7)
                 } else {
                     Button(action: close) {
@@ -652,6 +656,9 @@ private struct BufferView: View {
                 // The status bar floats over the text's bottom corner rather than
                 // taking a strip of the card, left of the minimap when it's shown.
                 VStack(spacing: 0) {
+                    if buffer.isChangedOnDisk {
+                        DiskChangeBar(buffer: buffer)
+                    }
                     if workspace.isConflicted(buffer) {
                         ConflictBar(buffer: buffer, workspace: workspace)
                     }
@@ -688,6 +695,35 @@ private struct BufferView: View {
                 description: Text(message)
             )
         }
+    }
+}
+
+// MARK: - Changes on disk
+
+/// Over a file another app changed (a branch switch, a formatter) while it had
+/// unsaved edits here: the edits are on the old version, so it's said before more
+/// are made, with the choice saving would otherwise ask for.
+private struct DiskChangeBar: View {
+    let buffer: EditorBuffer
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .symbolRenderingMode(.multicolor)
+            Text("This file changed on disk. Your unsaved edits are on the version you opened.")
+                .truncationMode(.tail)
+            Spacer(minLength: 8)
+            Button("Revert") { buffer.revertToDisk() }
+                .help("Discard your unsaved edits and show the file as it is on disk (⌘Z brings them back)")
+            Button("Keep My Edits") { buffer.keepEditsOverDisk() }
+                .help("Keep editing your version; saving writes it over the one on disk")
+        }
+        .font(.caption)
+        .controlSize(.small)
+        .lineLimit(1)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Color.orange.opacity(0.12))
     }
 }
 
