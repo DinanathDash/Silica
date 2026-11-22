@@ -46,6 +46,12 @@ struct PaneLayout: Equatable, Codable {
         return panes[((index + offset) % panes.count + panes.count) % panes.count]
     }
 
+    /// Which side of its split a pane is on, and which way the split runs; `nil`
+    /// for the only pane. A new pane is always the second side.
+    func side(of pane: PaneID) -> (axis: Axis, isSecond: Bool)? {
+        root.side(of: pane)
+    }
+
     // MARK: Changing
 
     /// Divides `pane` in two along `axis` and returns the new pane, which comes
@@ -188,6 +194,13 @@ private extension PaneLayout.Node {
             return [(id, axis)] + side.splits(above: pane)
         }
         return []
+    }
+
+    func side(of pane: PaneLayout.PaneID) -> (axis: PaneLayout.Axis, isSecond: Bool)? {
+        guard case .split(_, let axis, _, let first, let second) = self else { return nil }
+        if case .pane(pane) = first { return (axis, false) }
+        if case .pane(pane) = second { return (axis, true) }
+        return first.side(of: pane) ?? second.side(of: pane)
     }
 
     func replacing(pane: PaneLayout.PaneID, with node: PaneLayout.Node) -> PaneLayout.Node {

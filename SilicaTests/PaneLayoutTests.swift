@@ -145,6 +145,19 @@ struct PaneLayoutTests {
         #expect(layout.pane(from: 99, offsetBy: 1) == nil)
     }
 
+    @Test func aPaneKnowsItsSideOfItsSplit() throws {
+        var layout = PaneLayout()
+        let first = layout.panes[0]
+        #expect(layout.side(of: first) == nil)
+        let right = try layout.dividing(first, .horizontal)
+        let below = try layout.dividing(right, .vertical)
+        #expect(layout.side(of: first).map { [$0.axis == .horizontal, $0.isSecond] } == [true, false])
+        #expect(layout.side(of: right).map { [$0.axis == .vertical, $0.isSecond] } == [true, false])
+        // The new pane is the second side: it grows from the far edge.
+        #expect(layout.side(of: below).map { [$0.axis == .vertical, $0.isSecond] } == [true, true])
+        #expect(layout.side(of: 99) == nil)
+    }
+
     @Test func survivesBeingSaved() throws {
         var layout = PaneLayout()
         let right = try layout.dividing(layout.panes[0], .horizontal)

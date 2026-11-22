@@ -102,9 +102,12 @@ private struct EditorPanes: View {
                         isTopTrailing: frame.minY < 1 && frame.maxX > proxy.size.width - 1,
                         paneAt: { point in arrangement.panes.first { $0.value.contains(point) }?.key }
                     )
-                    .frame(width: frame.width, height: frame.height)
-                    .offset(x: frame.minX, y: frame.minY)
-                    .transition(.opacity)
+                    // The transition places the pane as well as bringing it in and out:
+                    // it can only change the size of what it's given whole.
+                    .transition(.modifier(
+                        active: PanePlacement(frame: frame, edge: outerEdge(of: pane), presence: 0),
+                        identity: PanePlacement(frame: frame, edge: outerEdge(of: pane), presence: 1)
+                    ))
                 }
                 ForEach(arrangement.dividers) { divider in
                     handle(for: divider)
@@ -112,6 +115,17 @@ private struct EditorPanes: View {
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             .coordinateSpace(Self.space)
+        }
+    }
+
+    /// The edge of a pane that's away from the other side of its split: the one a
+    /// new pane grows from as the pane it divided makes room, and the one a closing
+    /// pane shrinks to as what was beside it takes its room.
+    private func outerEdge(of pane: PaneLayout.PaneID) -> Edge? {
+        guard let side = workspace.layout.side(of: pane) else { return nil }
+        switch side.axis {
+        case .horizontal: return side.isSecond ? .trailing : .leading
+        case .vertical: return side.isSecond ? .bottom : .top
         }
     }
 
@@ -148,6 +162,53 @@ private struct EditorPanes: View {
             .onHover { workspace.setWindowHeld($0, by: holder) }
             .onDisappear { workspace.setWindowHeld(false, by: holder) }
             .offset(x: frame.minX, y: frame.minY)
+    }
+}
+
+/// Puts a pane where the layout has it, and has it grow from nothing when it's
+/// opened and shrink back to nothing when it's closed, against the edge the panes
+/// beside it don't reach: the pane changes size with them, rather than appear where
+/// they left room.
+private struct PanePlacement: ViewModifier, Animatable {
+    let frame: CGRect
+    /// The edge the pane keeps to; `nil` for the only pane, which has no room to grow into.
+    let edge: Edge?
+    /// How much of its size the pane has: 0 before it's opened and once it's closed,
+    /// 1 while it's there. The animation runs it through the values between, and
+    /// the pane is laid out afresh for each.
+    var presence: CGFloat
+
+    var animatableData: CGFloat {
+        get { presence }
+        set { presence = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        let isSideways = edge == .leading || edge == .trailing
+        let isUpright = edge == .top || edge == .bottom
+        content
+            .frame(
+                width: isSideways ? frame.width * presence : frame.width,
+                height: isUpright ? frame.height * presence : frame.height
+            )
+            // A tab row doesn't get narrower than its buttons, or lower than its
+            // height: while the pane is smaller than that, it's cut off at the pane
+            // instead of lying over the next one. With room left for the card's shadow.
+            .clipShape(Rectangle().inset(by: -Self.shadowRoom))
+            .frame(width: frame.width, height: frame.height, alignment: alignment)
+            .offset(x: frame.minX, y: frame.minY)
+    }
+
+    private static let shadowRoom: CGFloat = 12
+
+    private var alignment: Alignment {
+        switch edge {
+        case .leading: .leading
+        case .trailing: .trailing
+        case .top: .top
+        case .bottom: .bottom
+        case nil: .center
+        }
     }
 }
 
@@ -190,6 +251,10 @@ private struct EditorPane: View {
             Group {
                 if let buffer {
                     BufferView(buffer: buffer, workspace: workspace, pane: pane)
+                } else if !workspace.layout.contains(pane) {
+                    // Closed, and shrinking out of the layout: its tabs have gone to
+                    // the pane beside it, and it isn't an empty pane to be filled.
+                    Color.clear
                 } else if workspace.layout.isSplit {
                     EmptyPaneView(pane: pane, workspace: workspace)
                 } else {
