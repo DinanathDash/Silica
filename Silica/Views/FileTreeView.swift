@@ -214,6 +214,8 @@ struct FileTreeView: View {
             ))
             .background(FileTreeDragSource(rows: rows, isEnabled: workspace.treeEdit == nil) { url in
                 draggedURL = workspace.selection == url ? nil : url
+            } onOptionClick: { url in
+                workspace.openInNewPane(url)
             })
             .overlay(alignment: .top) {
                 PinnedFolders(rows: rows, tracker: pinnedFolders, workspace: workspace)
@@ -526,6 +528,8 @@ private struct FileTreeDragSource: NSViewRepresentable {
     let rows: [FileTreeView.TreeRow]
     let isEnabled: Bool
     let onDragStart: (URL) -> Void
+    /// A file was clicked with ⌥ held, which opens it in a new pane.
+    let onOptionClick: (URL) -> Void
 
     func makeNSView(context: Context) -> SourceView { SourceView() }
 
@@ -533,6 +537,7 @@ private struct FileTreeDragSource: NSViewRepresentable {
         view.rows = rows
         view.isEnabled = isEnabled
         view.onDragStart = onDragStart
+        view.onOptionClick = onOptionClick
     }
 
     static func dismantleNSView(_ view: SourceView, coordinator: ()) {
@@ -543,6 +548,7 @@ private struct FileTreeDragSource: NSViewRepresentable {
         var rows: [FileTreeView.TreeRow] = []
         var isEnabled = true
         var onDragStart: (URL) -> Void = { _ in }
+        var onOptionClick: (URL) -> Void = { _ in }
         private var monitor: Any?
         private var press: Press?
         private var draggedPress: Press?
@@ -583,6 +589,15 @@ private struct FileTreeDragSource: NSViewRepresentable {
                 self.press = nil
                 startDrag(press, with: event)
                 return nil
+            case .leftMouseUp:
+                // A click on a file with ⌥ and no other modifier: the file opens in a
+                // new pane. Before the list gets the click, which then selects the
+                // row and opens the file where it now is already.
+                let modifiers = press?.event.modifierFlags.intersection([.option, .command, .shift, .control])
+                if let press, modifiers == .option, !press.url.hasDirectoryPath {
+                    onOptionClick(press.url)
+                }
+                press = nil
             default:
                 press = nil
             }
@@ -762,6 +777,7 @@ private struct FileNodeMenu: View {
     var body: some View {
         if !node.isDirectory {
             Button("Open") { workspace.open(node.url) }
+            Button("Open in New Pane") { workspace.openInNewPane(node.url) }
             Divider()
         }
         let folder = node.isDirectory ? node.url : node.url.deletingLastPathComponent()

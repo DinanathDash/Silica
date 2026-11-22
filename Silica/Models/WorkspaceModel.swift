@@ -1123,6 +1123,29 @@ final class WorkspaceModel {
         focusPaneContent()
     }
 
+    /// ⌥-click in the tree, Open in New Pane: opens a file in a new pane to the right
+    /// of the focused one, which keeps what it shows. Without room for another
+    /// pane, or with nothing open to keep, the file opens in the focused pane.
+    func openInNewPane(_ url: URL) {
+        guard !tabs(in: focusedPane).isEmpty, canSplit(along: .horizontal) else {
+            open(url)
+            return
+        }
+        withAnimation(.snappy(duration: 0.2)) {
+            guard let new = layout.split(focusedPane, along: .horizontal) else { return }
+            paneTabs[new] = PaneTabs()
+            focusedPane = new
+        }
+        // A file that has a single view (an image, a PDF, a video) comes over from
+        // the pane it's open in.
+        if buffers[url]?.allowsSeveralPanes == false, let holder = panes(holding: url).first {
+            moveTab(url, from: holder, toPane: focusedPane)
+        } else {
+            open(url)
+        }
+        focusPaneContent()
+    }
+
     /// Close Pane: the pane goes (the focused one, unless another is named) and its
     /// tabs join the pane that takes its room, so no file is closed.
     func closePane(_ pane: PaneLayout.PaneID? = nil) {
