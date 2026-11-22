@@ -87,6 +87,11 @@ enum WorkspaceLayout {
     static let terminalHeightRange: ClosedRange<Double> = 100...1200
     /// What the terminal card leaves of the editor card at the least.
     static let minimumEditorHeight: CGFloat = 120
+    /// The least a pane of a split editor keeps: its tab row and a few lines under it.
+    static let paneMinimumSize = CGSize(width: 220, height: titleBarHeight + minimumEditorHeight)
+    /// Between two panes: the card inset side by side, as between the editor and the
+    /// terminal. One above another has the lower one's tab row between the cards.
+    static let paneSpacing = PaneLayout.Spacing(horizontal: cardInset, vertical: 0)
 }
 
 struct WorkspaceView: View {

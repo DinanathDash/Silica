@@ -529,7 +529,7 @@ private struct GitChangeRow: View {
             if change.status != .deleted {
                 Button("Open File") {
                     workspace.open(url)
-                    workspace.buffers[url]?.hideChanges()
+                    if let buffer = workspace.buffers[url] { workspace.showText(of: buffer) }
                 }
                 Button("Reveal in Explorer") { workspace.revealInTree(url) }
                 Divider()

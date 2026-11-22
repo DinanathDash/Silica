@@ -68,8 +68,9 @@ itself. Code is main-actor isolated by default.
 `SilicaTests` has unit tests for code that can be checked without running the app.
 So far that is the part of the git support that reads what git prints and what it
 leaves in its directory (status, diffs, conflict markers, and a merge or rebase
-under way), and the keybinds: the bundled presets, conflict checks, and matching
-keystrokes on real and simulated keyboard layouts. Run them in Xcode with the SilicaTests scheme (⌘U), or from the command
+under way), the keybinds: the bundled presets, conflict checks, and matching
+keystrokes on real and simulated keyboard layouts, and how the editor's panes are
+laid out and keep their tabs. Run them in Xcode with the SilicaTests scheme (⌘U), or from the command
 line:
 
 ```sh

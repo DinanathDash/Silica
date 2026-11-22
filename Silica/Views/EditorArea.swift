@@ -7,58 +7,45 @@ struct EditorArea: View {
 
     @AppStorage("terminalHeight") private var terminalHeight: Double = 260
     @State private var dragStartTerminalHeight: Double?
-    /// Height the editor and terminal cards share, which limits the terminal's.
+    /// Height the editor's panes and the terminal card share, which limits the terminal's.
     @State private var cardsHeight: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
-            // Title bar row: tabs share it with the traffic lights.
-            HStack(spacing: 8) {
-                if !workspace.isSidebarVisible {
-                    Color.clear.frame(width: WorkspaceLayout.trafficLightsWidth)
-                    SidebarToggleButton(workspace: workspace)
+            // Each pane has its tab row over its card. The top row of them is the
+            // title bar row, which the tabs share with the traffic lights.
+            EditorPanes(workspace: workspace)
+            if workspace.isTerminalVisible, let terminal = workspace.terminal {
+                // The terminal's card sits under the editor's, the gap between
+                // them being the handle that resizes it.
+                VStack(spacing: 0) {
+                    terminalResizeHandle
+                    TerminalCard(session: terminal, workspace: workspace)
+                        .frame(height: clampedTerminalHeight)
                 }
-                EditorTabBar(workspace: workspace)
-                Spacer(minLength: 0)
-                if let buffer = workspace.activeBuffer, buffer.isShowingChanges || workspace.hasChanges(buffer) {
-                    ChangesToggle(buffer: buffer, workspace: workspace)
-                }
-                // The changes cover the source and the preview alike.
-                if let buffer = workspace.activeBuffer, let format = buffer.previewFormat, !buffer.isShowingChanges {
-                    PreviewModeToggle(buffer: buffer, format: format)
-                }
-                // Last, so it stays in place whatever the tab has beside it.
-                TerminalToggleButton(workspace: workspace)
-                    .padding(.trailing, WorkspaceLayout.cardInset + 4)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            .frame(height: WorkspaceLayout.titleBarHeight)
-
-            VStack(spacing: 0) {
-                editorCard
-                if workspace.isTerminalVisible, let terminal = workspace.terminal {
-                    // The terminal's card sits under the editor's, the gap between
-                    // them being the handle that resizes it.
-                    VStack(spacing: 0) {
-                        terminalResizeHandle
-                        TerminalCard(session: terminal, workspace: workspace)
-                            .frame(height: clampedTerminalHeight)
-                    }
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardsHeight = $0 }
-            .padding(.leading, workspace.isSidebarVisible ? 0 : WorkspaceLayout.cardInset)
-            .padding([.trailing, .bottom], WorkspaceLayout.cardInset)
         }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+            cardsHeight = size.height
+            workspace.editorAreaSize = size
+        }
+        .padding(.leading, workspace.isSidebarVisible ? 0 : WorkspaceLayout.cardInset)
+        .padding([.trailing, .bottom], WorkspaceLayout.cardInset)
         .frame(minWidth: WorkspaceLayout.editorMinWidth)
     }
 
-    /// The stored height, kept within what the window has room for: the editor
-    /// keeps a few lines however small the window gets.
-    private var clampedTerminalHeight: CGFloat {
+    /// The tallest the terminal can be: every pane keeps its tab row and a few
+    /// lines however small the window gets.
+    private var tallestTerminal: CGFloat {
         let range = WorkspaceLayout.terminalHeightRange
-        let most = max(cardsHeight - WorkspaceLayout.cardInset - WorkspaceLayout.minimumEditorHeight, range.lowerBound)
-        return min(max(terminalHeight, range.lowerBound), min(most, range.upperBound))
+        let panes = workspace.layout.minimumSize(spacing: WorkspaceLayout.paneSpacing, minimum: WorkspaceLayout.paneMinimumSize)
+        return min(max(cardsHeight - WorkspaceLayout.cardInset - panes.height, range.lowerBound), range.upperBound)
+    }
+
+    /// The stored height, kept within what the window has room for.
+    private var clampedTerminalHeight: CGFloat {
+        min(max(terminalHeight, WorkspaceLayout.terminalHeightRange.lowerBound), tallestTerminal)
     }
 
     /// Invisible strip between the two cards that resizes the terminal.
@@ -73,35 +60,258 @@ struct EditorArea: View {
                         // From the height on screen, which the window may have limited.
                         let start = dragStartTerminalHeight ?? clampedTerminalHeight
                         dragStartTerminalHeight = start
-                        let range = WorkspaceLayout.terminalHeightRange
-                        let most = max(cardsHeight - WorkspaceLayout.cardInset - WorkspaceLayout.minimumEditorHeight, range.lowerBound)
-                        terminalHeight = min(max(start - value.translation.height, range.lowerBound), min(most, range.upperBound))
+                        terminalHeight = min(max(start - value.translation.height, WorkspaceLayout.terminalHeightRange.lowerBound), tallestTerminal)
                     }
                     .onEnded { _ in dragStartTerminalHeight = nil }
             )
     }
+}
 
-    private var editorCard: some View {
-        Group {
-            if let buffer = workspace.activeBuffer {
-                BufferView(buffer: buffer, workspace: workspace)
-            } else {
-                EmptyEditorView(workspace: workspace)
+// MARK: - Panes
+
+/// The editor's panes, side by side and one above another as the layout has them,
+/// with the dividers that resize them. Each pane keeps its views while the others
+/// come, go and change size around it.
+private struct EditorPanes: View {
+    let workspace: WorkspaceModel
+
+    /// The divider being dragged, and the share its first side had when the drag began.
+    @State private var resizing: Resize?
+
+    private struct Resize {
+        let split: PaneLayout.SplitID
+        let fraction: Double
+    }
+
+    /// The panes' own space, in which a tab dragged out of its bar is followed.
+    static let space: NamedCoordinateSpace = .named("EditorPanes")
+    /// How much of a tab row and of the card above it resizes the two.
+    private static let rowHandleHeight: CGFloat = 6
+
+    var body: some View {
+        GeometryReader { proxy in
+            let arrangement = workspace.layout.arrangement(
+                in: proxy.size, spacing: WorkspaceLayout.paneSpacing, minimum: WorkspaceLayout.paneMinimumSize
+            )
+            ZStack(alignment: .topLeading) {
+                ForEach(workspace.layout.panes, id: \.self) { pane in
+                    let frame = arrangement.panes[pane] ?? .zero
+                    EditorPane(
+                        pane: pane, workspace: workspace,
+                        isTopLeading: frame.minY < 1 && frame.minX < 1,
+                        isTopTrailing: frame.minY < 1 && frame.maxX > proxy.size.width - 1,
+                        paneAt: { point in arrangement.panes.first { $0.value.contains(point) }?.key }
+                    )
+                    .frame(width: frame.width, height: frame.height)
+                    .offset(x: frame.minX, y: frame.minY)
+                    .transition(.opacity)
+                }
+                ForEach(arrangement.dividers) { divider in
+                    handle(for: divider)
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+            .coordinateSpace(Self.space)
+        }
+    }
+
+    /// Invisible strip between two panes that resizes them: the gap between two
+    /// side by side, and the edge where the lower one's tab row meets the card
+    /// above it. A double click evens the two out.
+    private func handle(for divider: PaneLayout.Arrangement.Divider) -> some View {
+        let isSideBySide = divider.axis == .horizontal
+        let frame = isSideBySide ? divider.frame : divider.frame.insetBy(dx: 0, dy: -Self.rowHandleHeight / 2)
+        let holder = "divider-\(divider.id)"
+        return Color.clear
+            .contentShape(.rect)
+            .frame(width: frame.width, height: frame.height)
+            .pointerStyle(.frameResize(position: isSideBySide ? .trailing : .top))
+            .onTapGesture(count: 2) {
+                withAnimation(.snappy(duration: 0.2)) { workspace.setSplitFraction(0.5, of: divider.id) }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: Self.space)
+                    .onChanged { value in
+                        // From the share on screen, which the panes' minimums may have limited.
+                        let start = resizing?.split == divider.id ? resizing?.fraction ?? divider.fraction : divider.fraction
+                        if resizing?.split != divider.id { resizing = Resize(split: divider.id, fraction: start) }
+                        guard divider.span > 0 else { return }
+                        let travel = isSideBySide ? value.translation.width : value.translation.height
+                        let fraction = start + Double(travel / divider.span)
+                        workspace.setSplitFraction(
+                            min(max(fraction, divider.fractions.lowerBound), divider.fractions.upperBound), of: divider.id
+                        )
+                    }
+                    .onEnded { _ in resizing = nil }
+            )
+            // The part of it between two tab rows is in the title bar.
+            .onHover { workspace.setWindowHeld($0, by: holder) }
+            .onDisappear { workspace.setWindowHeld(false, by: holder) }
+            .offset(x: frame.minX, y: frame.minY)
+    }
+}
+
+/// One pane: its tab row, and under it a card with the file its active tab shows.
+private struct EditorPane: View {
+    let pane: PaneLayout.PaneID
+    let workspace: WorkspaceModel
+    /// Whether the pane is in the window's top corner on that side, where its tab
+    /// row has the traffic lights or the terminal's button for company.
+    let isTopLeading: Bool
+    let isTopTrailing: Bool
+    /// The pane at a point in the panes' space, for a tab dragged over another pane.
+    let paneAt: (CGPoint) -> PaneLayout.PaneID?
+
+    var body: some View {
+        let buffer = workspace.buffer(in: pane)
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                if isTopLeading, !workspace.isSidebarVisible {
+                    Color.clear.frame(width: WorkspaceLayout.trafficLightsWidth - WorkspaceLayout.cardInset)
+                    SidebarToggleButton(workspace: workspace)
+                }
+                EditorTabBar(workspace: workspace, pane: pane, paneAt: paneAt)
+                Spacer(minLength: 0)
+                if let buffer, workspace.showsChanges(buffer, in: pane) || workspace.hasChanges(buffer) {
+                    ChangesToggle(buffer: buffer, workspace: workspace, pane: pane)
+                }
+                // The changes cover the source and the preview alike.
+                if let buffer, let format = buffer.previewFormat, !workspace.showsChanges(buffer, in: pane) {
+                    PreviewModeToggle(buffer: buffer, format: format, workspace: workspace, pane: pane)
+                }
+                // Last, so it stays in place whatever the tab has beside it.
+                if isTopTrailing {
+                    TerminalToggleButton(workspace: workspace)
+                }
+            }
+            .padding(.trailing, 4)
+            .frame(height: WorkspaceLayout.titleBarHeight)
+
+            Group {
+                if let buffer {
+                    BufferView(buffer: buffer, workspace: workspace, pane: pane)
+                } else if workspace.layout.isSplit {
+                    EmptyPaneView(pane: pane, workspace: workspace)
+                } else {
+                    EmptyEditorView(workspace: workspace)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay {
+                // Where a tab being dragged from another pane would land.
+                if workspace.tabDropPane == pane {
+                    Color.accentColor.opacity(0.14).allowsHitTesting(false)
+                }
+            }
+            // Liquid Glass card, or a bordered one with the glass effect off. Corners
+            // next to the window's corners follow its radius minus the inset; the
+            // others (under the tab bar, beside another pane) fall back to the minimum.
+            .workspaceCard()
+        }
+        .background(
+            PaneClickTracker {
+                // A click in Quick Open, which lies over the panes, isn't one in a pane.
+                guard !workspace.isQuickOpenVisible else { return false }
+                workspace.paneWasClicked(pane)
+                return true
+            } settle: {
+                if workspace.focusedPane == pane { workspace.focusPaneContent() }
+            }
+        )
+    }
+}
+
+/// Makes a pane the focused one when a click lands anywhere in it. Most of a pane
+/// is an AppKit view (the editor, a preview) that takes its clicks before SwiftUI
+/// sees them, so the pane watches for them.
+private struct PaneClickTracker: NSViewRepresentable {
+    /// Called as the click arrives, before the view under it gets it, so that what
+    /// the click does (a button in the tab row, say) finds its pane focused.
+    /// Returns whether the click counts.
+    let clicked: () -> Bool
+    /// Called after a click that left the keyboard in another pane (one on the tab
+    /// row, or on a pane with nothing to type in).
+    let settle: () -> Void
+
+    func makeNSView(context: Context) -> AnchorView { AnchorView() }
+
+    func updateNSView(_ nsView: AnchorView, context: Context) {
+        nsView.clicked = clicked
+        nsView.settle = settle
+    }
+
+    static func dismantleNSView(_ nsView: AnchorView, coordinator: ()) {
+        nsView.stopWatching()
+    }
+
+    /// Marks where the pane is in its window, behind it.
+    final class AnchorView: NSView {
+        var clicked: () -> Bool = { false }
+        var settle: () -> Void = {}
+
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            stopWatching()
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+                self?.handle(event)
+                return event
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Liquid Glass card, or a bordered one with the glass effect off. Corners
-        // next to the window's corners follow its radius minus the inset; the
-        // others (under the tab bar) fall back to the minimum.
-        .workspaceCard()
+
+        func stopWatching() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+        }
+
+        private func handle(_ event: NSEvent) {
+            // The monitor sees clicks before the window turns them away, so a sheet
+            // or an alert has to rule them out here.
+            guard let window, event.window === window, window.attachedSheet == nil, NSApp.modalWindow == nil,
+                  bounds.contains(convert(event.locationInWindow, from: nil)), clicked() else { return }
+            // Once the click has been through: it usually puts the keyboard in the
+            // pane itself, on the editor it lands on.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let window = self.window else { return }
+                if let responder = window.firstResponder as? NSView, responder.window === window,
+                   self.convert(self.bounds, to: nil).intersects(responder.convert(responder.bounds, to: nil)) { return }
+                self.settle()
+            }
+        }
+    }
+}
+
+/// What a pane with no tabs shows, while there are other panes.
+private struct EmptyPaneView: View {
+    let pane: PaneLayout.PaneID
+    let workspace: WorkspaceModel
+
+    var body: some View {
+        ContentUnavailableView {
+            Label("No File", systemImage: "rectangle.split.2x1")
+        } description: {
+            Text("Open a file to show it here, or drag a tab over from another pane.")
+        } actions: {
+            Button("Close Pane") { workspace.closePane(pane) }
+                .help(KeybindSettings.shared.help("Close Pane", for: .closePane))
+        }
     }
 }
 
 // MARK: - Tabs
 
+/// One pane's tabs. A drag moves a tab along the bar or, dropped on another pane,
+/// to the end of that pane's bar. A file can have a tab in several panes.
 private struct EditorTabBar: View {
     let workspace: WorkspaceModel
+    let pane: PaneLayout.PaneID
+    /// The pane at a point in the panes' space.
+    let paneAt: (CGPoint) -> PaneLayout.PaneID?
 
+    /// Where the bar starts in the panes' space, which a drag is measured in.
+    @State private var barOrigin: CGFloat = 0
     /// The tab being dragged to a new place, and how far the pointer has carried it.
     @State private var drag: TabDrag<URL>?
     /// Each tab's laid-out width, to tell which tabs a dragged one has passed.
@@ -114,9 +324,6 @@ private struct EditorTabBar: View {
     /// How much each end of the row is faded: fully once tabs are scrolled out past it.
     @State private var edgeFades = EdgeFades()
 
-    /// The bar's own space, which stays put while the row scrolls and the tabs move.
-    static let space: NamedCoordinateSpace = .named("EditorTabBar")
-
     private static let spacing: CGFloat = 6
     private static let inset: CGFloat = 2
     private static let reorderAnimation = Animation.snappy(duration: 0.2)
@@ -128,21 +335,26 @@ private struct EditorTabBar: View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal) {
                 HStack(spacing: Self.spacing - 2 * Self.fadeWidth) {
-                    ForEach(workspace.openTabs, id: \.self) { url in
+                    ForEach(workspace.tabs(in: pane), id: \.self) { url in
                         let offset = offsets[url] ?? 0
                         let isDragged = drag?.tab == url
                         EditorTab(
                             url: url,
-                            isActive: url == workspace.activeTab,
+                            isActive: url == workspace.activeTab(in: pane),
+                            isInFocusedPane: pane == workspace.focusedPane,
                             isDirty: workspace.buffers[url]?.isDirty == true,
                             isMissing: workspace.buffers[url]?.isMissingOnDisk == true,
-                            select: { workspace.activate(url) },
-                            close: { withAnimation(.snappy) { workspace.closeTab(url) } },
-                            closeOthers: { withAnimation(.snappy) { workspace.closeOtherTabs(than: url) } },
+                            select: { workspace.activate(url, in: pane) },
+                            close: { withAnimation(.snappy) { workspace.closeTab(url, in: pane) } },
+                            closeOthers: { withAnimation(.snappy) { workspace.closeOtherTabs(than: url, in: pane) } },
                             revealInTree: workspace.contains(url) ? { workspace.revealInTree(url) } : nil,
                             copyRelativePath: workspace.contains(url) ? { Finder.copyPath(workspace.relativePath(of: url)) } : nil,
-                            drag: { handleDrag($0, of: url, proxy: proxy) }
+                            split: { workspace.splitPane($0, from: pane, showing: url) },
+                            closePane: workspace.layout.isSplit ? { workspace.closePane(pane) } : nil,
+                            drag: { handleDrag($0, at: $1, of: url, proxy: proxy) }
                         )
+                        // Over another pane, where dropping it would move it there.
+                        .opacity(isDragged && workspace.tabDropPane != nil ? 0.4 : 1)
                         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { tabWidths[url] = $0 }
                         // Room on either side that the row scrolls into view with the tab,
                         // so that it comes to rest clear of the faded ends of the bar. The
@@ -161,7 +373,7 @@ private struct EditorTabBar: View {
                 // on any drag, whatever gesture or view is under the pointer. So the
                 // window stops being movable while the pointer is over the tabs; a drag
                 // on the empty part of the row still moves it, as on its background.
-                .onHover { workspace.window?.isMovable = !$0 }
+                .onHover { workspace.setWindowHeld($0, by: windowHolder) }
             }
             .scrollIndicators(.never)
             .scrollPosition($scrollPosition)
@@ -177,16 +389,16 @@ private struct EditorTabBar: View {
             }
             .fixedSize(horizontal: false, vertical: true)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { barWidth = $0 }
+            .onGeometryChange(for: CGFloat.self) { $0.frame(in: EditorPanes.space).minX } action: { barOrigin = $0 }
             // A tab scrolled part of the way out fades away rather than ending in a cut.
             .mask { fadeMask }
             .background(WheelScrollsSideways())
             .background(
                 MiddleClickClosesTab(tab: tab(at:)) { url in
-                    withAnimation(.snappy) { workspace.closeTab(url) }
+                    withAnimation(.snappy) { workspace.closeTab(url, in: pane) }
                 }
             )
-            .coordinateSpace(Self.space)
-            .onChange(of: workspace.activeTab) { _, active in
+            .onChange(of: workspace.activeTab(in: pane)) { _, active in
                 if let active {
                     withAnimation { proxy.scrollTo(active) }
                 }
@@ -195,19 +407,22 @@ private struct EditorTabBar: View {
             // active tab out of view: resizing the window or the sidebar brings it back,
             // in step with the resize rather than animated behind it.
             .onChange(of: barWidth) {
-                if drag == nil, let active = workspace.activeTab {
+                if drag == nil, let active = workspace.activeTab(in: pane) {
                     proxy.scrollTo(active)
                 }
             }
-            .onChange(of: workspace.openTabs) { _, tabs in
+            .onChange(of: workspace.tabs(in: pane)) { _, tabs in
                 tabWidths = tabWidths.filter { tabs.contains($0.key) }
                 // The dragged tab can close or be renamed mid-drag, which removes its view
                 // before the gesture can end or cancel.
-                if let drag, !tabs.contains(drag.tab) { self.drag = nil }
+                if let drag, !tabs.contains(drag.tab) { endDrag() }
                 // Closing the last tab leaves nothing for the pointer to move off.
-                if tabs.isEmpty { workspace.window?.isMovable = true }
+                if tabs.isEmpty { workspace.setWindowHeld(false, by: windowHolder) }
             }
-            .onDisappear { workspace.window?.isMovable = true }
+            .onDisappear {
+                workspace.setWindowHeld(false, by: windowHolder)
+                if drag != nil { workspace.tabDropPane = nil }
+            }
             // A pointer resting near an end of the bar sends no events, so a timer keeps
             // the row scrolling under it for as long as the drag lasts.
             .task(id: drag?.tab) {
@@ -240,24 +455,43 @@ private struct EditorTabBar: View {
         }
     }
 
-    private func handleDrag(_ event: TabDragEvent, of url: URL, proxy: ScrollViewProxy) {
+    private var windowHolder: String { "tabs-\(pane)" }
+
+    /// The drag is over, wherever it went.
+    private func endDrag() {
+        drag = nil
+        if workspace.tabDropPane != nil { workspace.tabDropPane = nil }
+    }
+
+    /// `point` is the pointer in the panes' space, which the drag is measured in.
+    private func handleDrag(_ event: TabDragEvent, at point: CGPoint?, of url: URL, proxy: ScrollViewProxy) {
         switch event {
         case .moved(let translation, let location):
+            // Along the bar, as the row's layout has it.
+            let location = location - barOrigin
+            // Held over another pane, the tab would move there.
+            let target = point.flatMap(paneAt).flatMap { $0 == pane ? nil : $0 }
+            if workspace.tabDropPane != target { workspace.tabDropPane = target }
             if let drag, drag.tab == url {
                 self.drag = TabDrag(tab: url, translation: translation, location: location, startScrollOffset: drag.startScrollOffset)
             } else {
                 // Dragging a tab brings it forward, as clicking it does.
-                workspace.activate(url)
+                workspace.activate(url, in: pane)
                 drag = TabDrag(tab: url, translation: translation, location: location, startScrollOffset: scrollOffset)
             }
         case .dropped(let translation):
             guard var dropped = drag, dropped.tab == url else { return }
+            if let target = workspace.tabDropPane {
+                endDrag()
+                workspace.moveTab(url, from: pane, toPane: target)
+                return
+            }
             dropped.translation = translation
             let destination = dropped.reorder(in: layout)?.destination
             // The new order and the end of the drag go in one animation, so every tab
             // settles from where the drag left it instead of jumping to its new place.
             withAnimation(Self.reorderAnimation) {
-                if let destination { workspace.moveTab(url, to: destination) }
+                if let destination { workspace.moveTab(url, to: destination, in: pane) }
                 drag = nil
             }
             // Its new place can reach past the end of the bar. Once the row is laid out
@@ -268,7 +502,7 @@ private struct EditorTabBar: View {
             }
         case .cancelled:
             if drag?.tab == url {
-                withAnimation(Self.reorderAnimation) { drag = nil }
+                withAnimation(Self.reorderAnimation) { endDrag() }
             }
         }
     }
@@ -276,7 +510,7 @@ private struct EditorTabBar: View {
     /// The row as it's laid out now, for the drag to be worked out from.
     private var layout: TabBarLayout<URL> {
         TabBarLayout(
-            tabs: workspace.openTabs, widths: tabWidths, spacing: Self.spacing, inset: Self.inset,
+            tabs: workspace.tabs(in: pane), widths: tabWidths, spacing: Self.spacing, inset: Self.inset,
             barWidth: barWidth, scrollOffset: scrollOffset
         )
     }
@@ -542,7 +776,10 @@ enum TabDragEvent {
 
 private struct EditorTab: View {
     let url: URL
+    /// The tab its pane shows.
     let isActive: Bool
+    /// Whether its pane is the focused one: the active tab of another pane is drawn quieter.
+    let isInFocusedPane: Bool
     let isDirty: Bool
     /// Deleted or moved on disk since it was opened.
     let isMissing: Bool
@@ -553,8 +790,13 @@ private struct EditorTab: View {
     let revealInTree: (() -> Void)?
     /// Copies the path from the workspace root; `nil` for a file outside the workspace.
     let copyRelativePath: (() -> Void)?
-    /// Reports a drag along the tab bar, which moves the tab to another place in it.
-    let drag: (TabDragEvent) -> Void
+    /// Divides the tab's pane, the new one showing the tab's file too.
+    let split: (PaneLayout.Axis) -> Void
+    /// Closes the tab's pane, keeping its tabs; `nil` when it's the only pane.
+    let closePane: (() -> Void)?
+    /// Reports a drag, with the pointer's place among the panes: along the tab bar
+    /// it moves the tab to another place in it, and onto another pane, to that pane.
+    let drag: (TabDragEvent, CGPoint?) -> Void
 
     @State private var isHovering = false
     @GestureState private var isDragging = false
@@ -592,27 +834,34 @@ private struct EditorTab: View {
         .padding(.leading, 10)
         .padding(.trailing, 6)
         .padding(.vertical, 6)
-        .foregroundStyle(isActive ? .primary : .secondary)
+        .foregroundStyle(isActive && isInFocusedPane ? .primary : .secondary)
         // Only the active tab sits on glass.
         .glassSurface(isActive, in: .rect(cornerRadius: 8, style: .continuous))
         .contentShape(.rect(cornerRadius: 8, style: .continuous))
         .onTapGesture(perform: select)
-        // Measured in the bar, as the tab moves with the drag. The tab bar keeps the
-        // drag from moving the window as well.
+        // Measured among the panes, which stay put as the tab moves with the drag and
+        // which it can be dragged across. The tab bar keeps the drag from moving the
+        // window as well.
         .gesture(
-            DragGesture(minimumDistance: 1, coordinateSpace: EditorTabBar.space)
+            DragGesture(minimumDistance: 1, coordinateSpace: EditorPanes.space)
                 .updating($isDragging) { _, state, _ in state = true }
-                .onChanged { drag(.moved(translation: $0.translation.width, location: $0.location.x)) }
-                .onEnded { drag(.dropped(translation: $0.translation.width)) }
+                .onChanged { drag(.moved(translation: $0.translation.width, location: $0.location.x), $0.location) }
+                .onEnded { drag(.dropped(translation: $0.translation.width), $0.location) }
         )
         // A cancelled gesture resets its state without calling `onEnded`.
         .onChange(of: isDragging) { _, isDragging in
-            if !isDragging { drag(.cancelled) }
+            if !isDragging { drag(.cancelled, nil) }
         }
         .onHover { isHovering = $0 }
         .contextMenu {
             Button("Close", action: close)
             Button("Close Others", action: closeOthers)
+            Divider()
+            Button("Split Right") { split(.horizontal) }
+            Button("Split Down") { split(.vertical) }
+            if let closePane {
+                Button("Close Pane", action: closePane)
+            }
             if !url.isUntitled {
                 Divider()
                 if let revealInTree {
@@ -633,10 +882,29 @@ private struct EditorTab: View {
 private struct BufferView: View {
     let buffer: EditorBuffer
     let workspace: WorkspaceModel
+    let pane: PaneLayout.PaneID
+
+    /// Whether its pane is the focused one. What another pane shows doesn't take
+    /// the keyboard when it changes, and has no status bar.
+    private var isFocused: Bool { workspace.focusedPane == pane }
+
+    /// Whether the pane still shows this buffer, for the AppKit views a tab takes
+    /// along to another pane; see `TextViewHost`.
+    private var isCurrent: () -> Bool {
+        { [workspace, buffer, pane] in workspace.buffer(in: pane) === buffer }
+    }
+
+    /// The same, for the preview and the changes, which only one of the panes
+    /// with the file open shows.
+    private var isAuxiliaryHost: () -> Bool {
+        { [workspace, buffer, pane] in
+            workspace.buffer(in: pane) === buffer && workspace.hostsAuxiliaryView(of: buffer, in: pane)
+        }
+    }
 
     var body: some View {
-        if buffer.isShowingChanges, let changes = buffer.changesPreview {
-            GitDiffHost(preview: changes)
+        if workspace.showsChanges(buffer, in: pane), let changes = buffer.changesPreview {
+            GitDiffHost(preview: changes, isCurrent: isAuxiliaryHost)
         } else {
             content
         }
@@ -645,30 +913,34 @@ private struct BufferView: View {
     @ViewBuilder
     private var content: some View {
         switch buffer.content {
-        case .text(let controller):
-            if buffer.isShowingPreview, let preview = buffer.preview {
-                PreviewHost(preview: preview)
+        case .text(let first):
+            if workspace.showsPreview(buffer, in: pane), let preview = buffer.preview {
+                PreviewHost(preview: preview, takesFocus: isFocused, isCurrent: isAuxiliaryHost)
             } else {
+                // The pane's own editor on the text, which other panes may show too.
+                let controller = buffer.editor(in: pane) ?? first
                 // The status bar floats over the text's bottom corner rather than
                 // taking a strip of the card, left of the minimap when it's shown.
                 VStack(spacing: 0) {
                     if workspace.isConflicted(buffer) {
                         ConflictBar(buffer: buffer, workspace: workspace)
                     }
-                    TextViewHost(controller: controller)
+                    TextViewHost(controller: controller, takesFocus: isFocused, isCurrent: isCurrent)
                         .overlay(alignment: .bottomTrailing) {
-                            StatusBar(buffer: buffer, workspace: workspace)
-                                .padding(4)
-                                .padding(.trailing, EditorSettings.shared.showsMinimap ? MinimapView.width : 0)
+                            if isFocused {
+                                StatusBar(buffer: buffer, workspace: workspace)
+                                    .padding(4)
+                                    .padding(.trailing, EditorSettings.shared.showsMinimap ? MinimapView.width : 0)
+                            }
                         }
                 }
             }
         case .image(let file):
             ImagePreview(file: file)
         case .pdf(let file):
-            PDFPreview(file: file, name: buffer.name)
+            PDFPreview(file: file, name: buffer.name, takesFocus: isFocused, isCurrent: isCurrent)
         case .video(let file):
-            VideoPreview(file: file, name: buffer.name)
+            VideoPreview(file: file, name: buffer.name, takesFocus: isFocused)
         case .binary:
             ContentUnavailableView(
                 "Binary File",
@@ -755,9 +1027,28 @@ private struct StatusBar: View {
     let buffer: EditorBuffer
     let workspace: WorkspaceModel
 
+    /// How much the bar says. A narrow pane has room for less of it.
+    private enum Detail {
+        case full
+        /// Without the branch, the blame, the encoding and the line endings.
+        case brief
+        /// The cursor's position alone.
+        case position
+    }
+
     var body: some View {
+        // The bar is as wide as what's in it, and floats on the text: in a pane
+        // too narrow for all of it, it says less rather than run off the card.
+        ViewThatFits(in: .horizontal) {
+            bar(.full)
+            bar(.brief)
+            bar(.position)
+        }
+    }
+
+    private func bar(_ detail: Detail) -> some View {
         HStack(spacing: 12) {
-            if let branch = workspace.git.snapshot?.branch {
+            if detail == .full, let branch = workspace.git.snapshot?.branch {
                 Button(action: workspace.showChanges) {
                     // A branch's name can be any length, and the bar is as wide
                     // as what's in it: it mustn't grow over the text it floats on.
@@ -775,13 +1066,19 @@ private struct StatusBar: View {
             }
             .buttonStyle(.plain)
             .help(KeybindSettings.shared.help("Go to Line", for: .goToLine))
-            if EditorSettings.shared.showsLineBlame, workspace.git.isRepository, !buffer.isUntitled {
+            if detail == .full, EditorSettings.shared.showsLineBlame, workspace.git.isRepository, !buffer.isUntitled {
                 blame
             }
-            Text(buffer.indentation.usesTabs ? "Tabs" : "Spaces: \(buffer.indentation.width)")
-            Text(buffer.encodingName)
-            Text(buffer.lineEndingName)
-            Text(buffer.language?.displayName ?? "Plain Text")
+            if detail != .position {
+                Text(buffer.indentation.usesTabs ? "Tabs" : "Spaces: \(buffer.indentation.width)")
+            }
+            if detail == .full {
+                Text(buffer.encodingName)
+                Text(buffer.lineEndingName)
+            }
+            if detail != .position {
+                Text(buffer.language?.displayName ?? "Plain Text")
+            }
         }
         .font(.caption)
         .monospacedDigit()
@@ -848,14 +1145,18 @@ private struct StatusBar: View {
 private struct PreviewModeToggle: View {
     let buffer: EditorBuffer
     let format: PreviewFormat
+    let workspace: WorkspaceModel
+    let pane: PaneLayout.PaneID
 
     var body: some View {
+        // What this pane shows: the preview may be in another pane with the file open.
+        let isShowingPreview = workspace.showsPreview(buffer, in: pane)
         HStack(spacing: 2) {
-            option("doc.plaintext", help: KeybindSettings.shared.help("Show \(format.sourceName)", for: .togglePreview), isOn: !buffer.isShowingPreview) {
-                buffer.setShowingPreview(false)
+            option("doc.plaintext", help: KeybindSettings.shared.help("Show \(format.sourceName)", for: .togglePreview), isOn: !isShowingPreview) {
+                workspace.setShowingPreview(false, of: buffer, in: pane)
             }
-            option("eye", help: KeybindSettings.shared.help("Show Preview", for: .togglePreview), isOn: buffer.isShowingPreview) {
-                buffer.setShowingPreview(true)
+            option("eye", help: KeybindSettings.shared.help("Show Preview", for: .togglePreview), isOn: isShowingPreview) {
+                workspace.setShowingPreview(true, of: buffer, in: pane)
             }
         }
     }
@@ -883,25 +1184,28 @@ private struct PreviewModeToggle: View {
 private struct ChangesToggle: View {
     let buffer: EditorBuffer
     let workspace: WorkspaceModel
+    let pane: PaneLayout.PaneID
 
     var body: some View {
+        // What this pane shows: the changes may be in another pane with the file open.
+        let isShowingChanges = workspace.showsChanges(buffer, in: pane)
         HStack(spacing: 6) {
             // Whose changes these are, when they aren't the ones since the last commit.
-            if buffer.isShowingChanges, buffer.shownCommit == nil, buffer.shownComparison != .all {
+            if isShowingChanges, buffer.shownCommit == nil, buffer.shownComparison != .all {
                 Text(buffer.shownComparison == .staged ? "Staged" : "Unstaged")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .help(buffer.shownComparison == .staged ? "Showing what is staged in this file" : "Showing what isn’t staged in this file")
             }
-            if let commit = buffer.shownCommit {
+            if isShowingChanges, let commit = buffer.shownCommit {
                 Text(commit.shortHash)
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .help("Showing what “\(commit.subject)” changed in this file")
             }
-            if buffer.isShowingChanges {
+            if isShowingChanges {
                 let settings = EditorSettings.shared
                 Button {
                     settings.showsChangesSideBySide.toggle()
@@ -927,14 +1231,14 @@ private struct ChangesToggle: View {
                     .contentShape(.rect)
             }
             .buttonStyle(.borderless)
-            .foregroundStyle(buffer.isShowingChanges ? .primary : .secondary)
+            .foregroundStyle(isShowingChanges ? .primary : .secondary)
             .background {
-                if buffer.isShowingChanges {
+                if isShowingChanges {
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(.primary.opacity(0.08))
                 }
             }
-            .help(buffer.isShowingChanges ? "Hide Changes" : "Show Changes")
+            .help(isShowingChanges ? "Hide Changes" : "Show Changes")
             .accessibilityLabel("Changes")
         }
     }
@@ -1014,6 +1318,10 @@ private struct Checkerboard: View {
 private struct PDFPreview: View {
     let file: EditorBuffer.PDFFile
     let name: String
+    /// Whether the pages take the keyboard when they're put in the card.
+    var takesFocus = true
+    /// Whether this card is still the one showing the PDF; see `TextViewHost`.
+    var isCurrent: () -> Bool = { true }
 
     var body: some View {
         if file.isLocked {
@@ -1021,7 +1329,7 @@ private struct PDFPreview: View {
                 // Each locked tab keeps its own half-typed password.
                 .id(ObjectIdentifier(file))
         } else {
-            PDFViewHost(pdfView: file.view)
+            PDFViewHost(pdfView: file.view, takesFocus: takesFocus, isCurrent: isCurrent)
                 .overlay(alignment: .bottomTrailing) {
                     Text(details)
                         .font(.caption)
@@ -1081,6 +1389,8 @@ private struct PDFPasswordPrompt: View {
 /// Hosts whichever PDF tab's view is active.
 private struct PDFViewHost: NSViewRepresentable {
     let pdfView: PDFView
+    let takesFocus: Bool
+    let isCurrent: () -> Bool
 
     func makeNSView(context: Context) -> NSView {
         let container = NSView()
@@ -1089,7 +1399,7 @@ private struct PDFViewHost: NSViewRepresentable {
     }
 
     func updateNSView(_ container: NSView, context: Context) {
-        if pdfView.superview !== container {
+        if pdfView.superview !== container, isCurrent() {
             container.subviews.forEach { $0.removeFromSuperview() }
             attach(to: container)
         }
@@ -1100,6 +1410,7 @@ private struct PDFViewHost: NSViewRepresentable {
         pdfView.frame = container.bounds
         pdfView.autoresizingMask = [.width, .height]
         container.addSubview(pdfView)
+        guard takesFocus else { return }
         // So the arrow keys, Page Up and Page Down scroll it straight away.
         DispatchQueue.main.async { [pdfView] in
             pdfView.window?.makeFirstResponder(pdfView)
@@ -1114,6 +1425,8 @@ private struct PDFViewHost: NSViewRepresentable {
 private struct VideoPreview: View {
     let file: EditorBuffer.VideoFile
     let name: String
+    /// Whether the player takes the keyboard when it's put in the card.
+    var takesFocus = true
 
     var body: some View {
         switch file.state {
@@ -1127,7 +1440,7 @@ private struct VideoPreview: View {
             )
         case .ready:
             VStack(spacing: 12) {
-                VideoPlayerHost(player: file.player)
+                VideoPlayerHost(player: file.player, takesFocus: takesFocus)
                     // The picture's own shape, so no black bars are drawn around it.
                     .aspectRatio(file.pixelSize.map { $0.width / $0.height }, contentMode: .fit)
                     .overlay(Rectangle().strokeBorder(.separator, lineWidth: 1))
@@ -1158,6 +1471,7 @@ private struct VideoPreview: View {
 /// AVKit's player view, playing whichever video tab is active.
 private struct VideoPlayerHost: NSViewRepresentable {
     let player: AVPlayer
+    let takesFocus: Bool
 
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView()
@@ -1183,6 +1497,7 @@ private struct VideoPlayerHost: NSViewRepresentable {
     }
 
     private func focus(_ view: AVPlayerView) {
+        guard takesFocus else { return }
         // So Space plays and pauses, and the arrow keys step, straight away.
         DispatchQueue.main.async {
             view.window?.makeFirstResponder(view)

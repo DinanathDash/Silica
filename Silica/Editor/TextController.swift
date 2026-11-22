@@ -1,17 +1,31 @@
 import AppKit
 import SwiftUI
 
-/// Owns the NSTextView for one buffer. Kept alive per tab so undo history,
-/// selection and scroll position survive switching tabs.
+/// Owns an NSTextView on a buffer's text. Kept alive with its tab so undo history,
+/// selection and scroll position survive switching tabs. A file open in several
+/// panes has one of these for each, all on the same text: an edit in one shows in
+/// the others, and they share one undo history.
 final class TextController: NSObject, NSTextViewDelegate {
     /// What goes in the editor card: the scroll view, with the minimap beside it.
     let view: EditorContainerView
     let scrollView: NSScrollView
     let textView: EditorTextView
     weak var buffer: EditorBuffer?
-    private var highlighter: SyntaxHighlighter?
+    /// What the editors on one text have between them.
+    private let shared: SharedText
+    /// The editor the file was opened with, which the others were made from.
+    private let isFirst: Bool
     private var lineNumbers: LineNumberRulerView?
     private var minimap: MinimapView!
+
+    private final class SharedText {
+        /// One history for the text, whichever editor an edit was made in. Without
+        /// it each text view would use its window's, which every file there shares.
+        let undoManager = UndoManager()
+        /// Colors the text, which all the editors show.
+        var highlighter: SyntaxHighlighter?
+        let editors = NSHashTable<TextController>.weakObjects()
+    }
 
     init(text: String, language: SyntaxLanguage?) {
         // Built by hand: `EditorTextView.scrollableTextView()` returned a TextKit 1 view,
@@ -19,8 +33,54 @@ final class TextController: NSObject, NSTextViewDelegate {
         scrollView = EditorScrollView()
         textView = EditorTextView(usingTextLayoutManager: true)
         view = EditorContainerView(scrollView: scrollView)
+        shared = SharedText()
+        isFirst = true
         super.init()
 
+        configureViews()
+        textView.textColor = .labelColor
+        textView.string = text
+        textView.language = language
+        textView.lineEnding = Self.lineEnding(of: text)
+        applyParagraphStyle(for: textView.font!)
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        finishSetup()
+
+        if let language {
+            setHighlighter(for: language)
+        }
+    }
+
+    /// Another editor on the text of `source`, for a second pane showing the file.
+    /// It starts where `source` is: same selection, same lines at the top.
+    init(sharing source: TextController) {
+        scrollView = EditorScrollView()
+        // A second layout of the same content, which is how TextKit 2 shows one
+        // text in two views.
+        let layoutManager = NSTextLayoutManager()
+        let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        layoutManager.textContainer = container
+        source.textView.textContentStorage?.addTextLayoutManager(layoutManager)
+        textView = EditorTextView(frame: .zero, textContainer: container)
+        view = EditorContainerView(scrollView: scrollView)
+        shared = source.shared
+        isFirst = false
+        buffer = source.buffer
+        super.init()
+
+        // The text has its colors already: setting the view's text color would
+        // paint over them in every editor.
+        configureViews()
+        textView.language = source.textView.language
+        textView.lineEnding = source.textView.lineEnding
+        textView.typingAttributes[.paragraphStyle] = source.textView.defaultParagraphStyle
+        textView.defaultParagraphStyle = source.textView.defaultParagraphStyle
+        finishSetup()
+        adoptPosition(of: source)
+    }
+
+    /// The view settings every editor has, before it has its text.
+    private func configureViews() {
         let contentSize = scrollView.contentSize
         textView.frame = NSRect(origin: .zero, size: contentSize)
         textView.minSize = .zero
@@ -48,19 +108,22 @@ final class TextController: NSObject, NSTextViewDelegate {
         textView.isAutomaticLinkDetectionEnabled = false
         textView.isAutomaticDataDetectionEnabled = false
         textView.smartInsertDeleteEnabled = false
-        let fontSize = EditorSettings.shared.fontSize
-        textView.font = Self.font(ofSize: fontSize)
-        textView.textColor = .labelColor
+        let font = Self.font(ofSize: EditorSettings.shared.fontSize)
+        if isFirst {
+            textView.font = font
+        } else {
+            // The text has the font already; what's typed here takes it too.
+            textView.typingAttributes[.font] = font
+        }
         textView.textContainerInset = NSSize(width: 8, height: 12)
+    }
 
-        textView.string = text
-        textView.language = language
-        textView.lineEnding = Self.lineEnding(of: text)
-        applyParagraphStyle(for: textView.font!)
-        textView.setSelectedRange(NSRange(location: 0, length: 0))
+    /// The gutter, the minimap and what the editor listens for, once it has its text.
+    private func finishSetup() {
+        shared.editors.add(self)
         textView.delegate = self
 
-        let ruler = LineNumberRulerView(textView: textView, scrollView: scrollView, editorFontSize: fontSize)
+        let ruler = LineNumberRulerView(textView: textView, scrollView: scrollView, editorFontSize: EditorSettings.shared.fontSize)
         scrollView.verticalRulerView = ruler
         scrollView.hasVerticalRuler = true
         scrollView.rulersVisible = EditorSettings.shared.showsLineNumbers
@@ -70,10 +133,6 @@ final class TextController: NSObject, NSTextViewDelegate {
         view.minimap = minimap
         view.showsMinimap = EditorSettings.shared.showsMinimap
 
-        if let language {
-            highlighter = SyntaxHighlighter(textView: textView, language: language)
-            highlighter?.highlightNow()
-        }
         applyWrapping()
 
         NotificationCenter.default.addObserver(
@@ -97,6 +156,29 @@ final class TextController: NSObject, NSTextViewDelegate {
             self, selector: #selector(updateGutterMask),
             name: NSView.boundsDidChangeNotification, object: scrollView.contentView
         )
+        if let storage = textView.textStorage {
+            // Before the storage fixes attributes, which widens what it reports as
+            // edited to whole paragraphs: here it's still the characters that changed.
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(storageWillProcessEditing),
+                name: NSTextStorage.willProcessEditingNotification, object: storage
+            )
+        }
+    }
+
+    /// Colors the text for `language`, in every editor on it.
+    private func setHighlighter(for language: SyntaxLanguage) {
+        let highlighter = SyntaxHighlighter(textView: textView, language: language)
+        // The text being composed may be in another pane's editor.
+        highlighter.isComposing = { [weak shared] in
+            shared?.editors.allObjects.contains { $0.textView.hasMarkedText() } ?? false
+        }
+        shared.highlighter = highlighter
+        highlighter.highlightNow()
+    }
+
+    func undoManager(for view: NSTextView) -> UndoManager? {
+        shared.undoManager
     }
 
     /// `\r\n` if the file's first line break is one, else `\n` (or `\r` for old Mac files).
@@ -114,12 +196,11 @@ final class TextController: NSObject, NSTextViewDelegate {
     /// Switches highlighting and comment markers, e.g. after a rename changes the extension.
     func setLanguage(_ language: SyntaxLanguage?) {
         guard language != textView.language else { return }
-        textView.language = language
+        for editor in shared.editors.allObjects { editor.textView.language = language }
         if let language {
-            highlighter = SyntaxHighlighter(textView: textView, language: language)
-            highlighter?.highlightNow()
+            setHighlighter(for: language)
         } else {
-            highlighter = nil
+            shared.highlighter = nil
             if let storage = textView.textStorage {
                 storage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: NSRange(location: 0, length: storage.length))
             }
@@ -172,6 +253,14 @@ final class TextController: NSObject, NSTextViewDelegate {
     private var pendingTopLine: Int?
     /// The top line when the view last left the screen (another tab was shown).
     private var lastTopLine: Int?
+
+    /// Starts where another editor on the text is: its selection, and its lines at
+    /// the top once this one is shown.
+    func adoptPosition(of other: TextController) {
+        guard other !== self else { return }
+        textView.setSelectedRange(other.textView.selectedRange())
+        pendingTopLine = other.savedTopLine
+    }
 
     /// Puts back a saved cursor and scroll position; the scroll waits until the view
     /// is shown.
@@ -298,7 +387,8 @@ final class TextController: NSObject, NSTextViewDelegate {
     }
 
     func updateStatus() {
-        guard let buffer, let lineNumbers else { return }
+        // The status bar shows the editor of the pane in use.
+        guard let buffer, let lineNumbers, buffer.textController === self else { return }
         let selection = textView.selectedRange()
         let status = EditorBuffer.CursorStatus(
             line: lineNumbers.lineNumber(at: selection.location),
@@ -351,7 +441,8 @@ final class TextController: NSObject, NSTextViewDelegate {
 
     /// Font family, tab width, line numbers or indent guides changed in Settings.
     @objc private func syntaxThemeDidChange() {
-        highlighter?.highlightNow()
+        // Once for the text, not once for each editor on it.
+        if isFirst { shared.highlighter?.highlightNow() }
     }
 
     @objc private func settingsDidChange() {
@@ -376,13 +467,64 @@ final class TextController: NSObject, NSTextViewDelegate {
     }
 
     func textDidChange(_ notification: Notification) {
-        highlighter?.textDidChange()
-        lineNumbers?.textDidChange()
+        isMakingEdit = false
+        shared.highlighter?.textDidChange()
+        // The file's other editors have the new text too.
+        for editor in shared.editors.allObjects {
+            editor.lineNumbers?.textDidChange()
+            if editor !== self { editor.textView.needsDisplay = true }
+        }
         buffer?.textRevision &+= 1
         if !isReplacingText, buffer?.isDirty == false {
             buffer?.isDirty = true
         }
+        buffer?.textDidChange()
         scheduleStatusUpdate()
+    }
+
+    // MARK: Edits made in another editor
+
+    /// Whether the edit being made to the text is this editor's own.
+    private var isMakingEdit = false
+    /// Where the selection goes once an edit made elsewhere is through.
+    private var movedSelection: NSRange?
+
+    func textView(_ textView: NSTextView, shouldChangeTextInRanges affectedRanges: [NSValue], replacementStrings: [String]?) -> Bool {
+        isMakingEdit = true
+        // An edit is over within the event that makes it, whether or not it got as
+        // far as `textDidChange`.
+        DispatchQueue.main.async { [weak self] in self?.isMakingEdit = false }
+        return true
+    }
+
+    /// The text changed under this editor: another pane's editor made the edit. The
+    /// selection here stays on the text it was on, moving with what was put in or
+    /// taken out before it.
+    @objc private func storageWillProcessEditing(_ notification: Notification) {
+        guard !isMakingEdit, let storage = notification.object as? NSTextStorage,
+              storage.editedMask.contains(.editedCharacters) else { return }
+        let edited = storage.editedRange
+        let before = NSRange(location: edited.location, length: edited.length - storage.changeInLength)
+        func moved(_ position: Int) -> Int {
+            if position <= before.location { return position }
+            if position >= NSMaxRange(before) { return position + storage.changeInLength }
+            return NSMaxRange(edited)
+        }
+        let selection = movedSelection ?? textView.selectedRange()
+        let start = moved(selection.location)
+        let end = moved(NSMaxRange(selection))
+        let isFirstEdit = movedSelection == nil
+        movedSelection = NSRange(location: start, length: max(end - start, 0))
+        guard isFirstEdit else { return }
+        // After the edit, which the text view isn't ready to be asked about yet.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let selection = self.movedSelection else { return }
+            self.movedSelection = nil
+            let length = (self.textView.string as NSString).length
+            let location = min(selection.location, length)
+            let range = NSRange(location: location, length: min(selection.length, length - location))
+            if self.textView.selectedRange() != range { self.textView.setSelectedRange(range) }
+        }
     }
 
     private var isReplacingText = false
@@ -409,7 +551,7 @@ final class TextController: NSObject, NSTextViewDelegate {
 
         isReplacingText = true
         defer { isReplacingText = false }
-        textView.redetectIndentation()
+        for editor in self.shared.editors.allObjects { editor.textView.redetectIndentation() }
         if textView.shouldChangeText(in: range, replacementString: replacement) {
             textView.replaceCharacters(in: range, with: replacement)
             textView.didChangeText()
@@ -470,30 +612,66 @@ final class TextController: NSObject, NSTextViewDelegate {
 /// Hosts whichever buffer's scroll view is active.
 struct TextViewHost: NSViewRepresentable {
     let controller: TextController
+    /// Whether the editor takes the keyboard when it's put in the card. Not in a
+    /// pane that isn't the focused one: its tabs change without the cursor leaving
+    /// the pane being typed in.
+    var takesFocus = true
+    /// Whether this card is still the one showing the editor. A pane on its way
+    /// out can be updated once more with the editor it had, after the pane that
+    /// took the tab over has it: it mustn't take the view back.
+    var isCurrent: () -> Bool = { true }
 
     func makeNSView(context: Context) -> HostView {
         HostView()
     }
 
     func updateNSView(_ nsView: HostView, context: Context) {
-        nsView.show(controller)
+        guard isCurrent() else { return }
+        nsView.show(controller, takesFocus: takesFocus)
     }
 
     final class HostView: NSView {
         private weak var current: TextController?
 
-        func show(_ controller: TextController) {
-            guard current !== controller else { return }
-            current?.willDisappear()
-            current?.view.removeFromSuperview()
+        func show(_ controller: TextController, takesFocus: Bool) {
+            // A tab moved to another pane takes its view along, and brings it back
+            // if it returns: the view being elsewhere means it has to be put here.
+            guard current !== controller || controller.view.superview !== self else { return }
+            // Only a view that's still here is this host's to take out.
+            if let current, current !== controller, current.view.superview === self {
+                current.willDisappear()
+                current.view.removeFromSuperview()
+            }
             let editorView = controller.view
             editorView.frame = bounds
             editorView.autoresizingMask = [.width, .height]
             addSubview(editorView)
             current = controller
             DispatchQueue.main.async { [weak self] in
-                self?.window?.makeFirstResponder(controller.textView)
+                if takesFocus { self?.focus(controller) }
                 controller.didAppear()
+            }
+        }
+
+        /// The editor that takes the keyboard once this view is in a window: a new
+        /// pane's host is asked to show its editor before it gets there.
+        private weak var awaitingFocus: TextController?
+
+        private func focus(_ controller: TextController) {
+            if let window {
+                window.makeFirstResponder(controller.textView)
+            } else {
+                awaitingFocus = controller
+            }
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window, let controller = awaitingFocus else { return }
+            awaitingFocus = nil
+            // Only if it's still the editor this host shows.
+            if controller === current, controller.view.superview === self {
+                window.makeFirstResponder(controller.textView)
             }
         }
     }

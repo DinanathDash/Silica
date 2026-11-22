@@ -44,6 +44,11 @@ Silica needs macOS 15 or later. The Liquid Glass look needs macOS 26; earlier ve
 - **Tabs.** Drag tabs to reorder them, step through them with ⌃Tab, and close one with
   a middle click. With more tabs than fit, a mouse wheel scrolls the tab bar.
   Right-click a tab to reveal its file in the explorer or in Finder, or to copy its path.
+- **Split panes.** Split the editor to the right or downwards, as often as you like, to
+  see files side by side, or two places in one file: a new pane opens on the file you're
+  in, and an edit in one pane shows in the other. Each pane has its own tabs: drag a
+  tab onto another pane to move it there, and drag the line between two panes to
+  resize them. Preview a Markdown file in one pane while you write it in the other.
 - **Syntax highlighting** for 27 languages, including Swift, JavaScript, TypeScript,
   Python, Go, Rust, C, C++, Java, Kotlin, Dart, HTML, CSS, JSON, YAML and Markdown. Diff and
   patch files show added lines in green and removed lines in red.
@@ -92,6 +97,9 @@ Silica needs macOS 15 or later. The Liquid Glass look needs macOS 26; earlier ve
 | ⌃⇧` | New terminal |
 | ⌘K | Clear the terminal |
 | ⌃Tab / ⌃⇧Tab | Select the next or previous tab (also ⇧⌘] / ⇧⌘[); from a terminal, the terminals' tabs |
+| ⌘D / ⇧⌘D | Split the editor to the right or downwards |
+| ⌥⌘→ / ⌥⌘← | Go to the next or previous pane |
+| ⌃⌘W | Close the pane, keeping its tabs |
 | ⌘/ | Toggle comment |
 | ⌥↑ / ⌥↓ | Move lines up or down |
 | ⇧⌥↑ / ⇧⌥↓ | Duplicate lines up or down |

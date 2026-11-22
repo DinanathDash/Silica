@@ -478,6 +478,11 @@ private final class LocalFileSchemeHandler: NSObject, WKURLSchemeHandler {
 /// Hosts a buffer's preview web view in the editor card.
 struct PreviewHost: NSViewRepresentable {
     let preview: DocumentPreview
+    /// Whether the preview takes the keyboard when it's put in the card: not in a
+    /// pane that isn't the focused one.
+    var takesFocus = true
+    /// Whether this card is still the one showing the preview; see `TextViewHost`.
+    var isCurrent: () -> Bool = { true }
 
     func makeNSView(context: Context) -> NSView {
         let container = NSView()
@@ -486,7 +491,7 @@ struct PreviewHost: NSViewRepresentable {
     }
 
     func updateNSView(_ container: NSView, context: Context) {
-        if preview.webView.superview !== container {
+        if preview.webView.superview !== container, isCurrent() {
             container.subviews.forEach { $0.removeFromSuperview() }
             attach(to: container)
         }
@@ -498,6 +503,7 @@ struct PreviewHost: NSViewRepresentable {
         webView.frame = container.bounds
         webView.autoresizingMask = [.width, .height]
         container.addSubview(webView)
+        guard takesFocus else { return }
         DispatchQueue.main.async {
             webView.window?.makeFirstResponder(webView)
         }

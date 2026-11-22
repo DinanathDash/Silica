@@ -35,12 +35,28 @@ final class WorkspaceModel {
     @ObservationIgnored private var treeFilterTask: Task<Void, Never>?
     private(set) var isQuickOpenVisible = false
     let quickOpen: QuickOpenModel
-    private(set) var openTabs: [URL] = [] {
+    /// How the editor area is divided into panes. Each pane has its own tabs, and
+    /// a text file can have a tab in several of them.
+    private(set) var layout = PaneLayout() {
         didSet { scheduleSessionSave() }
     }
-    private(set) var activeTab: URL? {
+    private var paneTabs: [PaneLayout.PaneID: PaneTabs] = [:] {
+        didSet {
+            scheduleSessionSave()
+            // A pane that lost a file's tab has no more use for its editor on it.
+            for (url, buffer) in buffers { buffer.keepEditors(in: panes(holding: url)) }
+        }
+    }
+    /// The pane that menu commands act on and files open in: the one last clicked
+    /// or typed in. Starts as the layout's only pane.
+    private(set) var focusedPane: PaneLayout.PaneID = 0 {
         didSet { scheduleSessionSave() }
     }
+    /// The pane a tab being dragged would move to if dropped now.
+    var tabDropPane: PaneLayout.PaneID?
+    /// The room the panes and the terminal share, which the view reports: what
+    /// there is to split.
+    @ObservationIgnored var editorAreaSize: CGSize = .zero
     private(set) var buffers: [URL: EditorBuffer] = [:]
 
     /// The project's terminals, in the order of their tabs. They keep running while
@@ -57,8 +73,22 @@ final class WorkspaceModel {
     @ObservationIgnored private var terminationObserver: NSObjectProtocol?
     @ObservationIgnored private var isRestoringSession = false
     @ObservationIgnored private var sessionSaveTask: Task<Void, Never>?
+    /// Where the last Save As put its file, for closing a tab that was saved on the way.
+    @ObservationIgnored private var savedAsURL: URL?
 
     var name: String { root.name }
+
+    /// The open files, pane by pane in reading order; one that several panes have
+    /// a tab for is here once.
+    var openTabs: [URL] {
+        var seen = Set<URL>()
+        return layout.panes.flatMap { tabs(in: $0) }.filter { seen.insert($0).inserted }
+    }
+
+    /// The tab the focused pane shows.
+    var activeTab: URL? {
+        paneTabs[focusedPane]?.active
+    }
 
     var activeBuffer: EditorBuffer? {
         activeTab.flatMap { buffers[$0] }
@@ -227,7 +257,7 @@ final class WorkspaceModel {
 
     /// Whether Select Next Tab and Select Previous Tab have another tab to go to.
     var canSelectOtherTab: Bool {
-        openTabs.count > 1 || (terminals.count > 1 && isTerminalVisible && terminal?.isFocused == true)
+        tabs(in: focusedPane).count > 1 || (terminals.count > 1 && isTerminalVisible && terminal?.isFocused == true)
     }
 
     /// Ends a terminal's shell and closes its tab: the one that's showing, unless
@@ -275,6 +305,17 @@ final class WorkspaceModel {
         }
     }
 
+    /// Views in the title bar that take drags themselves (a tab, the divider
+    /// between two panes). The window server moves the window on any drag there,
+    /// whatever gesture or view is under the pointer, so the window stops being
+    /// movable while the pointer is over one of them.
+    @ObservationIgnored private var windowHolders = Set<String>()
+
+    func setWindowHeld(_ isHeld: Bool, by holder: String) {
+        if isHeld { windowHolders.insert(holder) } else { windowHolders.remove(holder) }
+        window?.isMovable = windowHolders.isEmpty
+    }
+
     // MARK: Sidebar modes
 
     enum SidebarMode {
@@ -303,11 +344,10 @@ final class WorkspaceModel {
         // A conflict is settled in the editor, where the conflict bar is, so
         // that's what selecting it shows: the text with git's markers.
         if change.status == .conflicted {
-            guard let buffer = buffers[url] else { return }
-            buffer.hideChanges()
-            if buffer.isShowingPreview { buffer.setShowingPreview(false) }
+            if let buffer = buffers[url] { showText(of: buffer) }
             return
         }
+        buffers[url]?.setAuxiliaryPane(focusedPane)
         showChanges(in: url, comparison: change.isStaged ? .staged : .unstaged)
     }
 
@@ -613,9 +653,11 @@ final class WorkspaceModel {
     /// Show Changes / Hide Changes, for the active tab.
     func toggleChanges() {
         guard let buffer = activeBuffer else { return }
-        if buffer.isShowingChanges {
+        if showsChanges(buffer, in: focusedPane) {
             buffer.hideChanges()
         } else if hasChanges(buffer) {
+            // In this pane, wherever they were showing.
+            buffer.setAuxiliaryPane(focusedPane)
             showChanges(in: buffer.url, comparison: .all)
             // Asked for from the tab, the changes take the keyboard, as the editor
             // they replace had it: arrows scroll them, typing goes back to the text.
@@ -662,6 +704,7 @@ final class WorkspaceModel {
         let url = url(forRelativePath: file.path)
         if Self.isDirectory(url) { return }
         open(url)
+        buffers[url]?.setAuxiliaryPane(focusedPane)
         buffers[url]?.showChanges(
             path: file.path, status: file.status, originalPath: file.originalPath, commit: commit
         )
@@ -684,8 +727,7 @@ final class WorkspaceModel {
     func openSearchMatch(_ url: URL, range: NSRange) {
         open(url)
         guard let buffer = buffers[url] else { return }
-        buffer.hideChanges()
-        if buffer.isShowingPreview { buffer.setShowingPreview(false) }
+        showText(of: buffer)
         // Once the editor for the file is in the window.
         DispatchQueue.main.async {
             buffer.textController?.reveal(range)
@@ -727,8 +769,7 @@ final class WorkspaceModel {
 
     private func goToLine(_ line: Int) {
         guard let buffer = activeBuffer, let controller = buffer.textController else { return }
-        buffer.hideChanges()
-        if buffer.isShowingPreview { buffer.setShowingPreview(false) }
+        showText(of: buffer)
         DispatchQueue.main.async { controller.goToLine(line) }
     }
 
@@ -890,16 +931,39 @@ final class WorkspaceModel {
 
     // MARK: Tabs
 
+    func tabs(in pane: PaneLayout.PaneID) -> [URL] {
+        paneTabs[pane]?.tabs ?? []
+    }
+
+    /// The tab a pane shows.
+    func activeTab(in pane: PaneLayout.PaneID) -> URL? {
+        paneTabs[pane]?.active
+    }
+
+    func buffer(in pane: PaneLayout.PaneID) -> EditorBuffer? {
+        activeTab(in: pane).flatMap { buffers[$0] }
+    }
+
+    /// The panes that have a tab for the file, in reading order.
+    func panes(holding url: URL) -> [PaneLayout.PaneID] {
+        layout.panes.filter { paneTabs[$0]?.contains(url) == true }
+    }
+
+    /// The pane to go by for a file when none is named: the focused one if it has
+    /// the file's tab, or else the first that does.
+    private func pane(for url: URL) -> PaneLayout.PaneID? {
+        paneTabs[focusedPane]?.contains(url) == true ? focusedPane : panes(holding: url).first
+    }
+
+    /// Opens a file in the focused pane, whichever other panes have it open. What
+    /// has a single view (an image, a PDF, a video) is gone to in the pane it's in.
     func open(_ url: URL) {
         if buffers[url] == nil {
             buffers[url] = makeBuffer(for: url)
         }
-        if !openTabs.contains(url) {
-            if let active = activeTab, let index = openTabs.firstIndex(of: active) {
-                openTabs.insert(url, at: index + 1)
-            } else {
-                openTabs.append(url)
-            }
+        if paneTabs[focusedPane]?.contains(url) != true,
+           buffers[url]?.allowsSeveralPanes == true || panes(holding: url).isEmpty {
+            paneTabs[focusedPane, default: PaneTabs()].insert(url)
         }
         activate(url)
     }
@@ -922,11 +986,25 @@ final class WorkspaceModel {
         return buffer
     }
 
-    func activate(_ url: URL) {
-        activeTab = url
+    /// Shows a file's tab in a pane, and goes to that pane: the pane named, or the
+    /// focused one if it has the tab, or the first that does.
+    func activate(_ url: URL, in pane: PaneLayout.PaneID? = nil) {
+        guard let pane = pane ?? self.pane(for: url), paneTabs[pane]?.contains(url) == true else { return }
+        if paneTabs[pane]?.active != url { paneTabs[pane]?.activate(url) }
+        if pane != focusedPane {
+            focusedPane = pane
+            focusPaneContent()
+        }
+        noteActiveTab()
+    }
+
+    /// The tree's selection and Quick Open's recent files follow the tab the
+    /// focused pane shows, and that file's commands go to the editor in this pane.
+    private func noteActiveTab() {
+        activeBuffer?.setCurrentPane(focusedPane)
         // An untitled file has no row in the tree or place in Quick Open.
-        if url.isUntitled {
-            selection = nil
+        guard let url = activeTab, !url.isUntitled else {
+            if selection != nil { selection = nil }
             return
         }
         quickOpen.noteOpened(url)
@@ -938,9 +1016,7 @@ final class WorkspaceModel {
     /// Select Next Tab / Select Previous Tab: the tab `offset` places along the bar from the
     /// active one, going round from either end to the other.
     func activateTab(offsetBy offset: Int) {
-        let count = openTabs.count
-        guard count > 1, let activeTab, let index = openTabs.firstIndex(of: activeTab) else { return }
-        activate(openTabs[((index + offset) % count + count) % count])
+        if let url = paneTabs[focusedPane]?.tab(offsetBy: offset) { activate(url) }
     }
 
     /// New File (⌘N): an empty "Untitled-N" tab, saved somewhere only when asked.
@@ -950,52 +1026,261 @@ final class WorkspaceModel {
         while taken.contains("Untitled-\(number)") { number += 1 }
         let buffer = EditorBuffer(untitledName: "Untitled-\(number)")
         buffers[buffer.url] = buffer
-        if let active = activeTab, let index = openTabs.firstIndex(of: active) {
-            openTabs.insert(buffer.url, at: index + 1)
-        } else {
-            openTabs.append(buffer.url)
-        }
+        paneTabs[focusedPane, default: PaneTabs()].insert(buffer.url)
         activate(buffer.url)
     }
 
-    /// Puts a tab at another place in the tab bar (dragging it there).
-    func moveTab(_ url: URL, to index: Int) {
-        guard let current = openTabs.firstIndex(of: url) else { return }
-        let target = min(max(index, 0), openTabs.count - 1)
-        guard target != current else { return }
-        var tabs = openTabs
-        tabs.remove(at: current)
-        tabs.insert(url, at: target)
-        openTabs = tabs
+    /// Puts a tab at another place in its pane's tab bar (dragging it there).
+    func moveTab(_ url: URL, to index: Int, in pane: PaneLayout.PaneID) {
+        paneTabs[pane]?.move(url, to: index)
     }
 
     func closeActiveTab() {
-        if let activeTab { closeTab(activeTab) }
+        if let activeTab { closeTab(activeTab, in: focusedPane) }
     }
 
-    func closeOtherTabs(than url: URL) {
-        for other in openTabs where other != url {
-            closeTab(other)
+    /// Closes the other tabs of a pane.
+    func closeOtherTabs(than url: URL, in pane: PaneLayout.PaneID) {
+        for other in tabs(in: pane) where other != url {
+            closeTab(other, in: pane)
         }
     }
 
-    func closeTab(_ url: URL) {
-        guard let index = openTabs.firstIndex(of: url) else { return }
-        if let buffer = buffers[url], buffer.needsSaving, !confirmDiscardOrSave(buffer) {
+    /// Closes a file's tab in a pane or, with no pane named, in every pane that
+    /// has one (the file is gone). Unsaved edits are asked about when the last of
+    /// the file's tabs is closing: until then they're still open in another pane.
+    func closeTab(_ url: URL, in pane: PaneLayout.PaneID? = nil) {
+        let holders = panes(holding: url)
+        guard !holders.isEmpty, pane.map(holders.contains) ?? true else { return }
+        var closing = url
+        if pane == nil || holders.count == 1, let buffer = buffers[url], buffer.needsSaving {
+            savedAsURL = nil
+            guard confirmDiscardOrSave(buffer) else { return }
+            // Saving an untitled file gave its tab the new file, which is what closes.
+            if panes(holding: url).isEmpty, let savedAsURL { closing = savedAsURL }
+        }
+        for holder in pane.map({ [$0] }) ?? panes(holding: closing) where paneTabs[holder]?.contains(closing) == true {
+            removeTab(closing, from: holder)
+        }
+        if panes(holding: closing).isEmpty { buffers[closing] = nil }
+    }
+
+    /// Takes a tab off its pane. A pane left without tabs goes too, unless it's
+    /// the only one.
+    private func removeTab(_ url: URL, from pane: PaneLayout.PaneID) {
+        paneTabs[pane]?.remove(url)
+        if layout.isSplit, paneTabs[pane]?.isEmpty != false {
+            closePane(pane)
+        } else if pane == focusedPane {
+            noteActiveTab()
+        }
+    }
+
+    // MARK: Panes
+
+    /// Whether there is room to divide the pane (the focused one, unless another
+    /// is named) with every pane keeping its minimum size.
+    func canSplit(_ pane: PaneLayout.PaneID? = nil, along axis: PaneLayout.Axis) -> Bool {
+        var divided = layout
+        guard divided.split(pane ?? focusedPane, along: axis) != nil else { return false }
+        // Before the first layout pass there's no size to go by.
+        guard editorAreaSize != .zero else { return true }
+        let needed = divided.minimumSize(spacing: WorkspaceLayout.paneSpacing, minimum: WorkspaceLayout.paneMinimumSize)
+        // The terminal gives up its height down to its own minimum.
+        let terminal = isTerminalVisible ? WorkspaceLayout.terminalHeightRange.lowerBound + WorkspaceLayout.cardInset : 0
+        return needed.width <= editorAreaSize.width && needed.height <= editorAreaSize.height - terminal
+    }
+
+    /// Split Right / Split Down: divides a pane (the focused one, unless another is
+    /// named) and goes to the new one, which shows the same file: the pane's
+    /// active tab, or the one named. A file that has a single view (an image, a
+    /// PDF, a video) moves there instead when the pane has other tabs to keep, and
+    /// otherwise stays, the new pane starting empty.
+    func splitPane(_ axis: PaneLayout.Axis, from pane: PaneLayout.PaneID? = nil, showing url: URL? = nil) {
+        let source = pane ?? focusedPane
+        guard canSplit(source, along: axis) else {
+            NSSound.beep()
             return
         }
+        withAnimation(.snappy(duration: 0.2)) {
+            guard let new = layout.split(source, along: axis) else { return }
+            var tabs = paneTabs
+            var shown = PaneTabs()
+            if let url = url ?? activeTab(in: source), tabs[source]?.contains(url) == true {
+                if buffers[url]?.allowsSeveralPanes == true {
+                    shown.insert(url)
+                } else if self.tabs(in: source).count > 1 {
+                    tabs[source]?.remove(url)
+                    shown.insert(url)
+                    buffers[url]?.movePane(from: source, to: new)
+                }
+            }
+            tabs[new] = shown
+            paneTabs = tabs
+            focusedPane = new
+        }
+        noteActiveTab()
+        focusPaneContent()
+    }
 
-        openTabs.remove(at: index)
-        buffers[url] = nil
+    /// Close Pane: the pane goes (the focused one, unless another is named) and its
+    /// tabs join the pane that takes its room, so no file is closed.
+    func closePane(_ pane: PaneLayout.PaneID? = nil) {
+        let closing = pane ?? focusedPane
+        guard layout.isSplit, layout.contains(closing) else { return }
+        let moved = paneTabs[closing] ?? PaneTabs()
+        let wasFocused = closing == focusedPane
+        withAnimation(.snappy(duration: 0.2)) {
+            guard let heir = layout.remove(closing) else { return }
+            var tabs = paneTabs
+            tabs[closing] = nil
+            let kept = tabs[heir] ?? PaneTabs()
+            // A file both panes had open keeps the one tab; the others bring their
+            // editors along.
+            for url in moved.tabs {
+                if kept.contains(url) {
+                    buffers[url]?.moveAuxiliaryPane(from: closing, to: heir)
+                } else {
+                    buffers[url]?.movePane(from: closing, to: heir)
+                }
+            }
+            // What was being looked at stays in view.
+            let active = wasFocused ? (moved.active ?? kept.active) : kept.active
+            tabs[heir] = PaneTabs(tabs: kept.tabs + moved.tabs, active: active)
+            paneTabs = tabs
+            if wasFocused { focusedPane = heir }
+        }
+        if tabDropPane == closing { tabDropPane = nil }
+        if wasFocused {
+            noteActiveTab()
+            focusPaneContent()
+        }
+    }
 
-        if activeTab == url {
-            if openTabs.isEmpty {
-                activeTab = nil
-                selection = nil
+    /// Moves a tab from one pane to the end of another's bar (dragging it there)
+    /// and shows it there. A pane left without tabs goes.
+    func moveTab(_ url: URL, from source: PaneLayout.PaneID, toPane target: PaneLayout.PaneID) {
+        guard source != target, layout.contains(target), paneTabs[source]?.contains(url) == true else { return }
+        withAnimation(.snappy(duration: 0.2)) {
+            var tabs = paneTabs
+            tabs[source]?.remove(url)
+            if tabs[target]?.contains(url) == true {
+                // The pane has the file open already, and goes on with its own editor.
+                tabs[target]?.activate(url)
+                buffers[url]?.moveAuxiliaryPane(from: source, to: target)
             } else {
-                activate(openTabs[min(index, openTabs.count - 1)])
+                tabs[target, default: PaneTabs()].insert(url, at: .max)
+                buffers[url]?.movePane(from: source, to: target)
+            }
+            paneTabs = tabs
+            focusedPane = target
+            if tabs[source]?.isEmpty != false { closePane(source) }
+        }
+        noteActiveTab()
+        focusPaneContent()
+    }
+
+    /// Goes to a pane and gives what it shows the keyboard.
+    func focusPane(_ pane: PaneLayout.PaneID) {
+        guard layout.contains(pane) else { return }
+        if pane != focusedPane {
+            focusedPane = pane
+            noteActiveTab()
+        }
+        focusPaneContent()
+    }
+
+    /// Focus Next Pane / Focus Previous Pane, in reading order and round again.
+    func focusPane(offsetBy offset: Int) {
+        guard let pane = layout.pane(from: focusedPane, offsetBy: offset), pane != focusedPane else { return }
+        focusPane(pane)
+    }
+
+    /// A click landed in the pane: it's the focused one now. The click itself
+    /// decides what gets the keyboard.
+    func paneWasClicked(_ pane: PaneLayout.PaneID) {
+        guard layout.contains(pane), pane != focusedPane else { return }
+        focusedPane = pane
+        noteActiveTab()
+    }
+
+    /// Dragging the divider between two panes.
+    func setSplitFraction(_ fraction: Double, of split: PaneLayout.SplitID) {
+        layout.setFraction(fraction, of: split)
+    }
+
+    /// Gives the keyboard to what the focused pane shows. A pane with nothing to
+    /// type in takes it away from the others, so keys don't go on editing a pane
+    /// that isn't the focused one.
+    func focusPaneContent() {
+        guard let window else { return }
+        if let buffer = activeBuffer {
+            if showsChanges(buffer, in: focusedPane), let changes = buffer.changesPreview {
+                changes.focus()
+                return
+            }
+            if showsPreview(buffer, in: focusedPane) {
+                if let preview = buffer.preview, preview.webView.window === window {
+                    window.makeFirstResponder(preview.webView)
+                    return
+                }
+            } else if let textView = buffer.editor(in: focusedPane)?.textView, textView.window === window {
+                window.makeFirstResponder(textView)
+                return
+            }
+            if case .pdf(let file) = buffer.content, !file.isLocked, file.view.window === window {
+                window.makeFirstResponder(file.view)
+                return
             }
         }
+        // A view that isn't in the window yet takes the keyboard when it gets there.
+        window.makeFirstResponder(nil)
+    }
+
+    // MARK: Preview and changes in a pane
+
+    /// Whether a pane is the one that shows a file's preview or changes. A file
+    /// has one view of each, so it's in the pane that asked for it, and any other
+    /// pane with the file open shows its text.
+    func hostsAuxiliaryView(of buffer: EditorBuffer, in pane: PaneLayout.PaneID) -> Bool {
+        let holders = panes(holding: buffer.url)
+        if let owner = buffer.auxiliaryPane, holders.contains(owner) { return owner == pane }
+        return holders.first == pane
+    }
+
+    func showsPreview(_ buffer: EditorBuffer, in pane: PaneLayout.PaneID) -> Bool {
+        buffer.isShowingPreview && hostsAuxiliaryView(of: buffer, in: pane)
+    }
+
+    func showsChanges(_ buffer: EditorBuffer, in pane: PaneLayout.PaneID) -> Bool {
+        buffer.isShowingChanges && hostsAuxiliaryView(of: buffer, in: pane)
+    }
+
+    /// Switches a pane between a file's source and its preview. A preview that's
+    /// showing in another pane comes over to this one.
+    func setShowingPreview(_ show: Bool, of buffer: EditorBuffer, in pane: PaneLayout.PaneID) {
+        if show {
+            let wasElsewhere = buffer.isShowingPreview && !hostsAuxiliaryView(of: buffer, in: pane)
+            buffer.setAuxiliaryPane(pane)
+            // The changes cover the preview.
+            if wasElsewhere { buffer.hideChanges() } else { buffer.setShowingPreview(true) }
+        } else if hostsAuxiliaryView(of: buffer, in: pane) {
+            buffer.setShowingPreview(false)
+        }
+    }
+
+    /// Show Preview / Show Markdown, for the focused pane's tab.
+    func togglePreview() {
+        guard let buffer = activeBuffer, buffer.previewFormat != nil else { return }
+        setShowingPreview(!showsPreview(buffer, in: focusedPane), of: buffer, in: focusedPane)
+    }
+
+    /// Makes the focused pane show a file's text, if it's showing the file's
+    /// preview or changes: a line or a match is about to be gone to.
+    func showText(of buffer: EditorBuffer) {
+        guard hostsAuxiliaryView(of: buffer, in: focusedPane) else { return }
+        buffer.hideChanges()
+        if buffer.isShowingPreview { buffer.setShowingPreview(false) }
     }
 
     // MARK: File operations
@@ -1160,16 +1445,20 @@ final class WorkspaceModel {
         }
         // A tab already open on the destination now shows stale text; drop it.
         if buffers[destination] != nil {
-            openTabs.removeAll { $0 == destination }
             buffers[destination] = nil
+            for pane in panes(holding: destination) { removeTab(destination, from: pane) }
         }
         buffers[source] = nil
         buffers[destination] = makeBuffer(for: destination)
-        if let index = openTabs.firstIndex(of: source) {
-            openTabs[index] = destination
+        let holders = panes(holding: source)
+        if holders.isEmpty {
+            paneTabs[focusedPane, default: PaneTabs()].insert(destination)
         } else {
-            openTabs.append(destination)
+            var tabs = paneTabs
+            for pane in holders { tabs[pane]?.retarget { $0 == source ? destination : nil } }
+            paneTabs = tabs
         }
+        savedAsURL = destination
         activate(destination)
         refresh()
         reveal(destination)
@@ -1191,8 +1480,10 @@ final class WorkspaceModel {
             buffers[target] = buffer
             buffer.move(to: target)
         }
-        openTabs = openTabs.map { moved($0) ?? $0 }
-        if let activeTab, let target = moved(activeTab) { self.activeTab = target }
+        // In one go: a pane whose tabs still had the old name would lose its editors.
+        var tabs = paneTabs
+        for pane in layout.panes { tabs[pane]?.retarget(moved) }
+        paneTabs = tabs
         if let selection, let target = moved(selection) { self.selection = target }
         quickOpen.noteMoved { moved($0) }
     }
@@ -1229,19 +1520,53 @@ final class WorkspaceModel {
         defer { isRestoringSession = false }
 
         isSidebarVisible = session.isSidebarVisible
+        // The files that are still there, by the path they were saved under.
+        var reopened: [String: URL] = [:]
+        var order: [URL] = []
         for tab in session.tabs {
             let url = sessionURL(for: tab.path)
             var isDirectory: ObjCBool = false
-            guard !openTabs.contains(url),
+            guard buffers[url] == nil,
                   FileManager.default.fileExists(atPath: url.path(percentEncoded: false), isDirectory: &isDirectory),
                   !isDirectory.boolValue else { continue }
             let buffer = makeBuffer(for: url)
             buffers[url] = buffer
-            openTabs.append(url)
+            reopened[tab.path] = url
+            order.append(url)
             buffer.textController?.restorePosition(cursor: tab.cursor, topLine: tab.topLine)
         }
-        let active = session.activeTab.map(sessionURL(for:)).flatMap { openTabs.contains($0) ? $0 : nil } ?? openTabs.first
-        if let active {
+
+        var layout = PaneLayout()
+        var tabs: [PaneLayout.PaneID: PaneTabs] = [:]
+        var focused = layout.panes[0]
+        if let split = session.split, split.layout.isSplit, split.layout.isConsistent {
+            layout = split.layout
+            var placed = Set<URL>()
+            for pane in split.panes where layout.contains(pane.id) && tabs[pane.id] == nil {
+                // Text can be open in several panes; an image, a PDF or a video in one.
+                let urls = pane.tabs.compactMap { reopened[$0] }.filter {
+                    placed.insert($0).inserted || buffers[$0]?.allowsSeveralPanes == true
+                }
+                tabs[pane.id] = PaneTabs(tabs: urls, active: pane.activeTab.flatMap { reopened[$0] })
+            }
+            // A pane none of whose files are left has nothing to come back with.
+            for pane in layout.panes where tabs[pane]?.isEmpty != false {
+                if layout.remove(pane) != nil { tabs[pane] = nil }
+            }
+            if layout.contains(split.focused) { focused = split.focused } else { focused = layout.panes[0] }
+            // A tab no pane was saved with goes in the focused one.
+            let rest = order.filter { !placed.contains($0) }
+            if !rest.isEmpty {
+                let kept = tabs[focused] ?? PaneTabs()
+                tabs[focused] = PaneTabs(tabs: kept.tabs + rest, active: kept.active)
+            }
+        } else {
+            tabs[focused] = PaneTabs(tabs: order, active: session.activeTab.map(sessionURL(for:)))
+        }
+        self.layout = layout
+        paneTabs = tabs
+        focusedPane = focused
+        if let active = activeTab {
             activate(active)
             reveal(active)
         }
@@ -1260,10 +1585,22 @@ final class WorkspaceModel {
                 topLine: controller?.savedTopLine
             )
         }
+        func path(_ url: URL?) -> String? {
+            url.flatMap { $0.isUntitled ? nil : relativePath(of: $0) }
+        }
+        // A single pane is saved as the tabs alone, as it was before there were panes.
+        let split = layout.isSplit ? ProjectSession.Split(
+            layout: layout,
+            panes: layout.panes.map { pane in
+                .init(id: pane, tabs: self.tabs(in: pane).compactMap { path($0) }, activeTab: path(activeTab(in: pane)))
+            },
+            focused: focusedPane
+        ) : nil
         let session = ProjectSession(
             tabs: tabs,
-            activeTab: activeTab.flatMap { $0.isUntitled ? nil : relativePath(of: $0) },
+            activeTab: path(activeTab),
             isSidebarVisible: isSidebarVisible,
+            split: split,
             savedAt: .now
         )
         ProjectSessionStore.save(session, for: rootURL)
