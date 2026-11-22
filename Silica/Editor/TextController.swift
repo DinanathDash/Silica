@@ -66,13 +66,9 @@ final class TextController: NSObject, NSTextViewDelegate {
         textView.delegate = self
 
         let ruler = LineNumberRulerView(textView: textView, scrollView: scrollView, editorFontSize: fontSize)
-        ruler.onDiffMarkerClicked = { [weak self] line in
-            guard let self, let fileURL = self.buffer?.url else { return }
-            NotificationCenter.default.post(
-                name: .openDiffForLine,
-                object: fileURL,
-                userInfo: ["line": line]
-            )
+        ruler.onDiffMarkerClicked = { [weak self] line, rect in
+            guard let self else { return }
+            self.showQuickDiff(at: line, anchorRect: rect)
         }
         scrollView.verticalRulerView = ruler
         scrollView.hasVerticalRuler = true
@@ -495,6 +491,8 @@ final class TextController: NSObject, NSTextViewDelegate {
         }
     }
 
+    private(set) var currentHunks: [GitHunk] = []
+
     private func computeGitDiff(fileURL: URL, in projectURL: URL) async -> [Int: LineNumberRulerView.LineDiffKind] {
         let relativePath: String
         let projectPath = projectURL.standardizedFileURL.path(percentEncoded: false)
@@ -510,7 +508,11 @@ final class TextController: NSObject, NSTextViewDelegate {
 
         let res = await GitRunner.shared.run(arguments: ["diff", "-U0", "HEAD", "--", relativePath], in: projectURL)
         if !res.stdout.isEmpty {
-            return Self.parseDiffOutput(res.stdout)
+            let parsed = Self.parseDiffOutput(res.stdout)
+            await MainActor.run {
+                self.currentHunks = parsed.hunks
+            }
+            return parsed.markers
         }
 
         let statusRes = await GitRunner.shared.run(arguments: ["status", "--porcelain", "--", relativePath], in: projectURL)
@@ -520,41 +522,159 @@ final class TextController: NSObject, NSTextViewDelegate {
             for i in 1...max(1, count) {
                 markers[i] = .added
             }
+            let lines = (self.textView.string as NSString).components(separatedBy: "\n")
+            await MainActor.run {
+                self.currentHunks = [
+                    GitHunk(oldStart: 1, oldLength: 0, newStart: 1, newLength: count, oldLines: [], newLines: lines)
+                ]
+            }
             return markers
         }
 
+        await MainActor.run {
+            self.currentHunks = []
+        }
         return [:]
     }
 
-    private static func parseDiffOutput(_ output: String) -> [Int: LineNumberRulerView.LineDiffKind] {
+    private static func parseDiffOutput(_ output: String) -> (markers: [Int: LineNumberRulerView.LineDiffKind], hunks: [GitHunk]) {
         var markers: [Int: LineNumberRulerView.LineDiffKind] = [:]
-        for line in output.split(separator: "\n") {
-            guard line.hasPrefix("@@ ") else { continue }
-            guard markers.count < 3000 else { break }
-            let parts = line.split(separator: " ")
-            guard parts.count >= 3 else { continue }
-            let oldPart = parts[1]
-            let newPart = parts[2]
-            guard oldPart.hasPrefix("-"), newPart.hasPrefix("+") else { continue }
-            let oldNums = oldPart.dropFirst().split(separator: ",")
-            let newNums = newPart.dropFirst().split(separator: ",")
-            guard let newStart = Int(newNums[0]) else { continue }
-            let oldCount = oldNums.count > 1 ? (Int(oldNums[1]) ?? 1) : 1
-            let newCount = newNums.count > 1 ? (Int(newNums[1]) ?? 1) : 1
+        var hunks: [GitHunk] = []
 
-            if oldCount == 0 {
-                for l in newStart..<(newStart + max(1, newCount)) {
-                    markers[l] = .added
+        var currentOldStart = 0
+        var currentOldLength = 0
+        var currentNewStart = 0
+        var currentNewLength = 0
+        var currentOldLines: [String] = []
+        var currentNewLines: [String] = []
+        var inHunk = false
+
+        func flushHunk() {
+            guard inHunk else { return }
+            hunks.append(GitHunk(
+                oldStart: currentOldStart,
+                oldLength: currentOldLength,
+                newStart: currentNewStart,
+                newLength: currentNewLength,
+                oldLines: currentOldLines,
+                newLines: currentNewLines
+            ))
+            currentOldLines = []
+            currentNewLines = []
+            inHunk = false
+        }
+
+        for line in output.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("@@ ") {
+                flushHunk()
+                let parts = line.split(separator: " ")
+                guard parts.count >= 3 else { continue }
+                let oldPart = parts[1]
+                let newPart = parts[2]
+                guard oldPart.hasPrefix("-"), newPart.hasPrefix("+") else { continue }
+                let oldNums = oldPart.dropFirst().split(separator: ",")
+                let newNums = newPart.dropFirst().split(separator: ",")
+                guard let newStart = Int(newNums[0]), let oldStart = Int(oldNums[0]) else { continue }
+                let oldCount = oldNums.count > 1 ? (Int(oldNums[1]) ?? 1) : 1
+                let newCount = newNums.count > 1 ? (Int(newNums[1]) ?? 1) : 1
+
+                currentOldStart = oldStart
+                currentOldLength = oldCount
+                currentNewStart = newStart
+                currentNewLength = newCount
+                inHunk = true
+
+                if oldCount == 0 {
+                    for l in newStart..<(newStart + max(1, newCount)) {
+                        markers[l] = .added
+                    }
+                } else if newCount == 0 {
+                    markers[newStart] = .deleted
+                } else {
+                    for l in newStart..<(newStart + newCount) {
+                        markers[l] = .modified
+                    }
                 }
-            } else if newCount == 0 {
-                markers[newStart] = .deleted
-            } else {
-                for l in newStart..<(newStart + newCount) {
-                    markers[l] = .modified
+            } else if inHunk {
+                if line.hasPrefix("+") {
+                    currentNewLines.append(String(line.dropFirst()))
+                } else if line.hasPrefix("-") {
+                    currentOldLines.append(String(line.dropFirst()))
                 }
             }
         }
-        return markers
+        flushHunk()
+        return (markers, hunks)
+    }
+
+    // MARK: - Quick Diff Inline Peek
+
+    func showQuickDiff(at line: Int, anchorRect: NSRect) {
+        guard !currentHunks.isEmpty, let ruler = lineNumbers else { return }
+
+        let hunkIndex = currentHunks.firstIndex(where: { hunk in
+            if hunk.newLength > 0 {
+                return line >= hunk.newStart && line < (hunk.newStart + hunk.newLength)
+            } else {
+                return line == hunk.newStart || line == hunk.newStart + 1
+            }
+        }) ?? currentHunks.indices.min(by: { abs(currentHunks[$0].newStart - line) < abs(currentHunks[$1].newStart - line) })
+
+        guard let hunkIndex else { return }
+        let hunk = currentHunks[hunkIndex]
+
+        GitQuickDiffPopoverController.shared.show(
+            hunk: hunk,
+            allHunks: currentHunks,
+            currentIndex: hunkIndex,
+            relativeTo: anchorRect,
+            of: ruler,
+            onRevert: { [weak self] in
+                self?.revertHunk(hunk)
+            },
+            onNavigate: { [weak self] targetHunk in
+                guard let self else { return }
+                self.goToLine(targetHunk.newStart)
+                if let rect = self.lineNumbers?.rectForLine(targetHunk.newStart) {
+                    self.showQuickDiff(at: targetHunk.newStart, anchorRect: rect)
+                }
+            }
+        )
+    }
+
+    func revertHunk(_ hunk: GitHunk) {
+        guard let storage = textView.textStorage else { return }
+        let text = storage.string as NSString
+
+        var lineStarts: [Int] = [0]
+        text.enumerateSubstrings(in: NSRange(location: 0, length: text.length), options: [.byLines, .substringNotRequired]) { _, substringRange, _, _ in
+            lineStarts.append(substringRange.location)
+        }
+
+        let startLineIndex = hunk.newStart - 1
+        guard startLineIndex >= 0 else { return }
+
+        let targetRange: NSRange
+        if hunk.newLength == 0 {
+            let loc = startLineIndex < lineStarts.count ? lineStarts[startLineIndex] : text.length
+            targetRange = NSRange(location: loc, length: 0)
+        } else {
+            let startLoc = startLineIndex < lineStarts.count ? lineStarts[startLineIndex] : text.length
+            let endLineIndex = startLineIndex + hunk.newLength
+            let endLoc = endLineIndex < lineStarts.count ? lineStarts[endLineIndex] : text.length
+            targetRange = NSRange(location: startLoc, length: max(0, endLoc - startLoc))
+        }
+
+        var replacementText = hunk.oldLines.joined(separator: "\n")
+        if (hunk.newLength == 0 || hunk.newLength > 0) && !hunk.oldLines.isEmpty {
+            replacementText += "\n"
+        }
+
+        if textView.shouldChangeText(in: targetRange, replacementString: replacementText) {
+            textView.replaceCharacters(in: targetRange, with: replacementText)
+            textView.didChangeText()
+            scheduleGitDiffUpdate(delay: .milliseconds(50))
+        }
     }
 }
 

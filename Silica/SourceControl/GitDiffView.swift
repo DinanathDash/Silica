@@ -51,6 +51,13 @@ struct GitDiffView: View {
             case context(oldLine: Int?, newLine: Int?, text: String)
         }
         let kind: Kind
+        let attributedText: AttributedString?
+
+        init(id: Int, kind: Kind, attributedText: AttributedString? = nil) {
+            self.id = id
+            self.kind = kind
+            self.attributedText = attributedText
+        }
     }
 
     struct DiffFileGroup: Identifiable, Sendable {
@@ -549,7 +556,7 @@ struct GitDiffView: View {
                     .frame(width: 16)
                     .foregroundStyle(Color(red: 0.45, green: 0.79, blue: 0.57))
                     .fontWeight(.bold)
-                Text(highlightedCodeText(text, language: language))
+                Text(line.attributedText ?? AttributedString(text))
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: !isWordWrapEnabled, vertical: false)
                 Spacer(minLength: 16)
@@ -567,7 +574,7 @@ struct GitDiffView: View {
                     .frame(width: 16)
                     .foregroundStyle(Color(red: 0.89, green: 0.41, blue: 0.45))
                     .fontWeight(.bold)
-                Text(highlightedCodeText(text, language: language))
+                Text(line.attributedText ?? AttributedString(text))
                     .foregroundStyle(.primary.opacity(0.9))
                     .fixedSize(horizontal: !isWordWrapEnabled, vertical: false)
                 Spacer(minLength: 16)
@@ -583,7 +590,7 @@ struct GitDiffView: View {
                 }
                 Text(" ")
                     .frame(width: 16)
-                Text(highlightedCodeText(text, language: language))
+                Text(line.attributedText ?? AttributedString(text))
                     .foregroundStyle(.primary.opacity(0.95))
                     .fixedSize(horizontal: !isWordWrapEnabled, vertical: false)
                 Spacer(minLength: 16)
@@ -609,7 +616,7 @@ struct GitDiffView: View {
         .onTapGesture {
             onJump()
         }
-        .liquidGlassTooltip("Click to jump to line in editor")
+        .help("Click to jump to line in editor")
     }
 
     private func jumpToEditorLine(line: DiffLine, group: DiffFileGroup?) {
@@ -654,8 +661,7 @@ struct GitDiffView: View {
 
     private func loadDiff() async {
         let key = diff.cacheKey
-        // Reuse cached diff if immutable commit or branch compare
-        if (diff.commitHash != nil || diff.compareBranch != nil), let cached = model.diffCache[key] {
+        if let cached = model.diffCache[key] {
             self.fileGroups = cached.groups
             self.totalAdditions = cached.adds
             self.totalDeletions = cached.dels
@@ -678,8 +684,9 @@ struct GitDiffView: View {
         }
 
         let fallback = diff.relativePath
+        let theme = settings.syntaxTheme
         let result = await Task.detached(priority: .userInitiated) { () -> (groups: [DiffFileGroup], adds: Int, dels: Int) in
-            Self.parseUnifiedDiff(raw: raw, fallbackPath: fallback)
+            Self.parseUnifiedDiff(raw: raw, fallbackPath: fallback, theme: theme)
         }.value
 
         self.fileGroups = result.groups
@@ -691,13 +698,14 @@ struct GitDiffView: View {
         AppLogger.debug("GitDiff", "Loaded diff for '\(diff.relativePath)' (files: \(result.groups.count), +\(result.adds)/-\(result.dels))")
     }
 
-    nonisolated static func parseUnifiedDiff(raw: String, fallbackPath: String) -> (groups: [DiffFileGroup], adds: Int, dels: Int) {
+    nonisolated static func parseUnifiedDiff(raw: String, fallbackPath: String, theme: SyntaxTheme) -> (groups: [DiffFileGroup], adds: Int, dels: Int) {
         var groups: [DiffFileGroup] = []
         var totalAdds = 0
         var totalDels = 0
 
         var currentPath = fallbackPath
         var currentStatus: GitFileItem.Status = .modified
+        var currentLanguage: SyntaxLanguage? = SyntaxLanguage(url: URL(filePath: fallbackPath))
         var currentLines: [DiffLine] = []
         var currentAdds = 0
         var currentDels = 0
@@ -716,6 +724,7 @@ struct GitDiffView: View {
             let fileName = components.last.map(String.init) ?? trimmedPath
             let dirPath = components.dropLast().joined(separator: "/")
             let lang = SyntaxLanguage(url: URL(filePath: trimmedPath))
+            currentLanguage = lang
 
             groups.append(DiffFileGroup(
                 id: trimmedPath + "_\(groups.count)",
@@ -815,19 +824,22 @@ struct GitDiffView: View {
                 currentAdds += 1
                 totalAdds += 1
                 let content = String(line.dropFirst())
-                currentLines.append(DiffLine(id: lineIndex, kind: .addition(oldLine: nil, newLine: newLineCounter, text: content)))
+                let attr = Self.highlightLine(content, language: currentLanguage, theme: theme)
+                currentLines.append(DiffLine(id: lineIndex, kind: .addition(oldLine: nil, newLine: newLineCounter, text: content), attributedText: attr))
                 lineIndex += 1
                 newLineCounter += 1
             } else if line.hasPrefix("-") {
                 currentDels += 1
                 totalDels += 1
                 let content = String(line.dropFirst())
-                currentLines.append(DiffLine(id: lineIndex, kind: .deletion(oldLine: oldLineCounter, newLine: nil, text: content)))
+                let attr = Self.highlightLine(content, language: currentLanguage, theme: theme)
+                currentLines.append(DiffLine(id: lineIndex, kind: .deletion(oldLine: oldLineCounter, newLine: nil, text: content), attributedText: attr))
                 lineIndex += 1
                 oldLineCounter += 1
             } else if line.hasPrefix(" ") {
                 let content = String(line.dropFirst())
-                currentLines.append(DiffLine(id: lineIndex, kind: .context(oldLine: oldLineCounter, newLine: newLineCounter, text: content)))
+                let attr = Self.highlightLine(content, language: currentLanguage, theme: theme)
+                currentLines.append(DiffLine(id: lineIndex, kind: .context(oldLine: oldLineCounter, newLine: newLineCounter, text: content), attributedText: attr))
                 lineIndex += 1
                 oldLineCounter += 1
                 newLineCounter += 1
@@ -837,5 +849,16 @@ struct GitDiffView: View {
         flushCurrentGroup()
 
         return (groups, totalAdds, totalDels)
+    }
+
+    nonisolated static func highlightLine(_ text: String, language: SyntaxLanguage?, theme: SyntaxTheme) -> AttributedString {
+        var attrStr = AttributedString(text)
+        guard let language, text.count <= 1000 else { return attrStr }
+        let tokens = language.tokenizer.tokenize(text as NSString)
+        for token in tokens {
+            guard let range = Range(token.range, in: attrStr) else { continue }
+            attrStr[range].foregroundColor = Color(nsColor: theme.color(for: token.kind))
+        }
+        return attrStr
     }
 }

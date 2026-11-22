@@ -19,7 +19,7 @@ final class LineNumberRulerView: NSRulerView {
     }
 
     private var diffMarkers: [Int: LineDiffKind] = [:]
-    var onDiffMarkerClicked: ((Int) -> Void)?
+    var onDiffMarkerClicked: ((Int, NSRect) -> Void)?
 
     private var font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
     private let leadingPadding: CGFloat = 6
@@ -171,10 +171,24 @@ final class LineNumberRulerView: NSRulerView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         if let line = lineForPoint(point), diffMarkers[line] != nil {
-            onDiffMarkerClicked?(line)
+            let rect = rectForLine(line) ?? NSRect(x: bounds.width - 4, y: max(0, point.y - 10), width: 4, height: 20)
+            onDiffMarkerClicked?(line, rect)
             return
         }
         super.mouseDown(with: event)
+    }
+
+    func rectForLine(_ targetLine: Int) -> NSRect? {
+        guard let textView = textView, let layoutManager = textView.textLayoutManager else { return nil }
+        guard targetLine >= 1 && targetLine <= lineStarts.count else { return nil }
+        let offset = lineStarts[targetLine - 1]
+        guard let contentManager = layoutManager.textContentManager,
+              let location = contentManager.location(contentManager.documentRange.location, offsetBy: offset),
+              let fragment = layoutManager.textLayoutFragment(for: location) else { return nil }
+        let frame = fragment.layoutFragmentFrame
+        let markerHeight = max(frame.height, font.pointSize + 4)
+        let markerY = convert(NSPoint(x: 0, y: textView.textContainerOrigin.y + frame.minY), from: textView).y
+        return NSRect(x: bounds.width - 3.0, y: markerY, width: 3.0, height: markerHeight)
     }
 
     private func lineForPoint(_ point: NSPoint) -> Int? {
