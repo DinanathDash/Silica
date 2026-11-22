@@ -92,6 +92,9 @@ enum WorkspaceLayout {
     /// Between two panes: the card inset side by side, as between the editor and the
     /// terminal. One above another has the lower one's tab row between the cards.
     static let paneSpacing = PaneLayout.Spacing(horizontal: cardInset, vertical: 0)
+    /// How panes come, go and change size when one is opened, closed or evened out:
+    /// a spring without bounce, so the cards glide to their places.
+    static let paneAnimation = Animation.smooth(duration: 0.3)
 }
 
 struct WorkspaceView: View {

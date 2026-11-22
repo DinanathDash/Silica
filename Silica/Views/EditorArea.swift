@@ -127,7 +127,7 @@ private struct EditorPanes: View {
             .frame(width: frame.width, height: frame.height)
             .pointerStyle(.frameResize(position: isSideBySide ? .trailing : .top))
             .onTapGesture(count: 2) {
-                withAnimation(.snappy(duration: 0.2)) { workspace.setSplitFraction(0.5, of: divider.id) }
+                withAnimation(WorkspaceLayout.paneAnimation) { workspace.setSplitFraction(0.5, of: divider.id) }
             }
             .gesture(
                 DragGesture(minimumDistance: 1, coordinateSpace: Self.space)

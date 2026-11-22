@@ -1102,7 +1102,7 @@ final class WorkspaceModel {
             NSSound.beep()
             return
         }
-        withAnimation(.snappy(duration: 0.2)) {
+        withAnimation(WorkspaceLayout.paneAnimation) {
             guard let new = layout.split(source, along: axis) else { return }
             var tabs = paneTabs
             var shown = PaneTabs()
@@ -1131,7 +1131,7 @@ final class WorkspaceModel {
             open(url)
             return
         }
-        withAnimation(.snappy(duration: 0.2)) {
+        withAnimation(WorkspaceLayout.paneAnimation) {
             guard let new = layout.split(focusedPane, along: .horizontal) else { return }
             paneTabs[new] = PaneTabs()
             focusedPane = new
@@ -1153,7 +1153,7 @@ final class WorkspaceModel {
         guard layout.isSplit, layout.contains(closing) else { return }
         let moved = paneTabs[closing] ?? PaneTabs()
         let wasFocused = closing == focusedPane
-        withAnimation(.snappy(duration: 0.2)) {
+        withAnimation(WorkspaceLayout.paneAnimation) {
             guard let heir = layout.remove(closing) else { return }
             var tabs = paneTabs
             tabs[closing] = nil
@@ -1184,7 +1184,7 @@ final class WorkspaceModel {
     /// and shows it there. A pane left without tabs goes.
     func moveTab(_ url: URL, from source: PaneLayout.PaneID, toPane target: PaneLayout.PaneID) {
         guard source != target, layout.contains(target), paneTabs[source]?.contains(url) == true else { return }
-        withAnimation(.snappy(duration: 0.2)) {
+        withAnimation(WorkspaceLayout.paneAnimation) {
             var tabs = paneTabs
             tabs[source]?.remove(url)
             if tabs[target]?.contains(url) == true {
