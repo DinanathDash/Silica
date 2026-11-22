@@ -191,15 +191,9 @@ private struct PanePlacement: ViewModifier, Animatable {
                 width: isSideways ? frame.width * presence : frame.width,
                 height: isUpright ? frame.height * presence : frame.height
             )
-            // A tab row doesn't get narrower than its buttons, or lower than its
-            // height: while the pane is smaller than that, it's cut off at the pane
-            // instead of lying over the next one. With room left for the card's shadow.
-            .clipShape(Rectangle().inset(by: -Self.shadowRoom))
             .frame(width: frame.width, height: frame.height, alignment: alignment)
             .offset(x: frame.minX, y: frame.minY)
     }
-
-    private static let shadowRoom: CGFloat = 12
 
     private var alignment: Alignment {
         switch edge {
