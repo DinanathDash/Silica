@@ -37,9 +37,17 @@ struct WindowBackgroundView: View {
     private var settings: EditorSettings { .shared }
     @Environment(\.colorScheme) private var colorScheme
 
+    private var isDark: Bool {
+        switch settings.appearance {
+        case .dark: true
+        case .light: false
+        case .system: colorScheme == .dark
+        }
+    }
+
     var body: some View {
         if settings.windowBackground == .opaque {
-            (colorScheme == .dark ? Color.black : Color(nsColor: .windowBackgroundColor))
+            (isDark ? Color(red: 0.071, green: 0.071, blue: 0.082) : Color(nsColor: .windowBackgroundColor))
                 .ignoresSafeArea()
         } else {
             VisualEffectView(settings.windowBackground.material)

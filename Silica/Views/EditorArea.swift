@@ -766,16 +766,73 @@ private struct StatusBar: View {
 private struct PreviewModeToggle: View {
     let buffer: EditorBuffer
     let format: PreviewFormat
+    @State private var zoomScale: CGFloat = 1.0
 
     var body: some View {
-        HStack(spacing: 2) {
-            option("doc.plaintext", help: "Show \(format.sourceName) (⇧⌘V)", isOn: !buffer.isShowingPreview) {
-                buffer.setShowingPreview(false)
+        HStack(spacing: 4) {
+            HStack(spacing: 2) {
+                option("doc.plaintext", help: "Show \(format.sourceName) (⇧⌘V)", isOn: !buffer.isShowingPreview) {
+                    buffer.setShowingPreview(false)
+                }
+                option("eye", help: "Show Preview (⇧⌘V)", isOn: buffer.isShowingPreview) {
+                    buffer.setShowingPreview(true)
+                }
             }
-            option("eye", help: "Show Preview (⇧⌘V)", isOn: buffer.isShowingPreview) {
-                buffer.setShowingPreview(true)
+
+            if buffer.isShowingPreview {
+                HStack(spacing: 2) {
+                    Button(action: zoomOut) {
+                        Image(systemName: "minus")
+                            .font(.system(size: 10, weight: .semibold))
+                            .frame(width: 20, height: 20)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Zoom Out")
+
+                    Button(action: resetZoom) {
+                        Text("\(Int(zoomScale * 100))%")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .frame(minWidth: 32)
+                            .frame(height: 20)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Reset Zoom (100%)")
+
+                    Button(action: zoomIn) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 10, weight: .semibold))
+                            .frame(width: 20, height: 20)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Zoom In")
+                }
+                .padding(.horizontal, 4)
+                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(.primary.opacity(0.06)))
             }
         }
+    }
+
+    private func zoomIn() {
+        let next = min(5.0, (round(zoomScale * 4) + 1) / 4.0)
+        zoomScale = next
+        buffer.preview?.zoom(to: next)
+    }
+
+    private func zoomOut() {
+        let next = max(0.25, (round(zoomScale * 4) - 1) / 4.0)
+        zoomScale = next
+        buffer.preview?.zoom(to: next)
+    }
+
+    private func resetZoom() {
+        zoomScale = 1.0
+        buffer.preview?.resetZoom()
     }
 
     private func option(_ symbol: String, help: String, isOn: Bool, action: @escaping () -> Void) -> some View {
@@ -803,22 +860,34 @@ private struct PreviewModeToggle: View {
 /// transparent areas are visible. A GIF or other animated image plays.
 private struct ImagePreview: View {
     let file: EditorBuffer.ImageFile
+    @State private var zoomScale: CGFloat = 1.0
 
     var body: some View {
         VStack(spacing: 12) {
-            picture
-                .resizable()
-                .interpolation(.high)
-                .scaledToFit()
-                .background(Checkerboard())
-                .overlay(Rectangle().strokeBorder(.separator, lineWidth: 1))
-                .frame(maxWidth: file.pixelSize.width, maxHeight: file.pixelSize.height)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ScrollView([.horizontal, .vertical]) {
+                picture
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(
+                        width: max(16, file.pixelSize.width * zoomScale),
+                        height: max(16, file.pixelSize.height * zoomScale)
+                    )
+                    .background(Checkerboard())
+                    .overlay(Rectangle().strokeBorder(.separator, lineWidth: 1))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
 
-            Text(details)
-                .font(.callout)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                Text(details)
+                    .font(.callout)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                zoomControls
+            }
         }
         .padding(24)
         // An animation plays only while its tab is the one shown.
@@ -827,6 +896,55 @@ private struct ImagePreview: View {
         // Appears anew for each animated image, so going from one such tab to
         // another stops the first and starts the second.
         .id(file.animation.map(ObjectIdentifier.init))
+    }
+
+    private func zoomIn() {
+        zoomScale = min(5.0, (round(zoomScale * 4) + 1) / 4.0)
+    }
+
+    private func zoomOut() {
+        zoomScale = max(0.25, (round(zoomScale * 4) - 1) / 4.0)
+    }
+
+    private func resetZoom() {
+        zoomScale = 1.0
+    }
+
+    private var zoomControls: some View {
+        HStack(spacing: 2) {
+            Button(action: zoomOut) {
+                Image(systemName: "minus")
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(width: 22, height: 22)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Zoom Out")
+
+            Button(action: resetZoom) {
+                Text("\(Int(zoomScale * 100))%")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .frame(minWidth: 36)
+                    .frame(height: 22)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Reset Zoom (100%)")
+
+            Button(action: zoomIn) {
+                Image(systemName: "plus")
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(width: 22, height: 22)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Zoom In")
+        }
+        .padding(.horizontal, 4)
+        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(.primary.opacity(0.06)))
     }
 
     /// The animation's current frame, or the still image.
@@ -879,16 +997,51 @@ private struct PDFPreview: View {
         } else {
             PDFViewHost(pdfView: file.view)
                 .overlay(alignment: .bottomTrailing) {
-                    Text(details)
-                        .font(.caption)
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .glassSurface(in: .capsule)
-                        .fixedSize()
-                        .padding(4)
+                    HStack(spacing: 8) {
+                        Text(details)
+                            .font(.caption)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+
+                        HStack(spacing: 2) {
+                            Button(action: { file.view.zoomOut(nil) }) {
+                                Image(systemName: "minus")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .frame(width: 18, height: 18)
+                                    .contentShape(.rect)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                            .help("Zoom Out")
+
+                            Button(action: { file.view.autoScales = true }) {
+                                Text("Fit")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .frame(minWidth: 20)
+                                    .frame(height: 18)
+                                    .contentShape(.rect)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                            .help("Fit to Page")
+
+                            Button(action: { file.view.zoomIn(nil) }) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .frame(width: 18, height: 18)
+                                    .contentShape(.rect)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                            .help("Zoom In")
+                        }
+                    }
+                    .lineLimit(1)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .glassSurface(in: .capsule)
+                    .fixedSize()
+                    .padding(4)
                 }
         }
     }

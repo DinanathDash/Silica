@@ -180,6 +180,7 @@ struct SourceControlBranchesView: View {
                 .foregroundStyle(branch.isCurrent ? Color.accentColor : Color.primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .liquidGlassTooltip(branch.name)
 
             if branch.isCurrent {
                 Image(systemName: "checkmark")
@@ -251,7 +252,6 @@ struct SourceControlBranchesView: View {
         .onTapGesture {
             requestCheckout(branch: branch)
         }
-        .liquidGlassTooltip(branch.name)
     }
 
     // MARK: - Checkout Operations

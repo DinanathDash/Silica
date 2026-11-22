@@ -88,6 +88,31 @@ final class DocumentPreview: NSObject, WKNavigationDelegate {
         )
     }
 
+    // MARK: - Zoom / Magnification
+
+    var zoomScale: CGFloat {
+        get { webView.pageZoom }
+        set { webView.pageZoom = max(0.25, min(5.0, newValue)) }
+    }
+
+    func zoom(to scale: CGFloat) {
+        zoomScale = scale
+    }
+
+    func zoomIn() {
+        let next = (round(webView.pageZoom * 4) + 1) / 4.0
+        zoomScale = min(5.0, next)
+    }
+
+    func zoomOut() {
+        let next = (round(webView.pageZoom * 4) - 1) / 4.0
+        zoomScale = max(0.25, next)
+    }
+
+    func resetZoom() {
+        webView.pageZoom = 1.0
+    }
+
     /// Swaps in the new code colors without reloading, so the scroll position stays.
     @objc private func syntaxThemeDidChange() {
         guard let data = try? JSONEncoder().encode(Self.css), let css = String(data: data, encoding: .utf8) else { return }
@@ -112,7 +137,7 @@ final class DocumentPreview: NSObject, WKNavigationDelegate {
             // Set with the load it belongs to, not before: a page still loading from
             // an earlier call would take it when it finishes.
             self.pendingLine = line
-            self.webView.loadHTMLString(Self.page(body: body, isTable: format.isTable), baseURL: self.baseURL)
+            self.webView.loadHTMLString(Self.page(body: body, isTable: format.isTable, isSVG: format.isSVG), baseURL: self.baseURL)
         }
     }
 
@@ -325,11 +350,12 @@ final class DocumentPreview: NSObject, WKNavigationDelegate {
         return directory.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? directory
     }
 
-    private static func page(body: String, isTable: Bool) -> String {
-        """
+    private static func page(body: String, isTable: Bool, isSVG: Bool = false) -> String {
+        let bodyClass = isTable ? " class=\"csv\"" : (isSVG ? " class=\"svg-preview\"" : "")
+        return """
         <!doctype html>
         <html><head><meta charset="utf-8"><style>\(css)</style></head>
-        <body\(isTable ? " class=\"csv\"" : "")><article>\(body)</article></body></html>
+        <body\(bodyClass)><article>\(body)</article></body></html>
         """
     }
 
@@ -398,6 +424,40 @@ final class DocumentPreview: NSObject, WKNavigationDelegate {
         .csv tr > :first-child { border-left-width: 1px; }
         .csv th { position: sticky; top: 0; border-top-width: 1px; text-align: left; background: rgba(244, 244, 245, 0.94); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
         .csv .num { text-align: right; font-variant-numeric: tabular-nums; }
+        /* SVG rendered graphics view */
+        .svg-preview article {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          min-height: calc(100vh - 48px);
+          padding: 24px;
+          box-sizing: border-box;
+        }
+        .svg-preview .svg-container {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 24px;
+          border-radius: 8px;
+          background-image: linear-gradient(45deg, rgba(128, 128, 128, 0.12) 25%, transparent 25%),
+                            linear-gradient(-45deg, rgba(128, 128, 128, 0.12) 25%, transparent 25%),
+                            linear-gradient(45deg, transparent 75%, rgba(128, 128, 128, 0.12) 75%),
+                            linear-gradient(-45deg, transparent 75%, rgba(128, 128, 128, 0.12) 75%);
+          background-size: 16px 16px;
+          background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+          border: 1px solid rgba(128, 128, 128, 0.2);
+          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+          max-width: 90%;
+          max-height: 80vh;
+          overflow: auto;
+        }
+        .svg-preview svg {
+          max-width: 100%;
+          max-height: 70vh;
+          height: auto;
+          width: auto;
+          display: block;
+        }
         .note { color: rgba(0, 0, 0, 0.5); font-size: 0.92em; }
         ::selection { background: rgba(64, 120, 242, 0.25); }
         \(tokens.light)

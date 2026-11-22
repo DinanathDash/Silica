@@ -506,6 +506,8 @@ private struct SourceControlSettingsPane: View {
     @Bindable private var settings = EditorSettings.shared
     @State private var gitVersion: String = ""
     @State private var gitHubUser: String?
+    @State private var gitHubAvatarURL: URL?
+    @State private var gitHubDisplayName: String?
     @State private var isCheckingGitHub = false
     @State private var cloneDirectory: String = UserDefaults.standard.string(forKey: "GitHubCloneDirectory") ?? ("~/Documents/Projects" as NSString).expandingTildeInPath
 
@@ -517,15 +519,27 @@ private struct SourceControlSettingsPane: View {
             ChromeSection(title: "GitHub") {
                 ChromeCard {
                     if let user = gitHubUser {
-                        HStack(spacing: 10) {
-                            Image(systemName: "person.crop.circle.fill")
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 28, height: 28)
-                                .foregroundStyle(Color.accentColor)
+                        HStack(spacing: 12) {
+                            AsyncImage(url: gitHubAvatarURL ?? URL(string: "https://github.com/\(user).png?size=96")) { phase in
+                                if let image = phase.image {
+                                    image
+                                        .resizable()
+                                        .scaledToFill()
+                                } else {
+                                    Image(systemName: "person.crop.circle.fill")
+                                        .resizable()
+                                        .scaledToFit()
+                                        .foregroundStyle(Color.accentColor)
+                                }
+                            }
+                            .frame(width: 32, height: 32)
+                            .clipShape(Circle())
+                            .overlay {
+                                Circle().strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+                            }
 
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(user)
+                                Text(gitHubDisplayName ?? user)
                                     .font(.system(size: 13, weight: .semibold))
                                     .foregroundStyle(Chrome.primaryText)
                                 Text("@\(user), using the GitHub CLI login")
@@ -674,9 +688,36 @@ private struct SourceControlSettingsPane: View {
                 foundUser = username
             }
         }
+
+        var foundAvatarURL: URL?
+        var foundName: String?
+
+        // Fetch user profile from GitHub CLI API
+        let apiRes = await GitRunner.shared.runGH(arguments: ["api", "user"], in: URL(filePath: NSHomeDirectory()))
+        if apiRes.isSuccess, let data = apiRes.stdout.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let login = json["login"] as? String, !login.isEmpty {
+                foundUser = login
+            }
+            if let name = json["name"] as? String, !name.isEmpty {
+                foundName = name
+            }
+            if let avatarStr = json["avatar_url"] as? String, let url = URL(string: avatarStr) {
+                foundAvatarURL = url
+            }
+        }
+
+        if foundAvatarURL == nil, let user = foundUser {
+            foundAvatarURL = URL(string: "https://github.com/\(user).png?size=96")
+        }
+
         let user = foundUser
+        let avatarURL = foundAvatarURL
+        let displayName = foundName
         await MainActor.run {
             self.gitHubUser = user
+            self.gitHubAvatarURL = avatarURL
+            self.gitHubDisplayName = displayName
             self.isCheckingGitHub = false
         }
     }

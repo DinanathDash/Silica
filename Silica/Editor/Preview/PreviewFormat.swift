@@ -9,6 +9,8 @@ nonisolated enum PreviewFormat: Sendable {
     case tsv
     /// A web page, shown as a browser would show it.
     case html
+    /// Scalable Vector Graphics, shown rendered in live preview.
+    case svg
 
     init?(url: URL) {
         if SyntaxLanguage(url: url) == .markdown {
@@ -20,6 +22,7 @@ nonisolated enum PreviewFormat: Sendable {
         case "tsv": self = .tsv
         // Not every file highlighted as HTML (Vue, Svelte) is a page.
         case "html", "htm", "xhtml": self = .html
+        case "svg": self = .svg
         default: return nil
         }
     }
@@ -31,12 +34,18 @@ nonisolated enum PreviewFormat: Sendable {
         case .csv: "CSV"
         case .tsv: "TSV"
         case .html: "HTML"
+        case .svg: "SVG"
         }
     }
 
     /// Shown as a table that can be wider than the window, not as a column of text.
     var isTable: Bool {
         self == .csv || self == .tsv
+    }
+
+    /// Shown as a rendered scalable vector graphic.
+    var isSVG: Bool {
+        self == .svg
     }
 
     /// The body of the preview page for the file's `text`. An HTML file is its own
@@ -47,6 +56,12 @@ nonisolated enum PreviewFormat: Sendable {
         case .csv: CSVHTMLRenderer.render(text)
         case .tsv: CSVHTMLRenderer.render(text, delimiter: "\t")
         case .html: text
+        case .svg:
+            """
+            <div class="svg-container">
+            \(text)
+            </div>
+            """
         }
     }
 }

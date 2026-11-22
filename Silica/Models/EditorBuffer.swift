@@ -283,6 +283,9 @@ final class EditorBuffer: Identifiable {
         content = .text(controller)
         controller.buffer = self
         controller.updateStatus()
+        if previewFormat == .svg {
+            setShowingPreview(true)
+        }
     }
 
     /// Stops a video or animated image that is playing; a video keeps its place.

@@ -68,24 +68,56 @@ private struct GlassSurface<S: Shape>: ViewModifier {
     let shape: S
 
     private var settings: EditorSettings { .shared }
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var isDark: Bool {
+        switch settings.appearance {
+        case .dark: true
+        case .light: false
+        case .system: colorScheme == .dark
+        }
+    }
 
     func body(content: Content) -> some View {
-        if #available(macOS 26.0, *), settings.usesGlassEffect {
+        if #available(macOS 26.0, *), settings.usesGlassEffect, settings.windowBackground != .opaque {
             // `.identity` renders no effect.
             content.glassEffect(isOn ? .regular : .identity, in: shape)
-        } else {
+        } else if settings.windowBackground == .translucent {
             content
                 .background {
                     if isOn {
                         shape
-                            .fill(Color(nsColor: .textBackgroundColor))
-                            .shadow(color: .black.opacity(0.1), radius: 6, y: 2)
+                            .fill(.ultraThinMaterial)
+                            .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
                     }
                 }
                 .overlay {
                     if isOn {
+                        let strokeColor = isDark ? Color.white.opacity(0.12) : Color.white.opacity(0.25)
                         shape
-                            .stroke(Color.secondary.opacity(0.5), lineWidth: 0.5)
+                            .stroke(strokeColor, lineWidth: 0.5)
+                            .allowsHitTesting(false)
+                    }
+                }
+        } else {
+            content
+                .background {
+                    if isOn {
+                        let fill: Color = isDark
+                            ? Color(red: 0.095, green: 0.095, blue: 0.108)
+                            : Color(nsColor: .textBackgroundColor)
+                        shape
+                            .fill(fill)
+                            .shadow(color: .black.opacity(isDark ? 0.25 : 0.08), radius: 6, y: 2)
+                    }
+                }
+                .overlay {
+                    if isOn {
+                        let strokeColor: Color = isDark
+                            ? Color.white.opacity(0.08)
+                            : Color.secondary.opacity(0.3)
+                        shape
+                            .stroke(strokeColor, lineWidth: 0.5)
                             .allowsHitTesting(false)
                     }
                 }
@@ -99,7 +131,7 @@ private struct GlassButtonStyle: ViewModifier {
     private var settings: EditorSettings { .shared }
 
     func body(content: Content) -> some View {
-        if #available(macOS 26.0, *), settings.usesGlassEffect {
+        if #available(macOS 26.0, *), settings.usesGlassEffect, settings.windowBackground != .opaque {
             if isProminent {
                 content.buttonStyle(.glassProminent)
             } else {
@@ -113,10 +145,10 @@ private struct GlassButtonStyle: ViewModifier {
     }
 }
 
-/// Liquid glass styled tooltip modifier with 1.5s delay
+/// Liquid glass styled tooltip modifier with 1s delay
 public struct LiquidGlassTooltipModifier: ViewModifier {
     let text: String
-    var delay: Double = 1.5
+    var delay: Double = 1.0
 
     @State private var isVisible = false
     @State private var timerTask: Task<Void, Never>?
@@ -157,8 +189,8 @@ public struct LiquidGlassTooltipModifier: ViewModifier {
 }
 
 extension View {
-    /// Liquid glass tooltip with 1.5s delay
-    public func liquidGlassTooltip(_ text: String, delay: Double = 1.5) -> some View {
+    /// Liquid glass tooltip with 1s delay
+    public func liquidGlassTooltip(_ text: String, delay: Double = 1.0) -> some View {
         modifier(LiquidGlassTooltipModifier(text: text, delay: delay))
     }
 }

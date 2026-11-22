@@ -311,6 +311,7 @@ struct SourceControlHistoryView: View {
             CommitDetailsPopoverView(
                 commit: commit,
                 remoteHost: model.remoteHostType,
+                commitWebURL: model.commitWebURL(for: commit.hash),
                 onHoverChange: { isInside in
                     isMouseInsidePopover = isInside
                     if !isInside {
@@ -551,12 +552,24 @@ struct GitTimelineCanvas: View {
     let node: GitTimelineNode
     let isMerge: Bool
 
+    @Environment(\.colorScheme) private var colorScheme
+    private var settings: EditorSettings { .shared }
+
     private func laneX(_ lane: Int) -> CGFloat {
         CGFloat(lane) * 12 + 8
     }
 
     var body: some View {
         Canvas { context, size in
+            let isDark = switch settings.appearance {
+            case .dark: true
+            case .light: false
+            case .system: colorScheme == .dark
+            }
+            let knockoutColor: Color = (settings.windowBackground == .opaque && isDark)
+                ? Color(red: 0.095, green: 0.095, blue: 0.108)
+                : Color(nsColor: .windowBackgroundColor)
+
             let rowHeight: CGFloat = size.height
             let centerY: CGFloat = rowHeight / 2.0
             let nodeX = laneX(node.lane)
@@ -625,14 +638,14 @@ struct GitTimelineCanvas: View {
             if isMerge {
                 // Merge commit node: concentric double-ring target (outer stroked ring + inner filled dot)
                 let outerRect = CGRect(x: center.x - 5.5, y: center.y - 5.5, width: 11, height: 11)
-                context.fill(Path(ellipseIn: outerRect.insetBy(dx: -1.0, dy: -1.0)), with: .color(Color(nsColor: .windowBackgroundColor)))
+                context.fill(Path(ellipseIn: outerRect.insetBy(dx: -1.0, dy: -1.0)), with: .color(knockoutColor))
                 context.stroke(Path(ellipseIn: outerRect), with: .color(nodeColor), lineWidth: 1.75)
                 let innerRect = CGRect(x: center.x - 2.25, y: center.y - 2.25, width: 4.5, height: 4.5)
                 context.fill(Path(ellipseIn: innerRect), with: .color(nodeColor))
             } else {
                 // Normal commit node: solid filled circle with clear background knockout halo
                 let haloRect = CGRect(x: center.x - 4.75, y: center.y - 4.75, width: 9.5, height: 9.5)
-                context.stroke(Path(ellipseIn: haloRect), with: .color(Color(nsColor: .windowBackgroundColor)), lineWidth: 1.5)
+                context.stroke(Path(ellipseIn: haloRect), with: .color(knockoutColor), lineWidth: 1.5)
                 let dotRect = CGRect(x: center.x - 3.75, y: center.y - 3.75, width: 7.5, height: 7.5)
                 context.fill(Path(ellipseIn: dotRect), with: .color(nodeColor))
             }
@@ -787,6 +800,7 @@ struct CommitAuthorAvatarView: View {
 struct CommitDetailsPopoverView: View {
     let commit: GitCommitItem
     let remoteHost: RemoteHostType
+    var commitWebURL: URL? = nil
     var onHoverChange: (Bool) -> Void
 
     @State private var hasCopied = false
@@ -895,11 +909,15 @@ struct CommitDetailsPopoverView: View {
                 Spacer()
 
                 Button {
-                    KeyWorkspace.shared.current?.openCommitDiff(
-                        commitHash: commit.hash,
-                        commitTitle: commit.summary,
-                        relativePath: ""
-                    )
+                    if let webURL = commitWebURL {
+                        NSWorkspace.shared.open(webURL)
+                    } else {
+                        KeyWorkspace.shared.current?.openCommitDiff(
+                            commitHash: commit.hash,
+                            commitTitle: commit.summary,
+                            relativePath: ""
+                        )
+                    }
                 } label: {
                     HStack(spacing: 3) {
                         Image(systemName: "arrow.up.right.square")
@@ -910,7 +928,7 @@ struct CommitDetailsPopoverView: View {
                 }
                 .glassButtonStyle()
                 .controlSize(.small)
-                .liquidGlassTooltip("Inspect commit diff")
+                .liquidGlassTooltip(commitWebURL != nil ? "Open commit in browser" : "Inspect commit diff")
 
                 Button {
                     NSPasteboard.general.clearContents()

@@ -10,32 +10,32 @@ struct FileIcon: View {
     var width: CGFloat = 16
 
     var body: some View {
-        if isDirectory {
+        let (iconName, fallbackSymbol, color) = Self.style(for: url, isDirectory: isDirectory, isExpanded: isExpanded)
+        if let iconName, let nsImage = PierreIconCache.shared.image(named: iconName) {
+            Image(nsImage: nsImage)
+                .resizable()
+                .renderingMode(.template)
+                .aspectRatio(contentMode: .fit)
+                .foregroundStyle(color)
+                .frame(width: width, height: width)
+        } else if isDirectory {
             Image(nsImage: FolderIcons.shared.icon(for: url))
                 .resizable()
                 .interpolation(.high)
                 .frame(width: width, height: width)
         } else {
-            let (iconName, fallbackSymbol, color) = Self.style(for: url, isDirectory: false, isExpanded: isExpanded)
-            if let iconName, let nsImage = PierreIconCache.shared.image(named: iconName) {
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .renderingMode(.template)
-                    .aspectRatio(contentMode: .fit)
-                    .foregroundStyle(color)
-                    .frame(width: width, height: width)
-            } else {
-                Image(systemName: fallbackSymbol)
-                    .foregroundStyle(color)
-                    .frame(width: width)
-            }
+            Image(systemName: fallbackSymbol)
+                .foregroundStyle(color)
+                .frame(width: width)
         }
     }
 
     static func style(for url: URL, isDirectory: Bool, isExpanded: Bool) -> (String?, String, Color) {
         typealias C = FileIconPalette
         if isDirectory {
-            return (nil, "folder", C.folder)
+            let iconName = isExpanded ? "folder-open" : "folder"
+            let fallbackSymbol = isExpanded ? "folder.fill" : "folder"
+            return (iconName, fallbackSymbol, C.folder)
         }
         let code = "chevron.left.forwardslash.chevron.right"
         let name = url.lastPathComponent.lowercased()

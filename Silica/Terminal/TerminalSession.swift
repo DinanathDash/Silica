@@ -37,6 +37,7 @@ final class TerminalSession {
     @ObservationIgnored private var commandStartTime: Date?
     @ObservationIgnored private var isCommandActive = false
     @ObservationIgnored private var pendingCommandText = ""
+    @ObservationIgnored private var lastExecutedCommand = ""
 
     @ObservationIgnored private let shell: String
     @ObservationIgnored private let directory: URL
@@ -169,19 +170,19 @@ final class TerminalSession {
         // Check if a running command finished
         if isCommandActive, let started = commandStartTime {
             let duration = Date().timeIntervalSince(started)
-            if duration >= 0.25, let str = String(data: data, encoding: .utf8) {
-                // If prompt indicator reappears (e.g., % , $, >, ❯, ➜, #, or OSC 133;D)
+            if duration >= 0.15, let str = String(data: data, encoding: .utf8) {
+                // If prompt indicator reappears (OSC 133;D, shell prompt symbols, or carriage return before prompt)
                 let isPrompt = str.contains("\u{1b}]133;D") ||
-                    str.hasSuffix("% ") || str.hasSuffix("$ ") || str.hasSuffix("# ") ||
-                    str.hasSuffix("> ") || str.hasSuffix("❯ ") || str.hasSuffix("➜ ") ||
-                    str.contains("\r\n% ") || str.contains("\r\n$ ") || str.contains("\n% ") || str.contains("\n$ ") ||
-                    str.contains("\r\n❯ ") || str.contains("\r\n➜ ") || str.contains("\n❯ ") || str.contains("\n➜ ")
+                    str.contains("% ") || str.contains("$ ") || str.contains("# ") ||
+                    str.contains("> ") || str.contains("❯") || str.contains("➜") ||
+                    str.contains("%") && (str.contains("\u{1b}[") || str.hasSuffix("%"))
                 if isPrompt {
                     isCommandActive = false
                     commandStartTime = nil
+                    let cmdName = lastExecutedCommand.isEmpty ? name : lastExecutedCommand
                     let durStr = duration >= 60 ? String(format: "%.1fm", duration / 60) : String(format: "%.1fs", duration)
                     let isFailure = str.contains("command not found") || str.contains("error:") || str.contains("FAILED") || str.contains("Error:") || str.contains("fatal:")
-                    let title = isFailure ? "Command Failed (\(name))" : "Command Succeeded (\(name))"
+                    let title = isFailure ? "Command Failed (\(cmdName))" : "Command Succeeded (\(cmdName))"
                     let msg = isFailure ? "Process finished with error after \(durStr)" : "Completed in \(durStr)"
                     DispatchQueue.main.async { [weak self] in
                         self?.onCommandFinished?(msg, title, isFailure)
@@ -251,8 +252,13 @@ final class TerminalSession {
     func send(_ data: Data) {
         if let str = String(data: data, encoding: .utf8) {
             if str.contains("\r") || str.contains("\n") {
-                commandStartTime = Date()
-                isCommandActive = true
+                let trimmed = pendingCommandText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    commandStartTime = Date()
+                    isCommandActive = true
+                    lastExecutedCommand = trimmed
+                }
+                pendingCommandText = ""
             } else {
                 pendingCommandText += str
             }
@@ -473,7 +479,7 @@ nonisolated struct TerminalColors {
 
     static let dark = TerminalColors(
         foreground: 0xE6EDF3,
-        background: 0x1E1E1E,
+        background: 0x18181C,
         ansi: [
             0x484F58, 0xFF7B72, 0x3FB950, 0xD29922, 0x58A6FF, 0xBC8CFF, 0x39C5CF, 0xB1BAC4,
             0x6E7681, 0xFFA198, 0x56D364, 0xE3B341, 0x79C0FF, 0xD2A8FF, 0x56D4DD, 0xFFFFFF,

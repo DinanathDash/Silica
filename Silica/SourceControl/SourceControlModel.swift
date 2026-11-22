@@ -23,6 +23,7 @@ final class SourceControlModel {
     private(set) var branchName: String?
     private(set) var lastKnownBranch: String = "development"
     private(set) var remoteHostType: RemoteHostType = .unknown
+    private(set) var remoteOriginURL: String?
     private(set) var stagedFiles: [GitFileItem] = []
     private(set) var unstagedFiles: [GitFileItem] = []
     private(set) var commits: [GitCommitItem] = []
@@ -110,7 +111,9 @@ final class SourceControlModel {
         }
 
         let remoteResult = await runner.run(arguments: ["config", "--get", "remote.origin.url"], in: rootURL)
-        let remoteStr = remoteResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let rawRemote = remoteResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.remoteOriginURL = rawRemote.isEmpty ? nil : rawRemote
+        let remoteStr = rawRemote.lowercased()
         if remoteStr.contains("github.com") {
             self.remoteHostType = .github
         } else if remoteStr.contains("gitlab") {
@@ -1026,6 +1029,35 @@ final class SourceControlModel {
             let alert = parseGitError(result.stderr, fallbackTitle: "Init Failed", fallbackMessage: "Failed to initialize repository.")
             errorMessage = alert.message
             activeAlert = alert
+        }
+    }
+
+    /// Generates the web URL to open a specific commit in the user's browser.
+    func commitWebURL(for commitHash: String) -> URL? {
+        guard let remote = remoteOriginURL, !remote.isEmpty else { return nil }
+        var cleanRemote = remote.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleanRemote.hasSuffix(".git") {
+            cleanRemote.removeLast(4)
+        }
+        if cleanRemote.hasPrefix("git@") {
+            if let colonIndex = cleanRemote.firstIndex(of: ":") {
+                let host = cleanRemote[cleanRemote.index(cleanRemote.startIndex, offsetBy: 4)..<colonIndex]
+                let path = cleanRemote[cleanRemote.index(after: colonIndex)...]
+                cleanRemote = "https://\(host)/\(path)"
+            }
+        } else if cleanRemote.hasPrefix("ssh://git@") {
+            cleanRemote = cleanRemote.replacingOccurrences(of: "ssh://git@", with: "https://")
+        }
+
+        guard var components = URLComponents(string: cleanRemote) else { return nil }
+        components.scheme = "https"
+        let base = components.string ?? cleanRemote
+        let trimmedBase = base.hasSuffix("/") ? String(base.dropLast()) : base
+
+        if remoteHostType == .gitlab {
+            return URL(string: "\(trimmedBase)/-/commit/\(commitHash)")
+        } else {
+            return URL(string: "\(trimmedBase)/commit/\(commitHash)")
         }
     }
 }
