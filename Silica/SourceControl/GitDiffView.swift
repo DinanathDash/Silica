@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Native unified Git diff viewer displaying additions in green, deletions in red,
-/// hunk headers, line numbers, and quick edit switching.
+/// hunk headers, line numbers, and continuous diffs for multi-file commits or branch comparisons.
 struct GitDiffView: View {
     let diff: WorkspaceModel.DiffPresentation
     let workspace: WorkspaceModel
@@ -10,10 +10,10 @@ struct GitDiffView: View {
     private var settings: EditorSettings { .shared }
 
     @State private var isLoading = true
-    @State private var parsedLines: [DiffLine] = []
+    @State private var fileGroups: [DiffFileGroup] = []
+    @State private var collapsedFileIDs: Set<String> = []
     @State private var totalAdditions = 0
     @State private var totalDeletions = 0
-    @State private var maxVisibleLines = 3000
     @State private var liveUpdateTask: Task<Void, Never>?
 
     private var isWordWrapEnabled: Bool {
@@ -32,11 +32,19 @@ struct GitDiffView: View {
         let kind: Kind
     }
 
-    private var visibleParsedLines: [DiffLine] {
-        if parsedLines.count > maxVisibleLines {
-            return Array(parsedLines.prefix(maxVisibleLines))
-        }
-        return parsedLines
+    struct DiffFileGroup: Identifiable, Sendable {
+        let id: String
+        let relativePath: String
+        let fileName: String
+        let directoryPath: String
+        let status: GitFileItem.Status
+        let additions: Int
+        let deletions: Int
+        let lines: [DiffLine]
+    }
+
+    private var isMultiFile: Bool {
+        fileGroups.count > 1 || diff.isFullDiff || diff.isBranchCompare
     }
 
     var body: some View {
@@ -61,41 +69,16 @@ struct GitDiffView: View {
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if parsedLines.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "checkmark.circle")
-                        .font(.system(size: 28))
-                        .foregroundStyle(.secondary)
-                    Text("No changes in this file")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if fileGroups.isEmpty || fileGroups.allSatisfy({ $0.lines.isEmpty }) {
+                emptyStateView
             } else {
                 GeometryReader { geometry in
                     ScrollView(isWordWrapEnabled ? [.vertical] : [.horizontal, .vertical]) {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(visibleParsedLines) { line in
-                                diffLineRow(line: line)
-                                    .frame(minHeight: max(settings.fontSize + 5, 20))
-                            }
-
-                            if parsedLines.count > maxVisibleLines {
-                                HStack(spacing: 8) {
-                                    Text("Diff is very large (\(parsedLines.count) lines). Showing first \(maxVisibleLines) lines for smooth scrolling.")
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(.secondary)
-                                    Button("Show All Lines") {
-                                        maxVisibleLines = parsedLines.count
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.small)
-                                }
-                                .padding(12)
-                            }
+                        if isMultiFile {
+                            multiFileDiffContent(geometry: geometry)
+                        } else {
+                            singleFileDiffContent(geometry: geometry)
                         }
-                        .frame(minWidth: geometry.size.width, alignment: .leading)
-                        .padding(.vertical, 8)
                     }
                 }
                 .font(.system(size: settings.fontSize, design: .monospaced))
@@ -107,29 +90,22 @@ struct GitDiffView: View {
             await loadDiff()
         }
         .onChange(of: workspace.buffers[diff.fileURL]?.isDirty) { _, _ in
-            liveUpdateTask?.cancel()
-            liveUpdateTask = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 200_000_000)
-                guard !Task.isCancelled else { return }
-                await loadDiff()
-            }
+            scheduleLiveReload()
         }
         .onReceive(NotificationCenter.default.publisher(for: .fileDidSave)) { note in
             if let savedURL = note.object as? URL, savedURL == diff.fileURL {
-                liveUpdateTask?.cancel()
-                liveUpdateTask = Task { @MainActor in
-                    await loadDiff()
-                }
+                scheduleLiveReload()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSText.didChangeNotification)) { _ in
             guard diff.commitHash == nil && diff.compareBranch == nil else { return }
-            liveUpdateTask?.cancel()
-            liveUpdateTask = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 400_000_000)
-                guard !Task.isCancelled else { return }
-                await loadDiff()
-            }
+            scheduleLiveReload()
+        }
+        .onChange(of: model.stagedFiles) { _, _ in
+            scheduleLiveReload()
+        }
+        .onChange(of: model.unstagedFiles) { _, _ in
+            scheduleLiveReload()
         }
         .onDisappear {
             liveUpdateTask?.cancel()
@@ -137,56 +113,151 @@ struct GitDiffView: View {
         }
     }
 
+    // MARK: - Empty State
+
+    @ViewBuilder
+    private var emptyStateView: some View {
+        if diff.commitHash == nil && diff.compareBranch == nil {
+            // Working tree changes that were committed in the background
+            VStack(spacing: 12) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 32))
+                    .foregroundStyle(.green)
+                VStack(spacing: 4) {
+                    Text("All changes committed")
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Text("No uncommitted changes in this file.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                Button {
+                    workspace.closeDiff()
+                } label: {
+                    Label("Return to Code Editor", systemImage: "square.and.pencil")
+                        .font(.system(size: 11.5, weight: .medium))
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .padding(.top, 4)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if diff.isBranchCompare {
+            VStack(spacing: 8) {
+                Image(systemName: "checkmark.circle")
+                    .font(.system(size: 28))
+                    .foregroundStyle(.secondary)
+                Text("Branches are identical")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Text("No differences between \(diff.relativePath).")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            VStack(spacing: 8) {
+                Image(systemName: "checkmark.circle")
+                    .font(.system(size: 28))
+                    .foregroundStyle(.secondary)
+                Text("No changes in this commit")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
     // MARK: - Header Bar
 
     private var headerBar: some View {
         HStack(spacing: 10) {
-            FileIcon(url: diff.fileURL, width: 15)
+            if isMultiFile {
+                SourceControlIcon(type: diff.isBranchCompare ? .compare : .commit, size: 14)
+                    .foregroundStyle(Color.accentColor)
 
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 6) {
-                    Text(diff.fileURL.lastPathComponent)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.primary)
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 6) {
+                        Text(diff.relativePath)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.primary)
 
-                    if diff.isBranchCompare {
-                        Text("Branch Compare")
+                        Text(diff.isBranchCompare ? "Branch Compare" : "Full Diff")
                             .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(Color.accentColor)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
                             .background(Color.accentColor.opacity(0.12), in: Capsule())
-                    } else if diff.isCommitDiff {
-                        Text(diff.commitHash?.prefix(7).description ?? "Commit")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundStyle(Color.accentColor)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Color.accentColor.opacity(0.12), in: Capsule())
-                    } else {
-                        Text("Working Changes")
-                            .font(.system(size: 10, weight: .medium))
+
+                        Text("\(fileGroups.count) \(fileGroups.count == 1 ? "file" : "files") changed")
+                            .font(.system(size: 10.5))
                             .foregroundStyle(.secondary)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Color.primary.opacity(0.06), in: Capsule())
+                    }
+
+                    if let title = diff.commitTitle, !title.isEmpty, title != diff.relativePath {
+                        Text(title)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
                 }
+            } else {
+                FileIcon(url: diff.fileURL, width: 15)
 
-                if let title = diff.commitTitle, !title.isEmpty {
-                    Text(title)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                } else if !diff.relativePath.isEmpty {
-                    Text(diff.relativePath)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 6) {
+                        Text(diff.fileURL.lastPathComponent)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.primary)
+
+                        if diff.isCommitDiff {
+                            Text(diff.commitHash?.prefix(7).description ?? "Commit")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundStyle(Color.accentColor)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(Color.accentColor.opacity(0.12), in: Capsule())
+                        } else {
+                            Text("Working Changes")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(Color.primary.opacity(0.06), in: Capsule())
+                        }
+                    }
+
+                    if let title = diff.commitTitle, !title.isEmpty {
+                        Text(title)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    } else if !diff.relativePath.isEmpty {
+                        Text(diff.relativePath)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
                 }
             }
 
             Spacer()
+
+            if isMultiFile && !fileGroups.isEmpty {
+                Button {
+                    if collapsedFileIDs.count == fileGroups.count {
+                        collapsedFileIDs.removeAll()
+                    } else {
+                        collapsedFileIDs = Set(fileGroups.map(\.id))
+                    }
+                } label: {
+                    Image(systemName: collapsedFileIDs.count == fileGroups.count ? "arrow.up.and.line.horizontal.and.arrow.down" : "arrow.down.and.line.horizontal.and.arrow.up")
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.titleBarIcon)
+                .frame(width: 24, height: 24)
+                .help(collapsedFileIDs.count == fileGroups.count ? "Expand All Files" : "Collapse All Files")
+            }
 
             if totalAdditions > 0 || totalDeletions > 0 {
                 HStack(spacing: 5) {
@@ -206,28 +277,156 @@ struct GitDiffView: View {
                 .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 4))
             }
 
-            // Button to return to normal live code editor
+            // Button to return to normal editor or close diff tab
             Button {
                 workspace.closeDiff()
             } label: {
-                Label("Edit Code", systemImage: "square.and.pencil")
+                Label(isMultiFile ? "Close Diff" : "Edit Code", systemImage: isMultiFile ? "xmark" : "square.and.pencil")
                     .font(.system(size: 11, weight: .medium))
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .liquidGlassTooltip("Switch to live code editor")
+            .help(isMultiFile ? "Close Diff Tab" : "Switch to live code editor")
         }
+    }
+
+    // MARK: - Multi-File Diff Content (Continuous diffs per file)
+
+    private func multiFileDiffContent(geometry: GeometryProxy) -> some View {
+        LazyVStack(alignment: .leading, spacing: 10) {
+            ForEach(fileGroups) { group in
+                VStack(alignment: .leading, spacing: 0) {
+                    // Athas-styled section header per file
+                    fileSectionHeader(group: group)
+
+                    if !collapsedFileIDs.contains(group.id) {
+                        let fileURL = workspace.rootURL.appending(path: group.relativePath)
+                        let lang = SyntaxLanguage(url: fileURL)
+
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(group.lines) { line in
+                                diffLineRow(line: line, language: lang)
+                                    .frame(minHeight: max(settings.fontSize + 5, 20))
+                            }
+                        }
+                    }
+                }
+                .background(Color(nsColor: .textBackgroundColor).opacity(0.18))
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+                )
+            }
+        }
+        .frame(minWidth: geometry.size.width, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
+    }
+
+    private func fileSectionHeader(group: DiffFileGroup) -> some View {
+        let isCollapsed = collapsedFileIDs.contains(group.id)
+        let fileURL = workspace.rootURL.appending(path: group.relativePath)
+
+        return HStack(spacing: 8) {
+            Button {
+                if isCollapsed {
+                    collapsedFileIDs.remove(group.id)
+                } else {
+                    collapsedFileIDs.insert(group.id)
+                }
+            } label: {
+                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 14, height: 14)
+            }
+            .buttonStyle(.plain)
+
+            FileIcon(url: fileURL, width: 14)
+
+            Text(group.fileName)
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(.primary)
+
+            if !group.directoryPath.isEmpty {
+                Text(group.directoryPath)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+
+            Text(group.status.badgeLetter)
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(group.status.badgeColor)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(group.status.badgeColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
+
+            Spacer()
+
+            if group.additions > 0 || group.deletions > 0 {
+                HStack(spacing: 4) {
+                    if group.additions > 0 {
+                        Text("+\(group.additions)")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(.green)
+                    }
+                    if group.deletions > 0 {
+                        Text("-\(group.deletions)")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(.red)
+                    }
+                }
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 3))
+            }
+
+            Button {
+                workspace.open(fileURL)
+            } label: {
+                Image(systemName: "arrow.up.right.square")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Open \(group.fileName)")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.55))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if isCollapsed {
+                collapsedFileIDs.remove(group.id)
+            } else {
+                collapsedFileIDs.insert(group.id)
+            }
+        }
+    }
+
+    // MARK: - Single-File Diff Content
+
+    private func singleFileDiffContent(geometry: GeometryProxy) -> some View {
+        let singleGroup = fileGroups.first
+        let lang = SyntaxLanguage(url: diff.fileURL)
+
+        return LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(singleGroup?.lines ?? []) { line in
+                diffLineRow(line: line, language: lang)
+                    .frame(minHeight: max(settings.fontSize + 5, 20))
+            }
+        }
+        .frame(minWidth: geometry.size.width, alignment: .leading)
+        .padding(.vertical, 8)
     }
 
     // MARK: - Row Rendering
 
-    private var diffLanguage: SyntaxLanguage? {
-        SyntaxLanguage(url: diff.fileURL)
-    }
-
-    private func highlightedCodeText(_ text: String) -> AttributedString {
+    private func highlightedCodeText(_ text: String, language: SyntaxLanguage?) -> AttributedString {
         var attrStr = AttributedString(text)
-        guard let language = diffLanguage else { return attrStr }
+        guard let language else { return attrStr }
         let theme = settings.syntaxTheme
         let tokens = language.tokenizer.tokenize(text as NSString)
         for token in tokens {
@@ -238,7 +437,7 @@ struct GitDiffView: View {
     }
 
     @ViewBuilder
-    private func diffLineRow(line: DiffLine) -> some View {
+    private func diffLineRow(line: DiffLine, language: SyntaxLanguage?) -> some View {
         switch line.kind {
         case .header:
             EmptyView()
@@ -262,7 +461,7 @@ struct GitDiffView: View {
                     .frame(width: 16)
                     .foregroundStyle(Color(red: 0.45, green: 0.79, blue: 0.57))
                     .fontWeight(.bold)
-                Text(highlightedCodeText(text))
+                Text(highlightedCodeText(text, language: language))
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: !isWordWrapEnabled, vertical: false)
                 Spacer(minLength: 16)
@@ -278,7 +477,7 @@ struct GitDiffView: View {
                     .frame(width: 16)
                     .foregroundStyle(Color(red: 0.89, green: 0.41, blue: 0.45))
                     .fontWeight(.bold)
-                Text(highlightedCodeText(text))
+                Text(highlightedCodeText(text, language: language))
                     .foregroundStyle(.primary.opacity(0.9))
                     .fixedSize(horizontal: !isWordWrapEnabled, vertical: false)
                 Spacer(minLength: 16)
@@ -292,7 +491,7 @@ struct GitDiffView: View {
                 lineNumberView(oldLine: oldL, newLine: newL)
                 Text(" ")
                     .frame(width: 16)
-                Text(highlightedCodeText(text))
+                Text(highlightedCodeText(text, language: language))
                     .foregroundStyle(.primary.opacity(0.95))
                     .fixedSize(horizontal: !isWordWrapEnabled, vertical: false)
                 Spacer(minLength: 16)
@@ -318,53 +517,140 @@ struct GitDiffView: View {
 
     // MARK: - Diff Loading & Parsing
 
+    private func scheduleLiveReload() {
+        liveUpdateTask?.cancel()
+        liveUpdateTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            await loadDiff()
+        }
+    }
+
     private func loadDiff() async {
         isLoading = true
         let raw: String
         if let targetBranch = diff.compareBranch {
             raw = await model.diffForBranchCompare(targetBranch: targetBranch)
+        } else if diff.isFullDiff, let commitHash = diff.commitHash {
+            raw = await model.diffForFullCommit(commitHash: commitHash)
         } else {
             raw = await model.diffForFile(in: diff.commitHash, relativePath: diff.relativePath)
         }
 
-        let result = await Task.detached(priority: .userInitiated) { () -> (lines: [DiffLine], adds: Int, dels: Int) in
-            Self.parseUnifiedDiffLines(raw)
+        let fallback = diff.relativePath
+        let result = await Task.detached(priority: .userInitiated) { () -> (groups: [DiffFileGroup], adds: Int, dels: Int) in
+            Self.parseUnifiedDiff(raw: raw, fallbackPath: fallback)
         }.value
 
-        self.parsedLines = result.lines
+        self.fileGroups = result.groups
         self.totalAdditions = result.adds
         self.totalDeletions = result.dels
         self.isLoading = false
     }
 
-    nonisolated static func parseUnifiedDiffLines(_ raw: String) -> (lines: [DiffLine], adds: Int, dels: Int) {
-        var lines: [DiffLine] = []
-        lines.reserveCapacity(min(raw.count / 40, 5000))
-        var adds = 0
-        var dels = 0
+    nonisolated static func parseUnifiedDiff(raw: String, fallbackPath: String) -> (groups: [DiffFileGroup], adds: Int, dels: Int) {
+        var groups: [DiffFileGroup] = []
+        var totalAdds = 0
+        var totalDels = 0
+
+        var currentPath = fallbackPath
+        var currentStatus: GitFileItem.Status = .modified
+        var currentLines: [DiffLine] = []
+        var currentAdds = 0
+        var currentDels = 0
         var lineIndex = 0
 
         var oldLineCounter = 0
         var newLineCounter = 0
         var inHunk = false
+        var hasSeenDiffHeader = false
+
+        func flushCurrentGroup() {
+            guard !currentLines.isEmpty || hasSeenDiffHeader else { return }
+            let trimmedPath = currentPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedPath.isEmpty else { return }
+            let components = trimmedPath.split(separator: "/")
+            let fileName = components.last.map(String.init) ?? trimmedPath
+            let dirPath = components.dropLast().joined(separator: "/")
+
+            groups.append(DiffFileGroup(
+                id: trimmedPath + "_\(groups.count)",
+                relativePath: trimmedPath,
+                fileName: fileName,
+                directoryPath: dirPath,
+                status: currentStatus,
+                additions: currentAdds,
+                deletions: currentDels,
+                lines: currentLines
+            ))
+            currentLines = []
+            currentAdds = 0
+            currentDels = 0
+            oldLineCounter = 0
+            newLineCounter = 0
+            inHunk = false
+        }
 
         raw.enumerateLines { line, stop in
-            if lines.count >= 10_000 {
+            if groups.count >= 100 && line.hasPrefix("diff --git") {
                 stop = true
                 return
             }
-            if line.hasPrefix("diff --git") || line.hasPrefix("index ") ||
-               line.hasPrefix("--- ") || line.hasPrefix("+++ ") ||
-               line.hasPrefix("commit ") || line.hasPrefix("Author:") ||
-               line.hasPrefix("Date:") {
+
+            if line.hasPrefix("diff --git") {
+                if hasSeenDiffHeader {
+                    flushCurrentGroup()
+                }
+                hasSeenDiffHeader = true
+                currentStatus = .modified
+                let parts = line.split(separator: " ")
+                if parts.count >= 4 {
+                    var newPart = String(parts[3])
+                    if newPart.hasPrefix("b/") {
+                        newPart = String(newPart.dropFirst(2))
+                    }
+                    currentPath = newPart
+                }
+                return
+            }
+
+            if line.hasPrefix("new file mode") {
+                currentStatus = .added
+                return
+            }
+            if line.hasPrefix("deleted file mode") {
+                currentStatus = .deleted
+                return
+            }
+            if line.hasPrefix("similarity index") || line.hasPrefix("rename from") {
+                currentStatus = .renamed
+                return
+            }
+            if line.hasPrefix("--- ") {
+                if line.contains("/dev/null") {
+                    currentStatus = .added
+                }
+                return
+            }
+            if line.hasPrefix("+++ ") {
+                if line.contains("/dev/null") {
+                    currentStatus = .deleted
+                } else if currentPath.isEmpty || currentPath == fallbackPath {
+                    var path = line.replacingOccurrences(of: "+++ ", with: "").trimmingCharacters(in: .whitespaces)
+                    if path.hasPrefix("b/") { path = String(path.dropFirst(2)) }
+                    currentPath = path
+                }
+                return
+            }
+            if line.hasPrefix("index ") || line.hasPrefix("commit ") ||
+               line.hasPrefix("Author:") || line.hasPrefix("Date:") {
                 return
             }
 
             if line.hasPrefix("@@") {
                 inHunk = true
-                lines.append(DiffLine(id: lineIndex, kind: .hunkHeader(line)))
+                currentLines.append(DiffLine(id: lineIndex, kind: .hunkHeader(line)))
                 lineIndex += 1
-                // Parse @@ -oldStart,oldCount +newStart,newCount @@
                 let components = line.split(separator: " ")
                 if components.count >= 3 {
                     let oldPart = components[1].replacingOccurrences(of: "-", with: "")
@@ -380,26 +666,30 @@ struct GitDiffView: View {
             guard inHunk else { return }
 
             if line.hasPrefix("+") {
-                adds += 1
+                currentAdds += 1
+                totalAdds += 1
                 let content = String(line.dropFirst())
-                lines.append(DiffLine(id: lineIndex, kind: .addition(oldLine: nil, newLine: newLineCounter, text: content)))
+                currentLines.append(DiffLine(id: lineIndex, kind: .addition(oldLine: nil, newLine: newLineCounter, text: content)))
                 lineIndex += 1
                 newLineCounter += 1
             } else if line.hasPrefix("-") {
-                dels += 1
+                currentDels += 1
+                totalDels += 1
                 let content = String(line.dropFirst())
-                lines.append(DiffLine(id: lineIndex, kind: .deletion(oldLine: oldLineCounter, newLine: nil, text: content)))
+                currentLines.append(DiffLine(id: lineIndex, kind: .deletion(oldLine: oldLineCounter, newLine: nil, text: content)))
                 lineIndex += 1
                 oldLineCounter += 1
             } else if line.hasPrefix(" ") {
                 let content = String(line.dropFirst())
-                lines.append(DiffLine(id: lineIndex, kind: .context(oldLine: oldLineCounter, newLine: newLineCounter, text: content)))
+                currentLines.append(DiffLine(id: lineIndex, kind: .context(oldLine: oldLineCounter, newLine: newLineCounter, text: content)))
                 lineIndex += 1
                 oldLineCounter += 1
                 newLineCounter += 1
             }
         }
 
-        return (lines, adds, dels)
+        flushCurrentGroup()
+
+        return (groups, totalAdds, totalDels)
     }
 }

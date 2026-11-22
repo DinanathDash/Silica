@@ -340,6 +340,12 @@ struct SourceControlHistoryView: View {
             )
         }
         .contextMenu {
+            Button("View Full Diff") {
+                workspace.openFullCommitDiff(commitHash: commit.hash, commitTitle: commit.summary)
+            }
+
+            Divider()
+
             Button("New Branch from this Commit…") {
                 branchCommitTarget = commit
                 newBranchName = ""

@@ -88,7 +88,8 @@ struct EditorArea: View {
 
     private var editorCard: some View {
         Group {
-            if let diff = workspace.activeDiff, diff.fileURL == workspace.activeTab {
+            if let activeURL = workspace.activeTab,
+               let diff = workspace.diffTabs[activeURL] ?? (workspace.activeDiff?.fileURL == activeURL ? workspace.activeDiff : nil) {
                 GitDiffView(diff: diff, workspace: workspace, model: workspace.sourceControl)
             } else if let buffer = workspace.activeBuffer {
                 BufferView(buffer: buffer, workspace: workspace)
@@ -174,6 +175,7 @@ private struct EditorTabBar: View {
                         EditorTab(
                             url: url,
                             isActive: url == workspace.activeTab,
+                            isDiffTab: workspace.diffTabs[url] != nil,
                             isDirty: workspace.buffers[url]?.isDirty == true,
                             isMissing: workspace.buffers[url]?.isMissingOnDisk == true,
                             select: { workspace.activate(url) },
@@ -584,6 +586,7 @@ enum TabDragEvent {
 private struct EditorTab: View {
     let url: URL
     let isActive: Bool
+    var isDiffTab: Bool = false
     let isDirty: Bool
     /// Deleted or moved on disk since it was opened.
     let isMissing: Bool
@@ -603,8 +606,14 @@ private struct EditorTab: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            FileIcon(url: url)
-                .font(.caption)
+            if isDiffTab {
+                Image(systemName: "arrow.triangle.swap")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+            } else {
+                FileIcon(url: url)
+                    .font(.caption)
+            }
             Text(url.lastPathComponent)
                 .font(.callout)
                 .lineLimit(1)

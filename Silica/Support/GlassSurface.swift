@@ -181,6 +181,11 @@ public struct LiquidGlassTooltipModifier: ViewModifier {
                     timerTask = nil
                     isVisible = false
                 }
+                .onReceive(NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)) { _ in
+                    timerTask?.cancel()
+                    timerTask = nil
+                    isVisible = false
+                }
         }
     }
 

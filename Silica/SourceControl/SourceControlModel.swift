@@ -43,6 +43,11 @@ final class SourceControlModel {
         }
     }
     private var isRefreshing = false
+    @ObservationIgnored var onActionFinished: ((_ message: String, _ title: String?, _ isFailure: Bool) -> Void)?
+
+    func notifyAction(message: String, title: String? = nil, isFailure: Bool = false) {
+        onActionFinished?(message, title, isFailure)
+    }
 
     var commitMessage = ""
 
@@ -341,7 +346,24 @@ final class SourceControlModel {
 
     func diffForBranchCompare(targetBranch: String) async -> String {
         let base = branchName ?? "HEAD"
-        let res = await runner.run(arguments: ["diff", "\(base)...\(targetBranch)"], in: rootURL)
+        let r1 = await runner.run(arguments: ["diff", "--find-renames", "\(targetBranch)...\(base)"], in: rootURL)
+        if !r1.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return r1.stdout
+        }
+        let r2 = await runner.run(arguments: ["diff", "--find-renames", "\(base)...\(targetBranch)"], in: rootURL)
+        if !r2.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return r2.stdout
+        }
+        let r3 = await runner.run(arguments: ["diff", "--find-renames", "\(targetBranch)..\(base)"], in: rootURL)
+        if !r3.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return r3.stdout
+        }
+        let r4 = await runner.run(arguments: ["diff", "--find-renames", "\(base)..\(targetBranch)"], in: rootURL)
+        return r4.stdout
+    }
+
+    func diffForFullCommit(commitHash: String) async -> String {
+        let res = await runner.run(arguments: ["show", "--format=", "--find-renames", commitHash], in: rootURL)
         return res.stdout
     }
 
@@ -660,6 +682,7 @@ final class SourceControlModel {
         _ = await runner.run(arguments: ["restore", "."], in: rootURL)
         _ = await runner.run(arguments: ["clean", "-fd"], in: rootURL)
         await loadStatus()
+        notifyAction(message: "Discarded all uncommitted changes", title: "Changes Discarded", isFailure: false)
     }
 
     func cleanErrorMessage(_ raw: String, fallback: String) -> String {
@@ -841,11 +864,13 @@ final class SourceControlModel {
             commitMessage = ""
             errorMessage = nil
             await refresh()
+            notifyAction(message: trimmed, title: "Commit Created", isFailure: false)
             return true
         } else {
             let alert = parseGitError(result.stderr, fallbackTitle: "Commit Failed", fallbackMessage: "Could not create commit.")
             errorMessage = alert.message
             activeAlert = alert
+            notifyAction(message: alert.message, title: alert.title, isFailure: true)
             return false
         }
     }
@@ -855,6 +880,7 @@ final class SourceControlModel {
         if result.isSuccess {
             errorMessage = nil
             await refresh()
+            notifyAction(message: "Pushed commits to remote", title: "Git Push Succeeded", isFailure: false)
             return
         }
 
@@ -871,11 +897,13 @@ final class SourceControlModel {
                 if upstreamRes.isSuccess {
                     errorMessage = nil
                     await refresh()
+                    notifyAction(message: "Pushed and linked \(branch) to \(targetRemote)", title: "Git Push Succeeded", isFailure: false)
                     return
                 } else {
                     let alert = parseGitError(upstreamRes.stderr, fallbackTitle: "Push Failed", fallbackMessage: "Could not push and link branch to remote.")
                     errorMessage = alert.message
                     activeAlert = alert
+                    notifyAction(message: alert.message, title: alert.title, isFailure: true)
                     return
                 }
             }
@@ -884,11 +912,14 @@ final class SourceControlModel {
         let alert = parseGitError(result.stderr, fallbackTitle: "Push Failed", fallbackMessage: "Could not push commits to the remote repository.")
         errorMessage = alert.message
         activeAlert = alert
+        notifyAction(message: alert.message, title: alert.title, isFailure: true)
     }
 
     func publishCurrentBranch() async {
         guard let branch = branchName, !branch.isEmpty, branch != "HEAD" else {
-            activeAlert = GitAlertItem(title: "Cannot Publish", message: "Cannot publish branch in detached HEAD state.")
+            let alert = GitAlertItem(title: "Cannot Publish", message: "Cannot publish branch in detached HEAD state.")
+            activeAlert = alert
+            notifyAction(message: alert.message, title: alert.title, isFailure: true)
             return
         }
         let remotesRes = await runner.run(arguments: ["remote"], in: rootURL)
@@ -899,10 +930,12 @@ final class SourceControlModel {
         if result.isSuccess {
             errorMessage = nil
             await refresh()
+            notifyAction(message: "Published “\(branch)” to \(targetRemote)", title: "Branch Published", isFailure: false)
         } else {
             let alert = parseGitError(result.stderr, fallbackTitle: "Publish Branch Failed", fallbackMessage: "Could not publish branch to remote.")
             errorMessage = alert.message
             activeAlert = alert
+            notifyAction(message: alert.message, title: alert.title, isFailure: true)
         }
     }
 
@@ -911,10 +944,12 @@ final class SourceControlModel {
         if result.isSuccess {
             errorMessage = nil
             await refresh()
+            notifyAction(message: "Pulled latest updates from remote", title: "Git Pull Succeeded", isFailure: false)
         } else {
             let alert = parseGitError(result.stderr, fallbackTitle: "Pull Failed", fallbackMessage: "Could not pull updates from the remote repository.")
             errorMessage = alert.message
             activeAlert = alert
+            notifyAction(message: alert.message, title: alert.title, isFailure: true)
         }
     }
 
@@ -927,10 +962,12 @@ final class SourceControlModel {
         if result.isSuccess {
             errorMessage = nil
             await refresh()
+            notifyAction(message: prune ? "Fetched and pruned remote tracking branches" : "Fetched latest remote tracking branches", title: "Git Fetch Succeeded", isFailure: false)
         } else {
             let alert = parseGitError(result.stderr, fallbackTitle: "Fetch Failed", fallbackMessage: "Could not fetch changes from the remote repository.")
             errorMessage = alert.message
             activeAlert = alert
+            notifyAction(message: alert.message, title: alert.title, isFailure: true)
         }
     }
 
@@ -954,11 +991,13 @@ final class SourceControlModel {
         if result.isSuccess {
             errorMessage = nil
             await refresh()
+            notifyAction(message: "Saved working changes to stash", title: "Stash Created", isFailure: false)
             return true
         } else {
             let alert = parseGitError(result.stderr, fallbackTitle: "Stash Failed", fallbackMessage: "Could not stash working changes.")
             errorMessage = alert.message
             activeAlert = alert
+            notifyAction(message: alert.message, title: alert.title, isFailure: true)
             return false
         }
     }
@@ -969,11 +1008,13 @@ final class SourceControlModel {
         if result.isSuccess {
             errorMessage = nil
             await refresh()
+            notifyAction(message: "Popped and applied latest stash", title: "Stash Popped", isFailure: false)
             return true
         } else {
             let alert = parseGitError(result.stderr, fallbackTitle: "Pop Stash Failed", fallbackMessage: "Could not restore the latest stash.")
             errorMessage = alert.message
             activeAlert = alert
+            notifyAction(message: alert.message, title: alert.title, isFailure: true)
             return false
         }
     }
@@ -984,11 +1025,13 @@ final class SourceControlModel {
         if result.isSuccess {
             errorMessage = nil
             await refresh()
+            notifyAction(message: "Applied latest stash changes", title: "Stash Applied", isFailure: false)
             return true
         } else {
             let alert = parseGitError(result.stderr, fallbackTitle: "Apply Stash Failed", fallbackMessage: "Could not apply the latest stash.")
             errorMessage = alert.message
             activeAlert = alert
+            notifyAction(message: alert.message, title: alert.title, isFailure: true)
             return false
         }
     }
@@ -999,11 +1042,13 @@ final class SourceControlModel {
         if result.isSuccess {
             errorMessage = nil
             await refresh()
+            notifyAction(message: "Dropped latest stash", title: "Stash Dropped", isFailure: false)
             return true
         } else {
             let alert = parseGitError(result.stderr, fallbackTitle: "Drop Stash Failed", fallbackMessage: "Could not drop the latest stash.")
             errorMessage = alert.message
             activeAlert = alert
+            notifyAction(message: alert.message, title: alert.title, isFailure: true)
             return false
         }
     }
@@ -1015,10 +1060,12 @@ final class SourceControlModel {
         if result.isSuccess {
             errorMessage = nil
             await refresh()
+            notifyAction(message: "Switched to branch “\(branchName)”", title: "Checkout Succeeded", isFailure: false)
             return (true, nil)
         } else {
             let alert = parseGitError(result.stderr, fallbackTitle: "Checkout Failed", fallbackMessage: "Could not switch to branch “\(branchName)”.")
             errorMessage = alert.message
+            notifyAction(message: alert.message, title: alert.title, isFailure: true)
             return (false, result.stderr)
         }
     }
@@ -1034,11 +1081,13 @@ final class SourceControlModel {
         if result.isSuccess {
             errorMessage = nil
             await refresh()
+            notifyAction(message: "Created and switched to branch “\(trimmed)”", title: "Branch Created", isFailure: false)
             return true
         } else {
             let alert = parseGitError(result.stderr, fallbackTitle: "Create Branch Failed", fallbackMessage: "Failed to create branch “\(trimmed)”.")
             errorMessage = alert.message
             activeAlert = alert
+            notifyAction(message: alert.message, title: alert.title, isFailure: true)
             return false
         }
     }
@@ -1053,11 +1102,13 @@ final class SourceControlModel {
         if result.isSuccess {
             errorMessage = nil
             await refresh()
+            notifyAction(message: "Checked out commit \(commitHash.prefix(7))", title: "Checkout Succeeded", isFailure: false)
             return (true, nil)
         } else {
             let alert = parseGitError(result.stderr, fallbackTitle: "Checkout Failed", fallbackMessage: "Could not checkout commit “\(commitHash)”.")
             errorMessage = alert.message
             activeAlert = alert
+            notifyAction(message: alert.message, title: alert.title, isFailure: true)
             return (false, result.stderr)
         }
     }
@@ -1068,11 +1119,13 @@ final class SourceControlModel {
         if result.isSuccess {
             errorMessage = nil
             await refresh()
+            notifyAction(message: "Cherry-picked commit \(commitHash.prefix(7))", title: "Cherry-pick Succeeded", isFailure: false)
             return (true, nil)
         } else {
             let alert = parseGitError(result.stderr, fallbackTitle: "Cherry-pick Failed", fallbackMessage: "Could not cherry-pick commit “\(commitHash)”.")
             errorMessage = alert.message
             activeAlert = alert
+            notifyAction(message: alert.message, title: alert.title, isFailure: true)
             return (false, result.stderr)
         }
     }
@@ -1084,11 +1137,13 @@ final class SourceControlModel {
         if result.isSuccess {
             errorMessage = nil
             await refresh()
+            notifyAction(message: "Switched to branch “\(target)”", title: "Checkout Succeeded", isFailure: false)
             return true
         } else {
             let alert = parseGitError(result.stderr, fallbackTitle: "Switch Branch Failed", fallbackMessage: "Could not return to branch “\(target)”.")
             errorMessage = alert.message
             activeAlert = alert
+            notifyAction(message: alert.message, title: alert.title, isFailure: true)
             return false
         }
     }
@@ -1117,11 +1172,13 @@ final class SourceControlModel {
         if result.isSuccess {
             errorMessage = nil
             await refresh()
+            notifyAction(message: "Deleted branch “\(branch.name)”", title: "Branch Deleted", isFailure: false)
             return true
         } else {
             let alert = parseGitError(result.stderr, fallbackTitle: "Delete Branch Failed", fallbackMessage: "Failed to delete branch “\(branch.name)”.")
             errorMessage = alert.message
             activeAlert = alert
+            notifyAction(message: alert.message, title: alert.title, isFailure: true)
             return false
         }
     }
@@ -1131,10 +1188,12 @@ final class SourceControlModel {
         if result.isSuccess {
             errorMessage = nil
             await refresh()
+            notifyAction(message: "Initialized new Git repository", title: "Git Initialized", isFailure: false)
         } else {
             let alert = parseGitError(result.stderr, fallbackTitle: "Init Failed", fallbackMessage: "Failed to initialize repository.")
             errorMessage = alert.message
             activeAlert = alert
+            notifyAction(message: alert.message, title: alert.title, isFailure: true)
         }
     }
 

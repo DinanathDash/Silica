@@ -157,6 +157,9 @@ final class WorkspaceModel {
         self.quickOpen = QuickOpenModel(rootURL: rootURL)
         self.search = ProjectSearchModel(rootURL: rootURL)
         self.sourceControl = SourceControlModel(rootURL: rootURL)
+        self.sourceControl.onActionFinished = { [weak self] message, title, isFailure in
+            self?.showToast(message, title: title, isFailure: isFailure)
+        }
         root.isExpanded = true
         root.loadChildrenIfNeeded()
         search.unsavedTexts = { [weak self] in
@@ -551,9 +554,7 @@ final class WorkspaceModel {
         // Files may have come or gone: filter a fresh list.
         treeFilterItems = nil
         if treeFilterResult != nil { scheduleTreeFilter(after: .milliseconds(300)) }
-        if isSourceControlVisible {
-            Task { await sourceControl.refresh() }
-        }
+        Task { await sourceControl.refresh() }
     }
 
     // MARK: Tree filter
@@ -665,6 +666,11 @@ final class WorkspaceModel {
 
     func activate(_ url: URL) {
         activeTab = url
+        if let diff = diffTabs[url] {
+            activeDiff = diff
+        } else if activeDiff?.fileURL != url {
+            activeDiff = nil
+        }
         // An untitled file has no row in the tree or place in Quick Open.
         if url.isUntitled {
             selection = nil
@@ -740,44 +746,81 @@ final class WorkspaceModel {
         let commitHash: String?
         let commitTitle: String?
         let compareBranch: String?
+        let isFullDiff: Bool
 
         var isCommitDiff: Bool { commitHash != nil }
         var isBranchCompare: Bool { compareBranch != nil }
 
-        init(fileURL: URL, relativePath: String, commitHash: String? = nil, commitTitle: String? = nil, compareBranch: String? = nil) {
+        init(
+            fileURL: URL,
+            relativePath: String,
+            commitHash: String? = nil,
+            commitTitle: String? = nil,
+            compareBranch: String? = nil,
+            isFullDiff: Bool = false
+        ) {
             self.fileURL = fileURL
             self.relativePath = relativePath
             self.commitHash = commitHash
             self.commitTitle = commitTitle
             self.compareBranch = compareBranch
+            self.isFullDiff = isFullDiff
         }
     }
 
     var activeDiff: DiffPresentation?
+    var diffTabs: [URL: DiffPresentation] = [:]
 
     func openDiff(for url: URL) {
         let rel = relativePath(of: url)
-        activeDiff = DiffPresentation(fileURL: url, relativePath: rel, commitHash: nil, commitTitle: nil)
+        let presentation = DiffPresentation(fileURL: url, relativePath: rel, commitHash: nil, commitTitle: nil, isFullDiff: false)
+        activeDiff = presentation
+        diffTabs[url] = presentation
         open(url)
     }
 
     func openCommitDiff(commitHash: String, commitTitle: String, relativePath: String) {
         let fullURL = rootURL.appending(path: relativePath)
-        activeDiff = DiffPresentation(fileURL: fullURL, relativePath: relativePath, commitHash: commitHash, commitTitle: commitTitle)
+        let presentation = DiffPresentation(fileURL: fullURL, relativePath: relativePath, commitHash: commitHash, commitTitle: commitTitle, isFullDiff: false)
+        activeDiff = presentation
+        diffTabs[fullURL] = presentation
         open(fullURL)
+    }
+
+    func openFullCommitDiff(commitHash: String, commitTitle: String) {
+        let shortHash = String(commitHash.prefix(7))
+        let title = "Commit (\(shortHash))"
+        let virtualURL = rootURL.appending(path: title)
+        let presentation = DiffPresentation(
+            fileURL: virtualURL,
+            relativePath: title,
+            commitHash: commitHash,
+            commitTitle: commitTitle,
+            compareBranch: nil,
+            isFullDiff: true
+        )
+        activeDiff = presentation
+        diffTabs[virtualURL] = presentation
+        if !openTabs.contains(virtualURL) {
+            openTabs.append(virtualURL)
+        }
+        activeTab = virtualURL
     }
 
     func openBranchCompare(targetBranch: String) {
         let base = sourceControl.branchName ?? "HEAD"
         let title = "\(base) ↔ \(targetBranch)"
         let virtualURL = rootURL.appending(path: "Compare (\(targetBranch))")
-        activeDiff = DiffPresentation(
+        let presentation = DiffPresentation(
             fileURL: virtualURL,
             relativePath: title,
             commitHash: nil,
             commitTitle: "Compare \(base) with \(targetBranch)",
-            compareBranch: targetBranch
+            compareBranch: targetBranch,
+            isFullDiff: true
         )
+        activeDiff = presentation
+        diffTabs[virtualURL] = presentation
         if !openTabs.contains(virtualURL) {
             openTabs.append(virtualURL)
         }
@@ -785,6 +828,12 @@ final class WorkspaceModel {
     }
 
     func closeDiff() {
+        if let current = activeDiff {
+            diffTabs.removeValue(forKey: current.fileURL)
+            if current.isBranchCompare || current.isFullDiff {
+                closeTab(current.fileURL)
+            }
+        }
         activeDiff = nil
     }
 
@@ -801,6 +850,7 @@ final class WorkspaceModel {
 
         openTabs.remove(at: index)
         buffers[url] = nil
+        diffTabs.removeValue(forKey: url)
 
         if activeDiff?.fileURL == url {
             activeDiff = nil
