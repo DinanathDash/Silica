@@ -67,6 +67,13 @@ final class SourceControlModel {
         rootURL.lastPathComponent
     }
 
+    // Cache for loaded unified diffs to make tab switching instant without reload spinner
+    var diffCache: [UUID: (groups: [GitDiffView.DiffFileGroup], adds: Int, dels: Int)] = [:]
+
+    func invalidateDiffCache() {
+        diffCache.removeAll()
+    }
+
     init(rootURL: URL) {
         self.rootURL = rootURL
     }

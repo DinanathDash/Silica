@@ -19,6 +19,7 @@ final class LineNumberRulerView: NSRulerView {
     }
 
     private var diffMarkers: [Int: LineDiffKind] = [:]
+    var onDiffMarkerClicked: ((Int) -> Void)?
 
     private var font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
     private let leadingPadding: CGFloat = 6
@@ -147,7 +148,7 @@ final class LineNumberRulerView: NSRulerView {
                 let x = bounds.width - trailingPadding - label.size().width
                 label.draw(at: NSPoint(x: x, y: y))
 
-                // Gutter Git Diff Indicator (2.5pt vertical bar on extreme right edge of ruler)
+                // Gutter Git Diff Indicator (3pt rounded vertical bar on right edge of ruler)
                 if let diffKind = diffMarkers[index + 1] {
                     let markerColor: NSColor
                     switch diffKind {
@@ -158,11 +159,40 @@ final class LineNumberRulerView: NSRulerView {
                     markerColor.setFill()
                     let markerHeight = max(line.typographicBounds.height, font.pointSize + 4)
                     let markerY = convert(NSPoint(x: 0, y: origin.y + frame.minY + line.typographicBounds.minY), from: textView).y
-                    let markerRect = NSRect(x: bounds.width - 2.5, y: markerY, width: 2.5, height: markerHeight)
-                    markerRect.fill()
+                    let markerRect = NSRect(x: bounds.width - 3.0, y: markerY, width: 3.0, height: markerHeight)
+                    let path = NSBezierPath(roundedRect: markerRect, xRadius: 1.5, yRadius: 1.5)
+                    path.fill()
                 }
             }
             return true
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if let line = lineForPoint(point), diffMarkers[line] != nil {
+            onDiffMarkerClicked?(line)
+            return
+        }
+        super.mouseDown(with: event)
+    }
+
+    private func lineForPoint(_ point: NSPoint) -> Int? {
+        guard let textView = textView, let layoutManager = textView.textLayoutManager else { return nil }
+        let textPoint = convert(point, to: textView)
+        guard let fragment = layoutManager.textLayoutFragment(for: textPoint) else { return nil }
+        guard let contentManager = layoutManager.textContentManager else { return nil }
+        let docStart = contentManager.documentRange.location
+        let offset = contentManager.offset(from: docStart, to: fragment.rangeInElement.location)
+        let index = lineIndex(for: offset)
+        return index + 1
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        if !diffMarkers.isEmpty {
+            let diffEdgeRect = NSRect(x: bounds.width - 12, y: 0, width: 12, height: bounds.height)
+            addCursorRect(diffEdgeRect, cursor: .pointingHand)
         }
     }
 

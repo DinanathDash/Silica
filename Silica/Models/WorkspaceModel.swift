@@ -180,6 +180,18 @@ final class WorkspaceModel {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.saveSession() }
         }
+        NotificationCenter.default.addObserver(
+            forName: .openDiffForLine, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let self, let fileURL = note.object as? URL else { return }
+            AppLogger.info("Workspace", "Opening diff from gutter stripe for '\(fileURL.lastPathComponent)'")
+            self.openDiff(for: fileURL)
+            if let line = note.userInfo?["line"] as? Int {
+                self.goToLine(line)
+            }
+        }
+        AppLogger.info("Workspace", "Opened workspace at \(rootURL.path(percentEncoded: false))")
+        AppLogger.memory("Workspace", "Memory on workspace load")
     }
 
     func close() {

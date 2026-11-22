@@ -8,6 +8,7 @@ extension Notification.Name {
     static let editorSettingsDidChange = Notification.Name("EditorSettingsDidChange")
     static let syntaxThemeDidChange = Notification.Name("SyntaxThemeDidChange")
     static let fileDidSave = Notification.Name("FileDidSave")
+    static let openDiffForLine = Notification.Name("SilicaOpenDiffForLine")
 }
 
 /// App-wide editor preferences, saved in UserDefaults. Each value is stored only

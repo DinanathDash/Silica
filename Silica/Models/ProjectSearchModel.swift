@@ -85,6 +85,7 @@ final class ProjectSearchModel {
             self.matchCount = outcome.matchCount
             self.isTruncated = outcome.isTruncated
             self.isSearching = false
+            AppLogger.debug("Search", "Search for '\(query)' completed with \(outcome.matchCount) matches in \(outcome.files.count) files")
         }
     }
 }

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Native unified Git diff viewer displaying additions in green, deletions in red,
-/// hunk headers, line numbers, gutter stripes, and continuous diffs for multi-file commits or branch comparisons.
+/// hunk headers, line numbers, and continuous diffs for multi-file commits or branch comparisons.
 struct GitDiffView: View {
     let diff: WorkspaceModel.DiffPresentation
     let workspace: WorkspaceModel
@@ -9,12 +9,29 @@ struct GitDiffView: View {
 
     private var settings: EditorSettings { .shared }
 
-    @State private var isLoading = true
-    @State private var fileGroups: [DiffFileGroup] = []
+    @State private var isLoading: Bool
+    @State private var fileGroups: [DiffFileGroup]
     @State private var collapsedFileIDs: Set<String> = []
-    @State private var totalAdditions = 0
-    @State private var totalDeletions = 0
+    @State private var totalAdditions: Int
+    @State private var totalDeletions: Int
     @State private var liveUpdateTask: Task<Void, Never>?
+
+    init(diff: WorkspaceModel.DiffPresentation, workspace: WorkspaceModel, model: SourceControlModel) {
+        self.diff = diff
+        self.workspace = workspace
+        self.model = model
+        if let cached = model.diffCache[diff.id] {
+            _fileGroups = State(initialValue: cached.groups)
+            _totalAdditions = State(initialValue: cached.adds)
+            _totalDeletions = State(initialValue: cached.dels)
+            _isLoading = State(initialValue: false)
+        } else {
+            _fileGroups = State(initialValue: [])
+            _totalAdditions = State(initialValue: 0)
+            _totalDeletions = State(initialValue: 0)
+            _isLoading = State(initialValue: true)
+        }
+    }
 
     private var isWordWrapEnabled: Bool {
         settings.wrapsLines
@@ -123,22 +140,39 @@ struct GitDiffView: View {
             await loadDiff()
         }
         .onChange(of: workspace.buffers[diff.fileURL]?.isDirty) { _, _ in
+            guard diff.commitHash == nil && diff.compareBranch == nil else { return }
             scheduleLiveReload()
         }
         .onReceive(NotificationCenter.default.publisher(for: .fileDidSave)) { note in
+            guard diff.commitHash == nil && diff.compareBranch == nil else { return }
             if let savedURL = note.object as? URL, savedURL == diff.fileURL {
                 scheduleLiveReload()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSText.didChangeNotification)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: NSText.didChangeNotification)) { note in
             guard diff.commitHash == nil && diff.compareBranch == nil else { return }
-            scheduleLiveReload()
+            // Only reload if the text change occurred in this specific file's buffer
+            if let textView = note.object as? NSTextView,
+               let buffer = workspace.buffers[diff.fileURL],
+               buffer.textController?.textView === textView {
+                scheduleLiveReload()
+            }
         }
-        .onChange(of: model.stagedFiles) { _, _ in
-            scheduleLiveReload()
+        .onChange(of: model.stagedFiles) { _, newFiles in
+            guard diff.commitHash == nil && diff.compareBranch == nil else { return }
+            if isMultiFile {
+                scheduleLiveReload()
+            } else if newFiles.contains(where: { $0.relativePath == diff.relativePath }) {
+                scheduleLiveReload()
+            }
         }
-        .onChange(of: model.unstagedFiles) { _, _ in
-            scheduleLiveReload()
+        .onChange(of: model.unstagedFiles) { _, newFiles in
+            guard diff.commitHash == nil && diff.compareBranch == nil else { return }
+            if isMultiFile {
+                scheduleLiveReload()
+            } else if newFiles.contains(where: { $0.relativePath == diff.relativePath }) {
+                scheduleLiveReload()
+            }
         }
         .onDisappear {
             liveUpdateTask?.cancel()
@@ -499,7 +533,7 @@ struct GitDiffView: View {
 
         case .addition(let oldL, let newL, let text):
             HStack(alignment: .top, spacing: 0) {
-                lineNumberView(oldLine: oldL, newLine: newL, kind: line.kind) {
+                lineNumberView(oldLine: oldL, newLine: newL) {
                     jumpToEditorLine(line: line, group: group)
                 }
                 Text("+")
@@ -517,7 +551,7 @@ struct GitDiffView: View {
 
         case .deletion(let oldL, let newL, let text):
             HStack(alignment: .top, spacing: 0) {
-                lineNumberView(oldLine: oldL, newLine: newL, kind: line.kind) {
+                lineNumberView(oldLine: oldL, newLine: newL) {
                     jumpToEditorLine(line: line, group: group)
                 }
                 Text("-")
@@ -535,7 +569,7 @@ struct GitDiffView: View {
 
         case .context(let oldL, let newL, let text):
             HStack(alignment: .top, spacing: 0) {
-                lineNumberView(oldLine: oldL, newLine: newL, kind: line.kind) {
+                lineNumberView(oldLine: oldL, newLine: newL) {
                     jumpToEditorLine(line: line, group: group)
                 }
                 Text(" ")
@@ -550,7 +584,7 @@ struct GitDiffView: View {
         }
     }
 
-    private func lineNumberView(oldLine: Int?, newLine: Int?, kind: DiffLine.Kind, onJump: @escaping () -> Void) -> some View {
+    private func lineNumberView(oldLine: Int?, newLine: Int?, onJump: @escaping () -> Void) -> some View {
         HStack(spacing: 4) {
             Text(oldLine.map { "\($0)" } ?? "")
                 .frame(width: 38, alignment: .trailing)
@@ -558,31 +592,15 @@ struct GitDiffView: View {
             Text(newLine.map { "\($0)" } ?? "")
                 .frame(width: 38, alignment: .trailing)
                 .foregroundStyle(.secondary.opacity(0.6))
-
-            // 3px color-coded vertical stripe beside line numbers (Point 9)
-            RoundedRectangle(cornerRadius: 1.5)
-                .fill(stripeColor(for: kind))
-                .frame(width: 3, height: 16)
         }
         .font(.system(size: max(settings.fontSize - 2, 9), design: .monospaced))
         .padding(.leading, 8)
-        .padding(.trailing, 6)
+        .padding(.trailing, 8)
         .contentShape(Rectangle())
         .onTapGesture {
             onJump()
         }
         .liquidGlassTooltip("Click to jump to line in editor")
-    }
-
-    private func stripeColor(for kind: DiffLine.Kind) -> Color {
-        switch kind {
-        case .addition:
-            return Color(red: 0.35, green: 0.82, blue: 0.45)
-        case .deletion:
-            return Color(red: 0.95, green: 0.36, blue: 0.38)
-        case .context, .header, .hunkHeader:
-            return Color.clear
-        }
     }
 
     private func jumpToEditorLine(line: DiffLine, group: DiffFileGroup?) {
@@ -617,6 +635,7 @@ struct GitDiffView: View {
 
     private func scheduleLiveReload() {
         liveUpdateTask?.cancel()
+        model.diffCache[diff.id] = nil
         liveUpdateTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
@@ -625,7 +644,19 @@ struct GitDiffView: View {
     }
 
     private func loadDiff() async {
-        isLoading = true
+        // Reuse cached diff if immutable commit or branch compare
+        if (diff.commitHash != nil || diff.compareBranch != nil), let cached = model.diffCache[diff.id] {
+            self.fileGroups = cached.groups
+            self.totalAdditions = cached.adds
+            self.totalDeletions = cached.dels
+            self.isLoading = false
+            return
+        }
+
+        if fileGroups.isEmpty {
+            isLoading = true
+        }
+
         let raw: String
         if let targetBranch = diff.compareBranch {
             raw = await model.diffForBranchCompare(targetBranch: targetBranch)
@@ -643,7 +674,9 @@ struct GitDiffView: View {
         self.fileGroups = result.groups
         self.totalAdditions = result.adds
         self.totalDeletions = result.dels
+        self.model.diffCache[diff.id] = result
         self.isLoading = false
+        AppLogger.debug("GitDiff", "Loaded diff for '\(diff.relativePath)' (files: \(result.groups.count), +\(result.adds)/-\(result.dels))")
     }
 
     nonisolated static func parseUnifiedDiff(raw: String, fallbackPath: String) -> (groups: [DiffFileGroup], adds: Int, dels: Int) {

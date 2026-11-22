@@ -151,6 +151,7 @@ nonisolated final class TerminalProcess: @unchecked Sendable {
         exitSource.setEventHandler { self.reap() }
         readSource.resume()
         exitSource.resume()
+        AppLogger.info("Terminal", "Spawned terminal process pid=\(pid)")
         // In case the shell was gone before the source started watching for it.
         ioQueue.async { self.reap() }
     }
@@ -309,6 +310,7 @@ nonisolated final class TerminalProcess: @unchecked Sendable {
         // Still running.
         guard result != 0 else { return }
         didReap = true
+        AppLogger.info("Terminal", "Terminal process pid=\(pid) exited with status \(status)")
         exitSource.cancel()
         DispatchQueue.main.async { [self] in
             // After the output read so far: it was queued first.

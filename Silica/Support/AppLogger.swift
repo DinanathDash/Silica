@@ -1,6 +1,19 @@
 import Foundation
 import MachO
 
+private let uncaughtExceptionHandler: (@convention(c) (NSException) -> Void) = { exception in
+    let symbols = exception.callStackSymbols.joined(separator: "\n  ")
+    let msg = "CRASH: Uncaught exception '\(exception.name.rawValue)': \(exception.reason ?? "Unknown reason")\nCall stack:\n  \(symbols)"
+    AppLogger.emergencyLogSync(category: "CrashHandler", message: msg)
+}
+
+private let fatalSignalHandler: (@convention(c) (Int32) -> Void) = { signum in
+    let symbols = Thread.callStackSymbols.joined(separator: "\n  ")
+    let msg = "CRASH: Received fatal signal \(signum)\nCall stack:\n  \(symbols)"
+    AppLogger.emergencyLogSync(category: "SignalHandler", message: msg)
+    exit(signum)
+}
+
 /// High-performance, memory-aware logging system with automatic log rotation,
 /// maximum file size caps, and age-based purging.
 actor AppLogger {
@@ -35,11 +48,21 @@ actor AppLogger {
             ?? URL(filePath: NSTemporaryDirectory())
         let logsDir = libraryURL.appending(path: "Logs/Silica", directoryHint: .isDirectory)
         self.logDirectory = logsDir
-        self.currentLogFileURL = logsDir.appending(path: "silica.log")
+        let currentURL = logsDir.appending(path: "silica.log")
+        self.currentLogFileURL = currentURL
 
         try? fileManager.createDirectory(at: logsDir, withIntermediateDirectories: true)
-        purgeOldLogsSync()
-        openCurrentLogFileSync()
+        if !fileManager.fileExists(atPath: currentURL.path(percentEncoded: false)) {
+            fileManager.createFile(atPath: currentURL.path(percentEncoded: false), contents: nil)
+        }
+        let handle = try? FileHandle(forWritingTo: currentURL)
+        if let handle {
+            _ = try? handle.seekToEnd()
+            self.currentFileSize = (try? handle.offset()) ?? 0
+        } else {
+            self.currentFileSize = 0
+        }
+        self.fileHandle = handle
     }
 
     // MARK: - Public API (Synchronous Dispatch via Task)
@@ -70,6 +93,35 @@ actor AppLogger {
         let libraryURL = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
             ?? URL(filePath: NSTemporaryDirectory())
         return libraryURL.appending(path: "Logs/Silica", directoryHint: .isDirectory)
+    }
+
+    // MARK: - Crash & Exception Diagnostics
+
+    nonisolated static func installCrashAndExceptionHandlers() {
+        NSSetUncaughtExceptionHandler(uncaughtExceptionHandler)
+        let signals = [SIGSEGV, SIGBUS, SIGABRT, SIGILL, SIGFPE]
+        for sig in signals {
+            signal(sig, fatalSignalHandler)
+        }
+    }
+
+    nonisolated static func emergencyLogSync(category: String, message: String) {
+        let formatter = ISO8601DateFormatter()
+        let timestamp = formatter.string(from: Date())
+        let line = "[\(timestamp)] [ERROR] [\(category)] \(message)\n"
+        guard let data = line.data(using: .utf8) else { return }
+
+        let logDir = logFolderURL
+        try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
+        let fileURL = logDir.appending(path: "silica.log")
+        if !FileManager.default.fileExists(atPath: fileURL.path(percentEncoded: false)) {
+            FileManager.default.createFile(atPath: fileURL.path(percentEncoded: false), contents: nil)
+        }
+        if let handle = try? FileHandle(forWritingTo: fileURL) {
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
+            try? handle.close()
+        }
     }
 
     // MARK: - Memory Measurement

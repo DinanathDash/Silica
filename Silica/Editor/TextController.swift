@@ -66,6 +66,14 @@ final class TextController: NSObject, NSTextViewDelegate {
         textView.delegate = self
 
         let ruler = LineNumberRulerView(textView: textView, scrollView: scrollView, editorFontSize: fontSize)
+        ruler.onDiffMarkerClicked = { [weak self] line in
+            guard let self, let fileURL = self.buffer?.url else { return }
+            NotificationCenter.default.post(
+                name: .openDiffForLine,
+                object: fileURL,
+                userInfo: ["line": line]
+            )
+        }
         scrollView.verticalRulerView = ruler
         scrollView.hasVerticalRuler = true
         scrollView.rulersVisible = EditorSettings.shared.showsLineNumbers

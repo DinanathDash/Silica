@@ -265,7 +265,9 @@ final class EditorBuffer: Identifiable {
         let data: Data
         do {
             data = try Data(contentsOf: url)
+            AppLogger.info("EditorBuffer", "Loaded '\(url.lastPathComponent)' (\(size) bytes)")
         } catch {
+            AppLogger.error("EditorBuffer", "Failed to read '\(url.lastPathComponent)': \(error.localizedDescription)")
             content = .unreadable(error.localizedDescription)
             encoding = .utf8
             return
@@ -404,6 +406,7 @@ final class EditorBuffer: Identifiable {
         // Through a symlink to its target: an atomic write to the link itself would
         // swap it for a regular file and leave the real file unchanged.
         try data.write(to: url.resolvingSymlinksInPath(), options: .atomic)
+        AppLogger.info("EditorBuffer", "Saved '\(url.lastPathComponent)' (\(data.count) bytes)")
         diskSnapshot = Self.attributes(of: url).map { DiskSnapshot(attributes: $0, digest: Self.digest(of: data)) }
         isDirty = false
         isMissingOnDisk = false
