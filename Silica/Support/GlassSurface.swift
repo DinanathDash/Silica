@@ -166,7 +166,8 @@ public struct LiquidGlassTooltipModifier: ViewModifier {
                     if hovering {
                         timerTask = Task {
                             do {
-                                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                                let delayNs = UInt64(max(0.1, delay) * 1_000_000_000)
+                                try await Task.sleep(nanoseconds: delayNs)
                                 guard !Task.isCancelled else { return }
                                 isVisible = true
                             } catch { }
@@ -174,6 +175,11 @@ public struct LiquidGlassTooltipModifier: ViewModifier {
                     } else {
                         isVisible = false
                     }
+                }
+                .onDisappear {
+                    timerTask?.cancel()
+                    timerTask = nil
+                    isVisible = false
                 }
         }
     }

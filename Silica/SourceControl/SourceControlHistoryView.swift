@@ -104,14 +104,6 @@ struct SourceControlHistoryView: View {
             } else {
                 // Continuous Git Timeline Rows using LazyVStack for memory efficiency
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    Color.clear
-                        .frame(height: 0)
-                        .onAppear {
-                            if model.currentCommitLimit > 50 {
-                                model.pruneExtraCommits()
-                            }
-                        }
-
                     ForEach(filteredCommits) { commit in
                         VStack(alignment: .leading, spacing: 0) {
                             commitTimelineRow(commit: commit)
@@ -292,6 +284,9 @@ struct SourceControlHistoryView: View {
                 loadingCommitHashes.insert(commit.hash)
                 Task {
                     let files = await model.loadChangedFiles(for: commit.hash)
+                    if commitFilesCache.count > 50 {
+                        commitFilesCache.removeValue(forKey: commitFilesCache.keys.first!)
+                    }
                     commitFilesCache[commit.hash] = files
                     loadingCommitHashes.remove(commit.hash)
                 }

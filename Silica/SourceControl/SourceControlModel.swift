@@ -199,23 +199,65 @@ final class SourceControlModel {
 
         self.stagedFiles = newStaged
         self.unstagedFiles = newUnstaged
+
+        var statusMap: [String: GitFileItem.Status] = [:]
+        for item in newStaged {
+            statusMap[item.relativePath] = item.status
+        }
+        for item in newUnstaged {
+            if let existing = statusMap[item.relativePath] {
+                if item.status.priority > existing.priority {
+                    statusMap[item.relativePath] = item.status
+                }
+            } else {
+                statusMap[item.relativePath] = item.status
+            }
+        }
+        self.statusByPath = statusMap
+    }
+
+    private(set) var statusByPath: [String: GitFileItem.Status] = [:]
+
+    func status(forRelativePath rel: String) -> GitFileItem.Status? {
+        if let exact = statusByPath[rel] {
+            return exact
+        }
+        guard !statusByPath.isEmpty else { return nil }
+        let prefix = rel.isEmpty ? "" : (rel.hasSuffix("/") ? rel : rel + "/")
+        var highest: GitFileItem.Status?
+        for (path, status) in statusByPath {
+            if path.hasPrefix(prefix) {
+                if let current = highest {
+                    if status.priority > current.priority { highest = status }
+                } else {
+                    highest = status
+                }
+            }
+        }
+        return highest
     }
 
     private func countFileLines(at url: URL) -> Int {
+        let path = url.path(percentEncoded: false)
         var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), !isDir.boolValue else {
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), !isDir.boolValue else {
             return 0
         }
-        guard let data = try? Data(contentsOf: url),
-              let content = String(data: data, encoding: .utf8) else {
+        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
+              let size = values.fileSize, size > 0 && size <= 512_000 else {
             return 0
         }
-        if content.isEmpty { return 0 }
-        var lines = content.split(separator: "\n", omittingEmptySubsequences: false)
-        if lines.last?.isEmpty == true {
-            lines.removeLast()
+        guard let data = try? Data(contentsOf: url) else {
+            return 0
         }
-        return lines.count
+        var count = 0
+        for byte in data where byte == 0x0A {
+            count += 1
+        }
+        if data.last != 0x0A {
+            count += 1
+        }
+        return count
     }
 
     private func mapStatus(code: Character) -> GitFileItem.Status {
@@ -280,9 +322,18 @@ final class SourceControlModel {
                 return res.stdout
             }
             let fullURL = rootURL.appending(path: relativePath)
+            if let values = try? fullURL.resourceValues(forKeys: [.fileSizeKey]),
+               let size = values.fileSize, size > 1_000_000 {
+                return "--- /dev/null\n+++ b/\(relativePath)\n@@ -0,0 +1,1 @@\n+[File is too large to display diff (\(size / 1024) KB)]\n"
+            }
             if let content = try? String(contentsOf: fullURL, encoding: .utf8) {
-                let lines = content.components(separatedBy: .newlines)
-                return "--- /dev/null\n+++ b/\(relativePath)\n@@ -0,0 +1,\(lines.count) @@\n" + lines.map { "+" + $0 }.joined(separator: "\n")
+                var linesCount = 0
+                var body = ""
+                content.enumerateLines { line, _ in
+                    linesCount += 1
+                    body.append("+\(line)\n")
+                }
+                return "--- /dev/null\n+++ b/\(relativePath)\n@@ -0,0 +1,\(linesCount) @@\n" + body
             }
             return res.stdout
         }

@@ -9,13 +9,16 @@ struct GitDiffView: View {
 
     private var settings: EditorSettings { .shared }
 
-    @State private var diffText: String = ""
     @State private var isLoading = true
     @State private var parsedLines: [DiffLine] = []
     @State private var totalAdditions = 0
     @State private var totalDeletions = 0
     @State private var maxVisibleLines = 3000
     @State private var liveUpdateTask: Task<Void, Never>?
+
+    private var isWordWrapEnabled: Bool {
+        settings.wrapsLines
+    }
 
     struct DiffLine: Identifiable, Sendable {
         let id: Int
@@ -70,11 +73,11 @@ struct GitDiffView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 GeometryReader { geometry in
-                    ScrollView([.horizontal, .vertical]) {
+                    ScrollView(isWordWrapEnabled ? [.vertical] : [.horizontal, .vertical]) {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(visibleParsedLines) { line in
                                 diffLineRow(line: line)
-                                    .frame(height: max(settings.fontSize + 5, 20))
+                                    .frame(minHeight: max(settings.fontSize + 5, 20))
                             }
 
                             if parsedLines.count > maxVisibleLines {
@@ -124,6 +127,10 @@ struct GitDiffView: View {
                 guard !Task.isCancelled else { return }
                 await loadDiff()
             }
+        }
+        .onDisappear {
+            liveUpdateTask?.cancel()
+            liveUpdateTask = nil
         }
     }
 
@@ -241,11 +248,12 @@ struct GitDiffView: View {
                     .padding(.horizontal, 12)
                 Spacer()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minHeight: max(settings.fontSize + 5, 20))
             .background(Color.accentColor.opacity(0.08))
 
         case .addition(let oldL, let newL, let text):
-            HStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 0) {
                 lineNumberView(oldLine: oldL, newLine: newL)
                 Text("+")
                     .frame(width: 16)
@@ -253,13 +261,15 @@ struct GitDiffView: View {
                     .fontWeight(.bold)
                 Text(highlightedCodeText(text))
                     .foregroundStyle(.primary)
+                    .fixedSize(horizontal: !isWordWrapEnabled, vertical: false)
                 Spacer(minLength: 16)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minHeight: max(settings.fontSize + 5, 20))
             .background(Color.green.opacity(0.12))
 
         case .deletion(let oldL, let newL, let text):
-            HStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 0) {
                 lineNumberView(oldLine: oldL, newLine: newL)
                 Text("-")
                     .frame(width: 16)
@@ -267,21 +277,25 @@ struct GitDiffView: View {
                     .fontWeight(.bold)
                 Text(highlightedCodeText(text))
                     .foregroundStyle(.primary.opacity(0.9))
+                    .fixedSize(horizontal: !isWordWrapEnabled, vertical: false)
                 Spacer(minLength: 16)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minHeight: max(settings.fontSize + 5, 20))
             .background(Color.red.opacity(0.12))
 
         case .context(let oldL, let newL, let text):
-            HStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 0) {
                 lineNumberView(oldLine: oldL, newLine: newL)
                 Text(" ")
                     .frame(width: 16)
                 Text(highlightedCodeText(text))
                     .foregroundStyle(.primary.opacity(0.95))
+                    .fixedSize(horizontal: !isWordWrapEnabled, vertical: false)
                 Spacer(minLength: 16)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minHeight: max(settings.fontSize + 5, 20))
         }
     }
 
@@ -309,7 +323,6 @@ struct GitDiffView: View {
         } else {
             raw = await model.diffForFile(in: diff.commitHash, relativePath: diff.relativePath)
         }
-        self.diffText = raw
 
         let result = await Task.detached(priority: .userInitiated) { () -> (lines: [DiffLine], adds: Int, dels: Int) in
             Self.parseUnifiedDiffLines(raw)
@@ -332,7 +345,11 @@ struct GitDiffView: View {
         var newLineCounter = 0
         var inHunk = false
 
-        raw.enumerateLines { line, _ in
+        raw.enumerateLines { line, stop in
+            if lines.count >= 10_000 {
+                stop = true
+                return
+            }
             if line.hasPrefix("diff --git") || line.hasPrefix("index ") ||
                line.hasPrefix("--- ") || line.hasPrefix("+++ ") ||
                line.hasPrefix("commit ") || line.hasPrefix("Author:") ||

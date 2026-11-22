@@ -71,6 +71,10 @@ actor GitRunner {
             do {
                 try process.run()
             } catch {
+                stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                stderrPipe.fileHandleForReading.readabilityHandler = nil
+                try? stdoutPipe.fileHandleForReading.close()
+                try? stderrPipe.fileHandleForReading.close()
                 continuation.resume(returning: Result(
                     exitCode: -1,
                     stdout: "",
@@ -123,6 +127,15 @@ actor GitRunner {
             process.terminationHandler = { proc in
                 stdoutPipe.fileHandleForReading.readabilityHandler = nil
                 stderrPipe.fileHandleForReading.readabilityHandler = nil
+
+                let remainingOut = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                if !remainingOut.isEmpty { stdoutBuf.append(remainingOut) }
+                let remainingErr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                if !remainingErr.isEmpty { stderrBuf.append(remainingErr) }
+
+                try? stdoutPipe.fileHandleForReading.close()
+                try? stderrPipe.fileHandleForReading.close()
+
                 continuation.resume(returning: Result(
                     exitCode: proc.terminationStatus,
                     stdout: stdoutBuf.string(),
@@ -133,6 +146,10 @@ actor GitRunner {
             do {
                 try process.run()
             } catch {
+                stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                stderrPipe.fileHandleForReading.readabilityHandler = nil
+                try? stdoutPipe.fileHandleForReading.close()
+                try? stderrPipe.fileHandleForReading.close()
                 continuation.resume(returning: Result(
                     exitCode: -1,
                     stdout: "",
@@ -147,10 +164,14 @@ actor GitRunner {
 private nonisolated final class OutputBuffer: @unchecked Sendable {
     private let lock = NSLock()
     private var data = Data()
+    private let maxBytes = 15 * 1024 * 1024 // 15MB cap to avoid runaway allocations
 
     func append(_ chunk: Data) {
         lock.lock()
-        data.append(chunk)
+        if data.count < maxBytes {
+            let allowed = min(chunk.count, maxBytes - data.count)
+            data.append(chunk.prefix(allowed))
+        }
         lock.unlock()
     }
 

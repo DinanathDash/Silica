@@ -1197,6 +1197,7 @@ private struct VideoPlayerHost: NSViewRepresentable {
 
 private struct EmptyEditorView: View {
     let workspace: WorkspaceModel
+    @State private var cachedImage: NSImage?
 
     var body: some View {
         VStack(spacing: 24) {
@@ -1219,6 +1220,13 @@ private struct EmptyEditorView: View {
             .font(.callout)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: workspace.effectiveIcon?.imagePath ?? workspace.rootURL.path(percentEncoded: false)) {
+            if let icon = workspace.effectiveIcon, let path = icon.imagePath {
+                cachedImage = NSImage(contentsOfFile: path)
+            } else if workspace.effectiveIcon?.emoji == nil {
+                cachedImage = NSWorkspace.shared.icon(forFile: workspace.rootURL.path(percentEncoded: false))
+            }
+        }
     }
 
     private func shortcut(_ title: String, keys: String) -> some View {
@@ -1246,7 +1254,7 @@ private struct EmptyEditorView: View {
 
     @ViewBuilder
     private var repoIconView: some View {
-        if let icon = workspace.effectiveIcon, let path = icon.imagePath, let image = NSImage(contentsOfFile: path) {
+        if let icon = workspace.effectiveIcon, icon.imagePath != nil, let image = cachedImage {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFit()
@@ -1255,11 +1263,13 @@ private struct EmptyEditorView: View {
         } else if let icon = workspace.effectiveIcon, let emoji = icon.emoji {
             Text(verbatim: emoji)
                 .font(.system(size: 72))
-        } else {
-            let fileIcon = NSWorkspace.shared.icon(forFile: workspace.rootURL.path(percentEncoded: false))
-            Image(nsImage: fileIcon)
+        } else if let image = cachedImage {
+            Image(nsImage: image)
                 .resizable()
                 .scaledToFit()
+                .frame(width: 88, height: 88)
+        } else {
+            Color.clear
                 .frame(width: 88, height: 88)
         }
     }

@@ -176,7 +176,7 @@ final class TerminalSession {
         // Check if a running command finished
         if isCommandActive, let started = commandStartTime {
             let duration = Date().timeIntervalSince(started)
-            if duration >= 0.15, let str = String(data: data, encoding: .utf8) {
+            if duration >= 1.5, let str = String(data: data, encoding: .utf8) {
                 // If prompt indicator reappears (OSC 133;D, shell prompt symbols, or carriage return before prompt)
                 let isPrompt = str.contains("\u{1b}]133;D") ||
                     str.contains("% ") || str.contains("$ ") || str.contains("# ") ||
@@ -266,6 +266,9 @@ final class TerminalSession {
                 pendingCommandText = ""
             } else {
                 pendingCommandText += str
+                if pendingCommandText.count > 1024 {
+                    pendingCommandText = String(pendingCommandText.suffix(1024))
+                }
             }
         }
         process?.write(data)

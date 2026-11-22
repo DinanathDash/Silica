@@ -181,6 +181,10 @@ final class WorkspaceModel {
 
     func close() {
         saveSession()
+        toastTask?.cancel()
+        toastTask = nil
+        refreshTask?.cancel()
+        refreshTask = nil
         // A video left playing would still be heard with its window gone.
         for buffer in buffers.values { buffer.pausePlayback() }
         if let terminationObserver {
@@ -540,6 +544,7 @@ final class WorkspaceModel {
     /// Re-reads the tree and checks open files against the disk.
     func refresh() {
         root.reload()
+        FolderIcons.shared.reload()
         ProjectTypeDetector.invalidateCache(for: rootURL)
         syncOpenFilesWithDisk()
         search.refresh()
@@ -785,20 +790,7 @@ final class WorkspaceModel {
 
     func gitStatus(for url: URL) -> GitFileItem.Status? {
         let rel = relativePath(of: url)
-        if let staged = sourceControl.stagedFiles.first(where: { $0.relativePath == rel }) {
-            return staged.status
-        }
-        if let unstaged = sourceControl.unstagedFiles.first(where: { $0.relativePath == rel }) {
-            return unstaged.status
-        }
-        let prefix = rel.isEmpty ? "" : (rel.hasSuffix("/") ? rel : rel + "/")
-        let matchingStaged = sourceControl.stagedFiles.filter { $0.relativePath.hasPrefix(prefix) }
-        let matchingUnstaged = sourceControl.unstagedFiles.filter { $0.relativePath.hasPrefix(prefix) }
-        let allMatchingStatuses = (matchingStaged + matchingUnstaged).map(\.status)
-        if let highest = allMatchingStatuses.max(by: { $0.priority < $1.priority }) {
-            return highest
-        }
-        return nil
+        return sourceControl.status(forRelativePath: rel)
     }
 
     func closeTab(_ url: URL) {
@@ -946,7 +938,8 @@ final class WorkspaceModel {
             } catch {
                 NSAlert(error: error).runModal()
             }
-            for tab in openTabs where Self.url(tab, isInside: url) && buffers[tab]?.isDirty != true {
+            let tabsToClose = openTabs.filter { Self.url($0, isInside: url) && buffers[$0]?.isDirty != true }
+            for tab in tabsToClose {
                 closeTab(tab)
             }
         }
@@ -967,7 +960,8 @@ final class WorkspaceModel {
             } catch {
                 NSAlert(error: error).runModal()
             }
-            for tab in openTabs where Self.url(tab, isInside: url) && buffers[tab]?.isDirty != true {
+            let tabsToClose = openTabs.filter { Self.url($0, isInside: url) && buffers[$0]?.isDirty != true }
+            for tab in tabsToClose {
                 closeTab(tab)
             }
         }

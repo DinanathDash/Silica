@@ -23,25 +23,17 @@ final class AvatarImageCache {
         try? FileManager.default.createDirectory(at: diskCacheURL, withIntermediateDirectories: true)
     }
 
-    /// Fast synchronous memory or disk hit
+    /// Fast synchronous memory-only hit on MainActor to avoid disk stalling
     func cachedImage(for url: URL) -> NSImage? {
+        let key = url.absoluteString as NSString
+        return memoryCache.object(forKey: key)
+    }
+
+    /// Asynchronously returns the cached image (memory or disk), or downloads, compresses, and caches to disk.
+    func image(for url: URL) async -> NSImage? {
         let key = url.absoluteString as NSString
         if let mem = memoryCache.object(forKey: key) {
             return mem
-        }
-        let filePath = fileURL(for: url)
-        if let data = try? Data(contentsOf: filePath), let img = NSImage(data: data) {
-            let cost = Int(img.size.width * img.size.height * 4)
-            memoryCache.setObject(img, forKey: key, cost: cost)
-            return img
-        }
-        return nil
-    }
-
-    /// Asynchronously returns the cached image, or downloads, compresses, and caches to disk.
-    func image(for url: URL) async -> NSImage? {
-        if let existing = cachedImage(for: url) {
-            return existing
         }
 
         let urlString = url.absoluteString
@@ -51,6 +43,11 @@ final class AvatarImageCache {
 
         let task = Task<NSImage?, Never>.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return nil }
+            let path = self.fileURL(for: url)
+            if let data = try? Data(contentsOf: path), let img = NSImage(data: data) {
+                return img
+            }
+
             var request = URLRequest(url: url)
             request.timeoutInterval = 4
             guard let (data, response) = try? await URLSession.shared.data(for: request),
@@ -66,7 +63,6 @@ final class AvatarImageCache {
             }
 
             // Write to disk
-            let path = self.fileURL(for: url)
             try? compressedData.write(to: path, options: .atomic)
             self.pruneDiskCacheIfNeeded()
 
@@ -74,11 +70,10 @@ final class AvatarImageCache {
         }
 
         inFlight[urlString] = task
+        defer { inFlight.removeValue(forKey: urlString) }
         let result = await task.value
-        inFlight.removeValue(forKey: urlString)
 
         if let result {
-            let key = url.absoluteString as NSString
             let cost = Int(result.size.width * result.size.height * 4)
             memoryCache.setObject(result, forKey: key, cost: cost)
         }

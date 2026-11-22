@@ -14,6 +14,10 @@ final class TextController: NSObject, NSTextViewDelegate {
     private var minimap: MinimapView!
     private var gitDiffTask: Task<Void, Never>?
 
+    deinit {
+        gitDiffTask?.cancel()
+    }
+
     init(text: String, language: SyntaxLanguage?) {
         // Built by hand: `EditorTextView.scrollableTextView()` returned a TextKit 1 view,
         // and the gutter and indent guides draw through TextKit 2.
@@ -503,7 +507,7 @@ final class TextController: NSObject, NSTextViewDelegate {
 
         let statusRes = await GitRunner.shared.run(arguments: ["status", "--porcelain", "--", relativePath], in: projectURL)
         if statusRes.stdout.trimmingCharacters(in: .whitespaces).hasPrefix("??") {
-            let count = self.lineNumbers?.lineCount ?? 1
+            let count = min(self.lineNumbers?.lineCount ?? 1, 3000)
             var markers: [Int: LineNumberRulerView.LineDiffKind] = [:]
             for i in 1...max(1, count) {
                 markers[i] = .added
@@ -518,6 +522,7 @@ final class TextController: NSObject, NSTextViewDelegate {
         var markers: [Int: LineNumberRulerView.LineDiffKind] = [:]
         for line in output.split(separator: "\n") {
             guard line.hasPrefix("@@ ") else { continue }
+            guard markers.count < 3000 else { break }
             let parts = line.split(separator: " ")
             guard parts.count >= 3 else { continue }
             let oldPart = parts[1]

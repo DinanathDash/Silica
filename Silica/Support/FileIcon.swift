@@ -139,24 +139,28 @@ final class FolderIcons {
 
     /// Read by every folder icon, so they are all fetched again after `reload()`.
     private var generation = 0
-    @ObservationIgnored private var icons: [URL: NSImage] = [:]
+    @ObservationIgnored private let cache = NSCache<NSURL, NSImage>()
+
+    private init() {
+        cache.countLimit = 300
+    }
 
     func icon(for url: URL) -> NSImage {
         _ = generation
-        if let icon = icons[url] { return icon }
+        let key = url as NSURL
+        if let icon = cache.object(forKey: key) { return icon }
         let path = url.path(percentEncoded: false)
         // A folder still being named isn't on disk yet: the plain folder.
         let icon = FileManager.default.fileExists(atPath: path)
             ? NSWorkspace.shared.icon(forFile: path)
             : NSWorkspace.shared.icon(for: .folder)
-        icons[url] = icon
+        cache.setObject(icon, forKey: key)
         return icon
     }
 
     /// Forgets every icon; a folder's icon may have been changed in Finder.
     func reload() {
-        guard !icons.isEmpty else { return }
-        icons.removeAll()
+        cache.removeAllObjects()
         generation += 1
     }
 }
