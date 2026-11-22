@@ -607,8 +607,7 @@ private struct EditorTab: View {
     var body: some View {
         HStack(spacing: 6) {
             if isDiffTab {
-                Image(systemName: "arrow.triangle.swap")
-                    .font(.caption.weight(.semibold))
+                SourceControlIcon(type: .diff, size: 12)
                     .foregroundStyle(Color.accentColor)
             } else {
                 FileIcon(url: url)
@@ -618,7 +617,7 @@ private struct EditorTab: View {
                 .font(.callout)
                 .lineLimit(1)
                 .strikethrough(isMissing)
-                .help(isMissing ? "Deleted from disk. Save to write it again." : "")
+                .liquidGlassTooltip(isMissing ? "Deleted from disk. Save to write it again." : "")
 
             ZStack {
                 if isDirty && !isHovering {
@@ -798,7 +797,7 @@ private struct PreviewModeToggle: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
-                    .help("Zoom Out")
+                    .liquidGlassTooltip("Zoom Out")
 
                     Button(action: resetZoom) {
                         Text("\(Int(zoomScale * 100))%")
@@ -809,7 +808,7 @@ private struct PreviewModeToggle: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
-                    .help("Reset Zoom (100%)")
+                    .liquidGlassTooltip("Reset Zoom (100%)")
 
                     Button(action: zoomIn) {
                         Image(systemName: "plus")
@@ -819,7 +818,7 @@ private struct PreviewModeToggle: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
-                    .help("Zoom In")
+                    .liquidGlassTooltip("Zoom In")
                 }
                 .padding(.horizontal, 4)
                 .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(.primary.opacity(0.06)))
@@ -858,7 +857,7 @@ private struct PreviewModeToggle: View {
                     .fill(.primary.opacity(0.08))
             }
         }
-        .help(help)
+        .liquidGlassTooltip(help)
     }
 }
 
@@ -936,7 +935,7 @@ private struct ImagePreview: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .help("Zoom Out")
+            .liquidGlassTooltip("Zoom Out")
 
             Button(action: resetZoom) {
                 Text("\(Int(zoomScale * 100))%")
@@ -947,7 +946,7 @@ private struct ImagePreview: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .help("Reset Zoom (100%)")
+            .liquidGlassTooltip("Reset Zoom (100%)")
 
             Button(action: zoomIn) {
                 Image(systemName: "plus")
@@ -957,7 +956,7 @@ private struct ImagePreview: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .help("Zoom In")
+            .liquidGlassTooltip("Zoom In")
         }
         .padding(.horizontal, 4)
         .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(.primary.opacity(0.06)))
@@ -1028,7 +1027,7 @@ private struct PDFPreview: View {
                             }
                             .buttonStyle(.plain)
                             .foregroundStyle(.secondary)
-                            .help("Zoom Out")
+                            .liquidGlassTooltip("Zoom Out")
 
                             Button(action: { file.view.autoScales = true }) {
                                 Text("Fit")
@@ -1039,7 +1038,7 @@ private struct PDFPreview: View {
                             }
                             .buttonStyle(.plain)
                             .foregroundStyle(.secondary)
-                            .help("Fit to Page")
+                            .liquidGlassTooltip("Fit to Page")
 
                             Button(action: { file.view.zoomIn(nil) }) {
                                 Image(systemName: "plus")
@@ -1049,7 +1048,7 @@ private struct PDFPreview: View {
                             }
                             .buttonStyle(.plain)
                             .foregroundStyle(.secondary)
-                            .help("Zoom In")
+                            .liquidGlassTooltip("Zoom In")
                         }
                     }
                     .lineLimit(1)

@@ -292,7 +292,7 @@ private struct ProjectTitle: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .font(.headline)
-                .help(workspace.rootURL.path(percentEncoded: false))
+                .liquidGlassTooltip(workspace.rootURL.path(percentEncoded: false))
         }
         .onHover { hovering in
             if hovering, icon == nil {
@@ -508,7 +508,7 @@ private struct TreeFilterField: View {
                 Text(result.matchCount.formatted())
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
-                    .help(result.matchCount == 1 ? "1 matching file" : "\(result.matchCount.formatted()) matching files")
+                    .liquidGlassTooltip(result.matchCount == 1 ? "1 matching file" : "\(result.matchCount.formatted()) matching files")
             }
             if !workspace.treeFilter.isEmpty {
                 Button {

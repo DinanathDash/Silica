@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Native unified Git diff viewer displaying additions in green, deletions in red,
-/// hunk headers, line numbers, and continuous diffs for multi-file commits or branch comparisons.
+/// hunk headers, line numbers, gutter stripes, and continuous diffs for multi-file commits or branch comparisons.
 struct GitDiffView: View {
     let diff: WorkspaceModel.DiffPresentation
     let workspace: WorkspaceModel
@@ -43,8 +43,41 @@ struct GitDiffView: View {
         let lines: [DiffLine]
     }
 
+    /// Flat row representation for LazyVStack virtualization to eliminate layout stalls and memory bloat
+    enum DiffRowItem: Identifiable {
+        case fileHeader(DiffFileGroup)
+        case diffLine(DiffFileGroup, DiffLine)
+        case fileFooter(DiffFileGroup)
+
+        var id: String {
+            switch self {
+            case .fileHeader(let group):
+                return "header_\(group.id)"
+            case .diffLine(let group, let line):
+                return "line_\(group.id)_\(line.id)"
+            case .fileFooter(let group):
+                return "footer_\(group.id)"
+            }
+        }
+    }
+
     private var isMultiFile: Bool {
         fileGroups.count > 1 || diff.isFullDiff || diff.isBranchCompare
+    }
+
+    private var multiFileRows: [DiffRowItem] {
+        var rows: [DiffRowItem] = []
+        rows.reserveCapacity(fileGroups.reduce(0) { $0 + 1 + $1.lines.count })
+        for group in fileGroups {
+            rows.append(.fileHeader(group))
+            if !collapsedFileIDs.contains(group.id) {
+                for line in group.lines {
+                    rows.append(.diffLine(group, line))
+                }
+                rows.append(.fileFooter(group))
+            }
+        }
+        return rows
     }
 
     var body: some View {
@@ -251,12 +284,15 @@ struct GitDiffView: View {
                         collapsedFileIDs = Set(fileGroups.map(\.id))
                     }
                 } label: {
-                    Image(systemName: collapsedFileIDs.count == fileGroups.count ? "arrow.up.and.line.horizontal.and.arrow.down" : "arrow.down.and.line.horizontal.and.arrow.up")
-                        .font(.system(size: 11))
+                    SourceControlIcon(
+                        type: collapsedFileIDs.count == fileGroups.count ? .expand : .collapse,
+                        size: 13
+                    )
+                    .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.titleBarIcon)
                 .frame(width: 24, height: 24)
-                .help(collapsedFileIDs.count == fileGroups.count ? "Expand All Files" : "Collapse All Files")
+                .liquidGlassTooltip(collapsedFileIDs.count == fileGroups.count ? "Expand All Files" : "Collapse All Files")
             }
 
             if totalAdditions > 0 || totalDeletions > 0 {
@@ -277,51 +313,47 @@ struct GitDiffView: View {
                 .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 4))
             }
 
-            // Button to return to normal editor or close diff tab
-            Button {
-                workspace.closeDiff()
-            } label: {
-                Label(isMultiFile ? "Close Diff" : "Edit Code", systemImage: isMultiFile ? "xmark" : "square.and.pencil")
-                    .font(.system(size: 11, weight: .medium))
+            // Only show "Edit Code" button for single-file diffs. In full diff, the tab has a close button.
+            if !isMultiFile {
+                Button {
+                    workspace.closeDiff()
+                } label: {
+                    Label("Edit Code", systemImage: "square.and.pencil")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .liquidGlassTooltip("Switch to live code editor")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .help(isMultiFile ? "Close Diff Tab" : "Switch to live code editor")
         }
     }
 
-    // MARK: - Multi-File Diff Content (Continuous diffs per file)
+    // MARK: - Multi-File Diff Content (Virtualized flat list for extreme performance)
 
     private func multiFileDiffContent(geometry: GeometryProxy) -> some View {
-        LazyVStack(alignment: .leading, spacing: 10) {
-            ForEach(fileGroups) { group in
-                VStack(alignment: .leading, spacing: 0) {
-                    // Athas-styled section header per file
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(multiFileRows) { row in
+                switch row {
+                case .fileHeader(let group):
                     fileSectionHeader(group: group)
+                        .padding(.top, 10)
+                        .padding(.horizontal, 10)
 
-                    if !collapsedFileIDs.contains(group.id) {
-                        let fileURL = workspace.rootURL.appending(path: group.relativePath)
-                        let lang = SyntaxLanguage(url: fileURL)
+                case .diffLine(let group, let line):
+                    let fileURL = workspace.rootURL.appending(path: group.relativePath)
+                    let lang = SyntaxLanguage(url: fileURL)
+                    diffLineRow(line: line, group: group, language: lang)
+                        .frame(minHeight: max(settings.fontSize + 5, 20))
+                        .padding(.horizontal, 10)
 
-                        VStack(alignment: .leading, spacing: 0) {
-                            ForEach(group.lines) { line in
-                                diffLineRow(line: line, language: lang)
-                                    .frame(minHeight: max(settings.fontSize + 5, 20))
-                            }
-                        }
-                    }
+                case .fileFooter:
+                    Spacer()
+                        .frame(height: 6)
                 }
-                .background(Color(nsColor: .textBackgroundColor).opacity(0.18))
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
-                )
             }
         }
         .frame(minWidth: geometry.size.width, alignment: .leading)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 10)
+        .padding(.vertical, 6)
     }
 
     private func fileSectionHeader(group: DiffFileGroup) -> some View {
@@ -383,19 +415,21 @@ struct GitDiffView: View {
                 .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 3))
             }
 
+            // Open File button with custom SVG external icon, padding(.trailing, 8), and liquid glass tooltip
             Button {
-                workspace.open(fileURL)
+                openFileFromGroup(group)
             } label: {
-                Image(systemName: "arrow.up.right.square")
-                    .font(.system(size: 11))
+                SourceControlIcon(type: .external, size: 12)
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
-            .help("Open \(group.fileName)")
+            .padding(.trailing, 8)
+            .liquidGlassTooltip("Open \(group.fileName)")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.55))
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
         .contentShape(Rectangle())
         .onTapGesture {
             if isCollapsed {
@@ -403,6 +437,15 @@ struct GitDiffView: View {
             } else {
                 collapsedFileIDs.insert(group.id)
             }
+        }
+    }
+
+    private func openFileFromGroup(_ group: DiffFileGroup) {
+        let fileURL = workspace.rootURL.appending(path: group.relativePath)
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            workspace.open(fileURL)
+        } else if let hash = diff.commitHash {
+            workspace.openCommitDiff(commitHash: hash, commitTitle: diff.commitTitle ?? "", relativePath: group.relativePath)
         }
     }
 
@@ -414,7 +457,7 @@ struct GitDiffView: View {
 
         return LazyVStack(alignment: .leading, spacing: 0) {
             ForEach(singleGroup?.lines ?? []) { line in
-                diffLineRow(line: line, language: lang)
+                diffLineRow(line: line, group: singleGroup, language: lang)
                     .frame(minHeight: max(settings.fontSize + 5, 20))
             }
         }
@@ -422,11 +465,11 @@ struct GitDiffView: View {
         .padding(.vertical, 8)
     }
 
-    // MARK: - Row Rendering
+    // MARK: - Row Rendering & Code Highlighting
 
     private func highlightedCodeText(_ text: String, language: SyntaxLanguage?) -> AttributedString {
         var attrStr = AttributedString(text)
-        guard let language else { return attrStr }
+        guard let language, text.count <= 1000 else { return attrStr }
         let theme = settings.syntaxTheme
         let tokens = language.tokenizer.tokenize(text as NSString)
         for token in tokens {
@@ -437,7 +480,7 @@ struct GitDiffView: View {
     }
 
     @ViewBuilder
-    private func diffLineRow(line: DiffLine, language: SyntaxLanguage?) -> some View {
+    private func diffLineRow(line: DiffLine, group: DiffFileGroup?, language: SyntaxLanguage?) -> some View {
         switch line.kind {
         case .header:
             EmptyView()
@@ -456,7 +499,9 @@ struct GitDiffView: View {
 
         case .addition(let oldL, let newL, let text):
             HStack(alignment: .top, spacing: 0) {
-                lineNumberView(oldLine: oldL, newLine: newL)
+                lineNumberView(oldLine: oldL, newLine: newL, kind: line.kind) {
+                    jumpToEditorLine(line: line, group: group)
+                }
                 Text("+")
                     .frame(width: 16)
                     .foregroundStyle(Color(red: 0.45, green: 0.79, blue: 0.57))
@@ -472,7 +517,9 @@ struct GitDiffView: View {
 
         case .deletion(let oldL, let newL, let text):
             HStack(alignment: .top, spacing: 0) {
-                lineNumberView(oldLine: oldL, newLine: newL)
+                lineNumberView(oldLine: oldL, newLine: newL, kind: line.kind) {
+                    jumpToEditorLine(line: line, group: group)
+                }
                 Text("-")
                     .frame(width: 16)
                     .foregroundStyle(Color(red: 0.89, green: 0.41, blue: 0.45))
@@ -488,7 +535,9 @@ struct GitDiffView: View {
 
         case .context(let oldL, let newL, let text):
             HStack(alignment: .top, spacing: 0) {
-                lineNumberView(oldLine: oldL, newLine: newL)
+                lineNumberView(oldLine: oldL, newLine: newL, kind: line.kind) {
+                    jumpToEditorLine(line: line, group: group)
+                }
                 Text(" ")
                     .frame(width: 16)
                 Text(highlightedCodeText(text, language: language))
@@ -501,7 +550,7 @@ struct GitDiffView: View {
         }
     }
 
-    private func lineNumberView(oldLine: Int?, newLine: Int?) -> some View {
+    private func lineNumberView(oldLine: Int?, newLine: Int?, kind: DiffLine.Kind, onJump: @escaping () -> Void) -> some View {
         HStack(spacing: 4) {
             Text(oldLine.map { "\($0)" } ?? "")
                 .frame(width: 38, alignment: .trailing)
@@ -509,10 +558,59 @@ struct GitDiffView: View {
             Text(newLine.map { "\($0)" } ?? "")
                 .frame(width: 38, alignment: .trailing)
                 .foregroundStyle(.secondary.opacity(0.6))
+
+            // 3px color-coded vertical stripe beside line numbers (Point 9)
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(stripeColor(for: kind))
+                .frame(width: 3, height: 16)
         }
         .font(.system(size: max(settings.fontSize - 2, 9), design: .monospaced))
         .padding(.leading, 8)
         .padding(.trailing, 6)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onJump()
+        }
+        .liquidGlassTooltip("Click to jump to line in editor")
+    }
+
+    private func stripeColor(for kind: DiffLine.Kind) -> Color {
+        switch kind {
+        case .addition:
+            return Color(red: 0.35, green: 0.82, blue: 0.45)
+        case .deletion:
+            return Color(red: 0.95, green: 0.36, blue: 0.38)
+        case .context, .header, .hunkHeader:
+            return Color.clear
+        }
+    }
+
+    private func jumpToEditorLine(line: DiffLine, group: DiffFileGroup?) {
+        let relativePath = group?.relativePath ?? diff.relativePath
+        let fileURL = workspace.rootURL.appending(path: relativePath)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            if let hash = diff.commitHash {
+                workspace.openCommitDiff(commitHash: hash, commitTitle: diff.commitTitle ?? "", relativePath: relativePath)
+            }
+            return
+        }
+
+        let targetLine: Int?
+        switch line.kind {
+        case .addition(_, let newL, _):
+            targetLine = newL
+        case .deletion(let oldL, _, _):
+            targetLine = oldL
+        case .context(let oldL, let newL, _):
+            targetLine = newL ?? oldL
+        case .header, .hunkHeader:
+            targetLine = nil
+        }
+
+        workspace.open(fileURL)
+        if let targetLine {
+            workspace.goToLine(targetLine)
+        }
     }
 
     // MARK: - Diff Loading & Parsing
@@ -592,7 +690,7 @@ struct GitDiffView: View {
         }
 
         raw.enumerateLines { line, stop in
-            if groups.count >= 100 && line.hasPrefix("diff --git") {
+            if groups.count >= 200 && line.hasPrefix("diff --git") {
                 stop = true
                 return
             }
@@ -603,11 +701,11 @@ struct GitDiffView: View {
                 }
                 hasSeenDiffHeader = true
                 currentStatus = .modified
-                let parts = line.split(separator: " ")
-                if parts.count >= 4 {
-                    var newPart = String(parts[3])
-                    if newPart.hasPrefix("b/") {
-                        newPart = String(newPart.dropFirst(2))
+                // Parse "diff --git a/path b/path" robustly including spaces and quotes
+                if let bRange = line.range(of: " b/") {
+                    var newPart = String(line[bRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+                    if newPart.hasPrefix("\"") && newPart.hasSuffix("\"") {
+                        newPart = String(newPart.dropFirst().dropLast())
                     }
                     currentPath = newPart
                 }
@@ -638,6 +736,7 @@ struct GitDiffView: View {
                 } else if currentPath.isEmpty || currentPath == fallbackPath {
                     var path = line.replacingOccurrences(of: "+++ ", with: "").trimmingCharacters(in: .whitespaces)
                     if path.hasPrefix("b/") { path = String(path.dropFirst(2)) }
+                    if path.hasPrefix("\"") && path.hasSuffix("\"") { path = String(path.dropFirst().dropLast()) }
                     currentPath = path
                 }
                 return

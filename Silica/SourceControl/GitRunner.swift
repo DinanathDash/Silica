@@ -31,6 +31,10 @@ actor GitRunner {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let startTime = CFAbsoluteTimeGetCurrent()
+        let commandStr = "git " + arguments.joined(separator: " ")
+        AppLogger.debug("Git", "Exec: \(commandStr)")
+
         return await withCheckedContinuation { continuation in
             let stdoutBuf = OutputBuffer()
             let stderrBuf = OutputBuffer()
@@ -61,10 +65,20 @@ actor GitRunner {
                 try? stdoutPipe.fileHandleForReading.close()
                 try? stderrPipe.fileHandleForReading.close()
 
+                let elapsedMs = Int((CFAbsoluteTimeGetCurrent() - startTime) * 1000)
+                let outStr = stdoutBuf.string()
+                let errStr = stderrBuf.string()
+
+                if proc.terminationStatus == 0 {
+                    AppLogger.debug("Git", "Done [\(elapsedMs)ms]: \(commandStr)")
+                } else {
+                    AppLogger.warn("Git", "Failed [\(elapsedMs)ms, exit \(proc.terminationStatus)]: \(commandStr) | Err: \(errStr.prefix(200))")
+                }
+
                 continuation.resume(returning: Result(
                     exitCode: proc.terminationStatus,
-                    stdout: stdoutBuf.string(),
-                    stderr: stderrBuf.string()
+                    stdout: outStr,
+                    stderr: errStr
                 ))
             }
 
@@ -75,6 +89,7 @@ actor GitRunner {
                 stderrPipe.fileHandleForReading.readabilityHandler = nil
                 try? stdoutPipe.fileHandleForReading.close()
                 try? stderrPipe.fileHandleForReading.close()
+                AppLogger.error("Git", "Launch error: \(error.localizedDescription) for \(commandStr)")
                 continuation.resume(returning: Result(
                     exitCode: -1,
                     stdout: "",

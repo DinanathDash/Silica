@@ -164,7 +164,7 @@ private struct MatchRow: View {
             // A point larger than the file names, as `.callout` is at the default size.
             .font(.system(size: EditorSettings.shared.sidebarFontSize + 1))
             .padding(.leading, 32)
-            .help("Line \(match.line)")
+            .liquidGlassTooltip("Line \(match.line)")
     }
 
     /// The line with the match in bold on a soft accent background.

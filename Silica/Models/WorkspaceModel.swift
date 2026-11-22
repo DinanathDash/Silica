@@ -441,7 +441,7 @@ final class WorkspaceModel {
         goToLine(line)
     }
 
-    private func goToLine(_ line: Int) {
+    func goToLine(_ line: Int) {
         guard let buffer = activeBuffer, let controller = buffer.textController else { return }
         if buffer.isShowingPreview { buffer.setShowingPreview(false) }
         DispatchQueue.main.async { controller.goToLine(line) }

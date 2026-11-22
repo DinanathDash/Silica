@@ -176,6 +176,14 @@ public struct LiquidGlassTooltipModifier: ViewModifier {
                         isVisible = false
                     }
                 }
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { _ in
+                            timerTask?.cancel()
+                            timerTask = nil
+                            isVisible = false
+                        }
+                )
                 .onDisappear {
                     timerTask?.cancel()
                     timerTask = nil

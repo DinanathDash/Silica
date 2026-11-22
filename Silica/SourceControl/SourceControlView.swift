@@ -119,8 +119,7 @@ struct SourceControlView: View {
                     }
                 } label: {
                     ZStack {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 11, weight: .medium))
+                        SourceControlIcon(type: .refresh, size: 13)
                             .rotationEffect(.degrees(refreshRotationAngle))
                     }
                     .frame(width: 16, height: 16)

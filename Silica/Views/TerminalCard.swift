@@ -313,7 +313,7 @@ private struct TerminalTab: View {
             if !isDragging { drag(.cancelled) }
         }
         .onHover { isHovering = $0 }
-        .help(session.name)
+        .liquidGlassTooltip(session.name)
         .contextMenu {
             Button("Kill Terminal", action: close)
         }

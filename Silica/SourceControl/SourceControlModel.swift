@@ -319,51 +319,58 @@ final class SourceControlModel {
 
     func diffForFile(in commitHash: String?, relativePath: String) async -> String {
         if let commitHash {
-            let res = await runner.run(arguments: ["show", commitHash, "--", relativePath], in: rootURL)
+            let res = await runner.run(arguments: ["-c", "core.quotepath=false", "show", "--find-renames", commitHash, "--", relativePath], in: rootURL)
             return res.stdout
         } else {
-            let res = await runner.run(arguments: ["diff", "HEAD", "--", relativePath], in: rootURL)
+            let res = await runner.run(arguments: ["-c", "core.quotepath=false", "diff", "HEAD", "--", relativePath], in: rootURL)
             if !res.stdout.isEmpty {
                 return res.stdout
             }
-            let fullURL = rootURL.appending(path: relativePath)
-            if let values = try? fullURL.resourceValues(forKeys: [.fileSizeKey]),
-               let size = values.fileSize, size > 1_000_000 {
-                return "--- /dev/null\n+++ b/\(relativePath)\n@@ -0,0 +1,1 @@\n+[File is too large to display diff (\(size / 1024) KB)]\n"
+            let workingDiff = await runner.run(arguments: ["-c", "core.quotepath=false", "diff", "--", relativePath], in: rootURL)
+            if !workingDiff.stdout.isEmpty {
+                return workingDiff.stdout
             }
-            if let content = try? String(contentsOf: fullURL, encoding: .utf8) {
-                var linesCount = 0
-                var body = ""
-                content.enumerateLines { line, _ in
-                    linesCount += 1
-                    body.append("+\(line)\n")
+            // Only synthesize addition diff if the file is genuinely an untracked new file
+            if status(forRelativePath: relativePath) == .untracked {
+                let fullURL = rootURL.appending(path: relativePath)
+                if let values = try? fullURL.resourceValues(forKeys: [.fileSizeKey]),
+                   let size = values.fileSize, size > 1_000_000 {
+                    return "--- /dev/null\n+++ b/\(relativePath)\n@@ -0,0 +1,1 @@\n+[File is too large to display diff (\(size / 1024) KB)]\n"
                 }
-                return "--- /dev/null\n+++ b/\(relativePath)\n@@ -0,0 +1,\(linesCount) @@\n" + body
+                if let content = try? String(contentsOf: fullURL, encoding: .utf8) {
+                    var linesCount = 0
+                    var body = ""
+                    content.enumerateLines { line, _ in
+                        linesCount += 1
+                        body.append("+\(line)\n")
+                    }
+                    return "--- /dev/null\n+++ b/\(relativePath)\n@@ -0,0 +1,\(linesCount) @@\n" + body
+                }
             }
-            return res.stdout
+            return ""
         }
     }
 
     func diffForBranchCompare(targetBranch: String) async -> String {
         let base = branchName ?? "HEAD"
-        let r1 = await runner.run(arguments: ["diff", "--find-renames", "\(targetBranch)...\(base)"], in: rootURL)
+        let r1 = await runner.run(arguments: ["-c", "core.quotepath=false", "diff", "--find-renames", "\(targetBranch)...\(base)"], in: rootURL)
         if !r1.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return r1.stdout
         }
-        let r2 = await runner.run(arguments: ["diff", "--find-renames", "\(base)...\(targetBranch)"], in: rootURL)
+        let r2 = await runner.run(arguments: ["-c", "core.quotepath=false", "diff", "--find-renames", "\(base)...\(targetBranch)"], in: rootURL)
         if !r2.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return r2.stdout
         }
-        let r3 = await runner.run(arguments: ["diff", "--find-renames", "\(targetBranch)..\(base)"], in: rootURL)
+        let r3 = await runner.run(arguments: ["-c", "core.quotepath=false", "diff", "--find-renames", "\(targetBranch)..\(base)"], in: rootURL)
         if !r3.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return r3.stdout
         }
-        let r4 = await runner.run(arguments: ["diff", "--find-renames", "\(base)..\(targetBranch)"], in: rootURL)
+        let r4 = await runner.run(arguments: ["-c", "core.quotepath=false", "diff", "--find-renames", "\(base)..\(targetBranch)"], in: rootURL)
         return r4.stdout
     }
 
     func diffForFullCommit(commitHash: String) async -> String {
-        let res = await runner.run(arguments: ["show", "--format=", "--find-renames", commitHash], in: rootURL)
+        let res = await runner.run(arguments: ["-c", "core.quotepath=false", "show", "--format=", "--find-renames", commitHash], in: rootURL)
         return res.stdout
     }
 
