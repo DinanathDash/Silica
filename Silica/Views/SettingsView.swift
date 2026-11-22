@@ -504,11 +504,8 @@ private struct EditorSettingsPane: View {
 /// Source Control preferences: GitHub connection, commit instructions, notifications, and git integration matching droppy-code.
 private struct SourceControlSettingsPane: View {
     @Bindable private var settings = EditorSettings.shared
+    private var gitHub = GitHubProfileCache.shared
     @State private var gitVersion: String = ""
-    @State private var gitHubUser: String?
-    @State private var gitHubAvatarURL: URL?
-    @State private var gitHubDisplayName: String?
-    @State private var isCheckingGitHub = false
     @State private var cloneDirectory: String = UserDefaults.standard.string(forKey: "GitHubCloneDirectory") ?? ("~/Documents/Projects" as NSString).expandingTildeInPath
 
     @Environment(\.openWindow) private var openWindow
@@ -518,9 +515,9 @@ private struct SourceControlSettingsPane: View {
             // 1. GitHub Section
             ChromeSection(title: "GitHub") {
                 ChromeCard {
-                    if let user = gitHubUser {
+                    if let user = gitHub.user {
                         HStack(spacing: 12) {
-                            AsyncImage(url: gitHubAvatarURL ?? URL(string: "https://github.com/\(user).png?size=96")) { phase in
+                            AsyncImage(url: gitHub.avatarURL ?? URL(string: "https://github.com/\(user).png?size=96")) { phase in
                                 if let image = phase.image {
                                     image
                                         .resizable()
@@ -539,7 +536,7 @@ private struct SourceControlSettingsPane: View {
                             }
 
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(gitHubDisplayName ?? user)
+                                Text(gitHub.displayName ?? user)
                                     .font(.system(size: 13, weight: .semibold))
                                     .foregroundStyle(Chrome.primaryText)
                                 Text("@\(user), using the GitHub CLI login")
@@ -550,7 +547,7 @@ private struct SourceControlSettingsPane: View {
                             Spacer(minLength: 12)
 
                             Button("Refresh") {
-                                Task { await checkGitHubStatus() }
+                                Task { await gitHub.checkStatus(force: true) }
                             }
                             .glassButtonStyle()
                             .controlSize(.small)
@@ -577,7 +574,7 @@ private struct SourceControlSettingsPane: View {
                             .glassButtonStyle()
                             .controlSize(.small)
                         }
-                    } else if isCheckingGitHub {
+                    } else if gitHub.isChecking {
                         HStack(spacing: 8) {
                             ProgressView().controlSize(.small)
                             Text("Checking GitHub connection…").foregroundStyle(Chrome.secondaryText)
@@ -598,7 +595,7 @@ private struct SourceControlSettingsPane: View {
                                 .font(.system(size: 11, design: .monospaced))
                                 .foregroundStyle(Chrome.secondaryText)
                             Button("Check Status") {
-                                Task { await checkGitHubStatus() }
+                                Task { await gitHub.checkStatus(force: true) }
                             }
                             .glassButtonStyle()
                             .controlSize(.small)
@@ -663,7 +660,7 @@ private struct SourceControlSettingsPane: View {
         }
         .task {
             loadGitVersion()
-            await checkGitHubStatus()
+            await gitHub.checkStatus(force: false)
         }
     }
 
@@ -673,52 +670,6 @@ private struct SourceControlSettingsPane: View {
             await MainActor.run {
                 gitVersion = res.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
             }
-        }
-    }
-
-    private func checkGitHubStatus() async {
-        isCheckingGitHub = true
-        let res = await GitRunner.shared.runGH(arguments: ["auth", "status"], in: URL(filePath: NSHomeDirectory()))
-        let output = res.stdout + res.stderr
-        var foundUser: String?
-        if let range = output.range(of: "account ") {
-            let sub = output[range.upperBound...]
-            let username = sub.split(separator: " ").first?.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
-            if let username, !username.isEmpty {
-                foundUser = username
-            }
-        }
-
-        var foundAvatarURL: URL?
-        var foundName: String?
-
-        // Fetch user profile from GitHub CLI API
-        let apiRes = await GitRunner.shared.runGH(arguments: ["api", "user"], in: URL(filePath: NSHomeDirectory()))
-        if apiRes.isSuccess, let data = apiRes.stdout.data(using: .utf8),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            if let login = json["login"] as? String, !login.isEmpty {
-                foundUser = login
-            }
-            if let name = json["name"] as? String, !name.isEmpty {
-                foundName = name
-            }
-            if let avatarStr = json["avatar_url"] as? String, let url = URL(string: avatarStr) {
-                foundAvatarURL = url
-            }
-        }
-
-        if foundAvatarURL == nil, let user = foundUser {
-            foundAvatarURL = URL(string: "https://github.com/\(user).png?size=96")
-        }
-
-        let user = foundUser
-        let avatarURL = foundAvatarURL
-        let displayName = foundName
-        await MainActor.run {
-            self.gitHubUser = user
-            self.gitHubAvatarURL = avatarURL
-            self.gitHubDisplayName = displayName
-            self.isCheckingGitHub = false
         }
     }
 
@@ -773,3 +724,72 @@ private struct SourceControlSettingsPane: View {
         }
     }
 }
+
+/// In-memory and persistent cache for the authenticated GitHub user profile.
+@MainActor @Observable
+final class GitHubProfileCache {
+    static let shared = GitHubProfileCache()
+
+    var user: String? {
+        didSet { UserDefaults.standard.set(user, forKey: "cachedGitHubUser") }
+    }
+    var displayName: String? {
+        didSet { UserDefaults.standard.set(displayName, forKey: "cachedGitHubDisplayName") }
+    }
+    var avatarURL: URL? {
+        didSet { UserDefaults.standard.set(avatarURL?.absoluteString, forKey: "cachedGitHubAvatarURL") }
+    }
+    var isChecking = false
+
+    init() {
+        self.user = UserDefaults.standard.string(forKey: "cachedGitHubUser")
+        self.displayName = UserDefaults.standard.string(forKey: "cachedGitHubDisplayName")
+        if let str = UserDefaults.standard.string(forKey: "cachedGitHubAvatarURL") {
+            self.avatarURL = URL(string: str)
+        }
+    }
+
+    func checkStatus(force: Bool = false) async {
+        guard !isChecking else { return }
+        if !force, user != nil { return }
+        isChecking = true
+        defer { isChecking = false }
+
+        let res = await GitRunner.shared.runGH(arguments: ["auth", "status"], in: URL(filePath: NSHomeDirectory()))
+        let output = res.stdout + res.stderr
+        var foundUser: String?
+        if let range = output.range(of: "account ") {
+            let sub = output[range.upperBound...]
+            let username = sub.split(separator: " ").first?.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+            if let username, !username.isEmpty {
+                foundUser = username
+            }
+        }
+
+        var foundAvatarURL: URL?
+        var foundName: String?
+
+        let apiRes = await GitRunner.shared.runGH(arguments: ["api", "user"], in: URL(filePath: NSHomeDirectory()))
+        if apiRes.isSuccess, let data = apiRes.stdout.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let login = json["login"] as? String, !login.isEmpty {
+                foundUser = login
+            }
+            if let name = json["name"] as? String, !name.isEmpty {
+                foundName = name
+            }
+            if let avatarStr = json["avatar_url"] as? String, let url = URL(string: avatarStr) {
+                foundAvatarURL = url
+            }
+        }
+
+        if foundAvatarURL == nil, let user = foundUser {
+            foundAvatarURL = URL(string: "https://github.com/\(user).png?size=96")
+        }
+
+        self.user = foundUser
+        self.avatarURL = foundAvatarURL
+        self.displayName = foundName
+    }
+}
+

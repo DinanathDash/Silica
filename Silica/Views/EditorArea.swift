@@ -863,30 +863,37 @@ private struct ImagePreview: View {
     @State private var zoomScale: CGFloat = 1.0
 
     var body: some View {
-        VStack(spacing: 12) {
-            ScrollView([.horizontal, .vertical]) {
-                picture
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .frame(
-                        width: max(16, file.pixelSize.width * zoomScale),
-                        height: max(16, file.pixelSize.height * zoomScale)
-                    )
-                    .background(Checkerboard())
-                    .overlay(Rectangle().strokeBorder(.separator, lineWidth: 1))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+        GeometryReader { geometry in
+            let availableWidth = max(50, geometry.size.width)
+            let availableHeight = max(50, geometry.size.height - 40)
+            let fitScale = min(1.0, min(availableWidth / max(1, file.pixelSize.width), availableHeight / max(1, file.pixelSize.height)))
+            let baseWidth = file.pixelSize.width * fitScale
+            let baseHeight = file.pixelSize.height * fitScale
+            let currentWidth = max(16, baseWidth * zoomScale)
+            let currentHeight = max(16, baseHeight * zoomScale)
 
-            HStack(spacing: 12) {
-                Text(details)
-                    .font(.callout)
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
+            VStack(spacing: 12) {
+                ScrollView([.horizontal, .vertical]) {
+                    picture
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                        .frame(width: currentWidth, height: currentHeight)
+                        .background(Checkerboard())
+                        .overlay(Rectangle().strokeBorder(.separator, lineWidth: 1))
+                        .frame(minWidth: availableWidth, minHeight: availableHeight, alignment: .center)
+                }
 
-                Spacer()
+                HStack(spacing: 12) {
+                    Text(details)
+                        .font(.callout)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
 
-                zoomControls
+                    Spacer()
+
+                    zoomControls
+                }
             }
         }
         .padding(24)

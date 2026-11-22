@@ -37,7 +37,6 @@ final class TerminalSession {
     @ObservationIgnored private var commandStartTime: Date?
     @ObservationIgnored private var isCommandActive = false
     @ObservationIgnored private var pendingCommandText = ""
-    @ObservationIgnored private var lastExecutedCommand = ""
 
     @ObservationIgnored private let shell: String
     @ObservationIgnored private let directory: URL
@@ -179,10 +178,10 @@ final class TerminalSession {
                 if isPrompt {
                     isCommandActive = false
                     commandStartTime = nil
-                    let cmdName = lastExecutedCommand.isEmpty ? name : lastExecutedCommand
+                    let folderName = directory.lastPathComponent.isEmpty ? "Terminal" : directory.lastPathComponent
                     let durStr = duration >= 60 ? String(format: "%.1fm", duration / 60) : String(format: "%.1fs", duration)
                     let isFailure = str.contains("command not found") || str.contains("error:") || str.contains("FAILED") || str.contains("Error:") || str.contains("fatal:")
-                    let title = isFailure ? "Command Failed (\(cmdName))" : "Command Succeeded (\(cmdName))"
+                    let title = isFailure ? "Command Failed (\(folderName))" : "Command Succeeded (\(folderName))"
                     let msg = isFailure ? "Process finished with error after \(durStr)" : "Completed in \(durStr)"
                     DispatchQueue.main.async { [weak self] in
                         self?.onCommandFinished?(msg, title, isFailure)
@@ -256,7 +255,6 @@ final class TerminalSession {
                 if !trimmed.isEmpty {
                     commandStartTime = Date()
                     isCommandActive = true
-                    lastExecutedCommand = trimmed
                 }
                 pendingCommandText = ""
             } else {

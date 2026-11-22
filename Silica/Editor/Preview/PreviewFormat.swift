@@ -59,7 +59,9 @@ nonisolated enum PreviewFormat: Sendable {
         case .svg:
             """
             <div class="svg-container">
-            \(text)
+              <div id="svg-wrapper">
+              \(text)
+              </div>
             </div>
             """
         }

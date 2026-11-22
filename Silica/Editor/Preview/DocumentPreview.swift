@@ -90,9 +90,19 @@ final class DocumentPreview: NSObject, WKNavigationDelegate {
 
     // MARK: - Zoom / Magnification
 
+    private var currentSVGZoom: CGFloat = 1.0
+
     var zoomScale: CGFloat {
-        get { webView.pageZoom }
-        set { webView.pageZoom = max(0.25, min(5.0, newValue)) }
+        get { format == .svg ? currentSVGZoom : webView.pageZoom }
+        set {
+            let clamped = max(0.25, min(5.0, newValue))
+            if format == .svg {
+                currentSVGZoom = clamped
+                applySVGZoom(clamped)
+            } else {
+                webView.pageZoom = clamped
+            }
+        }
     }
 
     func zoom(to scale: CGFloat) {
@@ -100,17 +110,28 @@ final class DocumentPreview: NSObject, WKNavigationDelegate {
     }
 
     func zoomIn() {
-        let next = (round(webView.pageZoom * 4) + 1) / 4.0
+        let current = zoomScale
+        let next = (round(current * 4) + 1) / 4.0
         zoomScale = min(5.0, next)
     }
 
     func zoomOut() {
-        let next = (round(webView.pageZoom * 4) - 1) / 4.0
+        let current = zoomScale
+        let next = (round(current * 4) - 1) / 4.0
         zoomScale = max(0.25, next)
     }
 
     func resetZoom() {
-        webView.pageZoom = 1.0
+        zoomScale = 1.0
+    }
+
+    private func applySVGZoom(_ scale: CGFloat) {
+        webView.evaluateJavaScript("""
+        (function() {
+            var w = document.getElementById('svg-wrapper');
+            if (w) { w.style.transform = 'scale(' + \(scale) + ')'; }
+        })();
+        """) { _, _ in }
     }
 
     /// Swaps in the new code colors without reloading, so the scroll position stays.
@@ -233,6 +254,10 @@ final class DocumentPreview: NSObject, WKNavigationDelegate {
     // MARK: WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        if format == .svg {
+            applySVGZoom(currentSVGZoom)
+            return
+        }
         if format == .html {
             if navigation === pageNavigation, let scroll = pendingScroll {
                 pendingScroll = nil
@@ -437,7 +462,7 @@ final class DocumentPreview: NSObject, WKNavigationDelegate {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          padding: 24px;
+          padding: 32px;
           border-radius: 8px;
           background-image: linear-gradient(45deg, rgba(128, 128, 128, 0.12) 25%, transparent 25%),
                             linear-gradient(-45deg, rgba(128, 128, 128, 0.12) 25%, transparent 25%),
@@ -447,15 +472,18 @@ final class DocumentPreview: NSObject, WKNavigationDelegate {
           background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
           border: 1px solid rgba(128, 128, 128, 0.2);
           box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-          max-width: 90%;
-          max-height: 80vh;
+          max-width: 95%;
+          max-height: 85vh;
           overflow: auto;
         }
+        #svg-wrapper {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          transform-origin: center center;
+          transition: transform 0.1s ease-out;
+        }
         .svg-preview svg {
-          max-width: 100%;
-          max-height: 70vh;
-          height: auto;
-          width: auto;
           display: block;
         }
         .note { color: rgba(0, 0, 0, 0.5); font-size: 0.92em; }

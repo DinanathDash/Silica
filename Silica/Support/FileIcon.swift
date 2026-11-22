@@ -163,7 +163,7 @@ final class FolderIcons {
 /// Xcode-style icon colors: blue folders and orange Swift files, plus a hue per
 /// file family, each with a deeper light-mode and a brighter dark-mode shade.
 enum FileIconPalette {
-    static let folder = dynamic(light: 0x3B8EEA, dark: 0x5AA5F5)
+    static let folder = dynamic(light: 0x6E7681, dark: 0xF0F6FC)
     static let swift = dynamic(light: 0xF05138, dark: 0xF4693F)
 
     static let blue = dynamic(light: 0x2F74C0, dark: 0x5E9BEA)
