@@ -1180,6 +1180,39 @@ final class WorkspaceModel {
         }
     }
 
+    /// Close Other Panes: every pane but one goes (the focused one stays, unless
+    /// another is named), and their tabs join it, so no file is closed. A file the
+    /// pane has open already keeps the one tab.
+    func closeOtherPanes(than pane: PaneLayout.PaneID? = nil) {
+        let kept = pane ?? focusedPane
+        guard layout.isSplit, layout.contains(kept) else { return }
+        withAnimation(WorkspaceLayout.paneAnimation) {
+            var tabs = paneTabs
+            let own = tabs[kept] ?? PaneTabs()
+            var joined = own.tabs
+            for other in layout.panes where other != kept {
+                for url in tabs[other]?.tabs ?? [] {
+                    if joined.contains(url) {
+                        buffers[url]?.moveAuxiliaryPane(from: other, to: kept)
+                    } else {
+                        // The first pane to bring a file brings its editor along.
+                        buffers[url]?.movePane(from: other, to: kept)
+                        joined.append(url)
+                    }
+                }
+                tabs[other] = nil
+                layout.remove(other)
+            }
+            // The pane goes on showing what it showed.
+            tabs[kept] = PaneTabs(tabs: joined, active: own.active)
+            paneTabs = tabs
+            focusedPane = kept
+        }
+        tabDropPane = nil
+        noteActiveTab()
+        focusPaneContent()
+    }
+
     /// Moves a tab from one pane to the end of another's bar (dragging it there)
     /// and shows it there. A pane left without tabs goes.
     func moveTab(_ url: URL, from source: PaneLayout.PaneID, toPane target: PaneLayout.PaneID) {

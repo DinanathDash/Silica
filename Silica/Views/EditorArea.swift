@@ -410,6 +410,7 @@ private struct EditorTabBar: View {
                             copyRelativePath: workspace.contains(url) ? { Finder.copyPath(workspace.relativePath(of: url)) } : nil,
                             split: { workspace.splitPane($0, from: pane, showing: url) },
                             closePane: workspace.layout.isSplit ? { workspace.closePane(pane) } : nil,
+                            closeOtherPanes: workspace.layout.isSplit ? { workspace.closeOtherPanes(than: pane) } : nil,
                             drag: { handleDrag($0, at: $1, of: url, proxy: proxy) }
                         )
                         // Over another pane, where dropping it would move it there.
@@ -853,6 +854,8 @@ private struct EditorTab: View {
     let split: (PaneLayout.Axis) -> Void
     /// Closes the tab's pane, keeping its tabs; `nil` when it's the only pane.
     let closePane: (() -> Void)?
+    /// Closes every pane but the tab's, which takes their tabs; `nil` when it's the only pane.
+    let closeOtherPanes: (() -> Void)?
     /// Reports a drag, with the pointer's place among the panes: along the tab bar
     /// it moves the tab to another place in it, and onto another pane, to that pane.
     let drag: (TabDragEvent, CGPoint?) -> Void
@@ -920,6 +923,9 @@ private struct EditorTab: View {
             Button("Split Down") { split(.vertical) }
             if let closePane {
                 Button("Close Pane", action: closePane)
+            }
+            if let closeOtherPanes {
+                Button("Close Other Panes", action: closeOtherPanes)
             }
             if !url.isUntitled {
                 Divider()
