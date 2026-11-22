@@ -177,7 +177,7 @@ private struct EditorTabBar: View {
                             isActive: url == workspace.activeTab,
                             isDiffTab: workspace.diffTabs[url] != nil,
                             isDirty: workspace.buffers[url]?.isDirty == true,
-                            isMissing: workspace.buffers[url]?.isMissingOnDisk == true,
+                            isMissing: workspace.diffTabs[url] == nil && workspace.buffers[url]?.isMissingOnDisk == true,
                             select: { workspace.activate(url) },
                             close: { withAnimation(.snappy) { workspace.closeTab(url) } },
                             closeOthers: { withAnimation(.snappy) { workspace.closeOtherTabs(than: url) } },

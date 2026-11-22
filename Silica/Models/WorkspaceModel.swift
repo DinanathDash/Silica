@@ -620,6 +620,7 @@ final class WorkspaceModel {
 
     private func syncOpenFilesWithDisk() {
         for url in openTabs {
+            if diffTabs[url] != nil { continue }
             guard let buffer = buffers[url], buffer.syncWithDisk() else { continue }
             // An image or other non-text file changed: read it again.
             buffers[url] = makeBuffer(for: url)
@@ -762,6 +763,16 @@ final class WorkspaceModel {
 
         var isCommitDiff: Bool { commitHash != nil }
         var isBranchCompare: Bool { compareBranch != nil }
+
+        var cacheKey: String {
+            if let commitHash {
+                return isFullDiff ? "full_commit_\(commitHash)" : "commit_\(commitHash)_\(relativePath)"
+            }
+            if let compareBranch {
+                return "compare_\(compareBranch)"
+            }
+            return "working_\(relativePath)"
+        }
 
         init(
             fileURL: URL,

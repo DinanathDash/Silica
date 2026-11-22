@@ -1,13 +1,14 @@
+import AppKit
 import Foundation
 import MachO
 
-private let uncaughtExceptionHandler: (@convention(c) (NSException) -> Void) = { exception in
+nonisolated(unsafe) private let uncaughtExceptionHandler: (@convention(c) (NSException) -> Void) = { exception in
     let symbols = exception.callStackSymbols.joined(separator: "\n  ")
     let msg = "CRASH: Uncaught exception '\(exception.name.rawValue)': \(exception.reason ?? "Unknown reason")\nCall stack:\n  \(symbols)"
     AppLogger.emergencyLogSync(category: "CrashHandler", message: msg)
 }
 
-private let fatalSignalHandler: (@convention(c) (Int32) -> Void) = { signum in
+nonisolated(unsafe) private let fatalSignalHandler: (@convention(c) (Int32) -> Void) = { signum in
     let symbols = Thread.callStackSymbols.joined(separator: "\n  ")
     let msg = "CRASH: Received fatal signal \(signum)\nCall stack:\n  \(symbols)"
     AppLogger.emergencyLogSync(category: "SignalHandler", message: msg)
@@ -93,6 +94,34 @@ actor AppLogger {
         let libraryURL = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
             ?? URL(filePath: NSTemporaryDirectory())
         return libraryURL.appending(path: "Logs/Silica", directoryHint: .isDirectory)
+    }
+
+    @MainActor
+    static func revealLogInFinder() {
+        let folder = logFolderURL
+        if !FileManager.default.fileExists(atPath: folder.path(percentEncoded: false)) {
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        let currentLog = folder.appending(path: "silica.log")
+        if FileManager.default.fileExists(atPath: currentLog.path(percentEncoded: false)) {
+            NSWorkspace.shared.activateFileViewerSelecting([currentLog])
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([folder])
+        }
+    }
+
+    @MainActor
+    static func exportLogs(to destinationURL: URL) throws {
+        let folder = logFolderURL
+        let currentLog = folder.appending(path: "silica.log")
+        guard FileManager.default.fileExists(atPath: currentLog.path(percentEncoded: false)) else {
+            FileManager.default.createFile(atPath: destinationURL.path(percentEncoded: false), contents: Data("No logs recorded.\n".utf8))
+            return
+        }
+        if FileManager.default.fileExists(atPath: destinationURL.path(percentEncoded: false)) {
+            try FileManager.default.removeItem(at: destinationURL)
+        }
+        try FileManager.default.copyItem(at: currentLog, to: destinationURL)
     }
 
     // MARK: - Crash & Exception Diagnostics

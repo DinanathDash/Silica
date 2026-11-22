@@ -12,6 +12,7 @@ struct GitDiffView: View {
     @State private var isLoading: Bool
     @State private var fileGroups: [DiffFileGroup]
     @State private var collapsedFileIDs: Set<String> = []
+    @State private var displayRows: [DiffRowItem]
     @State private var totalAdditions: Int
     @State private var totalDeletions: Int
     @State private var liveUpdateTask: Task<Void, Never>?
@@ -20,16 +21,19 @@ struct GitDiffView: View {
         self.diff = diff
         self.workspace = workspace
         self.model = model
-        if let cached = model.diffCache[diff.id] {
+        let key = diff.cacheKey
+        if let cached = model.diffCache[key] {
             _fileGroups = State(initialValue: cached.groups)
             _totalAdditions = State(initialValue: cached.adds)
             _totalDeletions = State(initialValue: cached.dels)
             _isLoading = State(initialValue: false)
+            _displayRows = State(initialValue: Self.buildDisplayRows(groups: cached.groups, collapsed: []))
         } else {
             _fileGroups = State(initialValue: [])
             _totalAdditions = State(initialValue: 0)
             _totalDeletions = State(initialValue: 0)
             _isLoading = State(initialValue: true)
+            _displayRows = State(initialValue: [])
         }
     }
 
@@ -58,6 +62,7 @@ struct GitDiffView: View {
         let additions: Int
         let deletions: Int
         let lines: [DiffLine]
+        let language: SyntaxLanguage?
     }
 
     /// Flat row representation for LazyVStack virtualization to eliminate layout stalls and memory bloat
@@ -82,12 +87,12 @@ struct GitDiffView: View {
         fileGroups.count > 1 || diff.isFullDiff || diff.isBranchCompare
     }
 
-    private var multiFileRows: [DiffRowItem] {
+    static func buildDisplayRows(groups: [DiffFileGroup], collapsed: Set<String>) -> [DiffRowItem] {
         var rows: [DiffRowItem] = []
-        rows.reserveCapacity(fileGroups.reduce(0) { $0 + 1 + $1.lines.count })
-        for group in fileGroups {
+        rows.reserveCapacity(groups.reduce(0) { $0 + 1 + $1.lines.count })
+        for group in groups {
             rows.append(.fileHeader(group))
-            if !collapsedFileIDs.contains(group.id) {
+            if !collapsed.contains(group.id) {
                 for line in group.lines {
                     rows.append(.diffLine(group, line))
                 }
@@ -136,7 +141,7 @@ struct GitDiffView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task(id: diff.id) {
+        .task(id: diff.cacheKey) {
             await loadDiff()
         }
         .onChange(of: workspace.buffers[diff.fileURL]?.isDirty) { _, _ in
@@ -312,11 +317,7 @@ struct GitDiffView: View {
 
             if isMultiFile && !fileGroups.isEmpty {
                 Button {
-                    if collapsedFileIDs.count == fileGroups.count {
-                        collapsedFileIDs.removeAll()
-                    } else {
-                        collapsedFileIDs = Set(fileGroups.map(\.id))
-                    }
+                    toggleCollapseAll()
                 } label: {
                     SourceControlIcon(
                         type: collapsedFileIDs.count == fileGroups.count ? .expand : .collapse,
@@ -366,7 +367,7 @@ struct GitDiffView: View {
 
     private func multiFileDiffContent(geometry: GeometryProxy) -> some View {
         LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(multiFileRows) { row in
+            ForEach(displayRows) { row in
                 switch row {
                 case .fileHeader(let group):
                     fileSectionHeader(group: group)
@@ -374,9 +375,7 @@ struct GitDiffView: View {
                         .padding(.horizontal, 10)
 
                 case .diffLine(let group, let line):
-                    let fileURL = workspace.rootURL.appending(path: group.relativePath)
-                    let lang = SyntaxLanguage(url: fileURL)
-                    diffLineRow(line: line, group: group, language: lang)
+                    diffLineRow(line: line, group: group, language: group.language)
                         .frame(minHeight: max(settings.fontSize + 5, 20))
                         .padding(.horizontal, 10)
 
@@ -396,11 +395,7 @@ struct GitDiffView: View {
 
         return HStack(spacing: 8) {
             Button {
-                if isCollapsed {
-                    collapsedFileIDs.remove(group.id)
-                } else {
-                    collapsedFileIDs.insert(group.id)
-                }
+                toggleCollapse(for: group.id)
             } label: {
                 Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
                     .font(.system(size: 9.5, weight: .semibold))
@@ -466,12 +461,26 @@ struct GitDiffView: View {
         .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
         .contentShape(Rectangle())
         .onTapGesture {
-            if isCollapsed {
-                collapsedFileIDs.remove(group.id)
-            } else {
-                collapsedFileIDs.insert(group.id)
-            }
+            toggleCollapse(for: group.id)
         }
+    }
+
+    private func toggleCollapse(for groupID: String) {
+        if collapsedFileIDs.contains(groupID) {
+            collapsedFileIDs.remove(groupID)
+        } else {
+            collapsedFileIDs.insert(groupID)
+        }
+        displayRows = Self.buildDisplayRows(groups: fileGroups, collapsed: collapsedFileIDs)
+    }
+
+    private func toggleCollapseAll() {
+        if collapsedFileIDs.count == fileGroups.count {
+            collapsedFileIDs.removeAll()
+        } else {
+            collapsedFileIDs = Set(fileGroups.map(\.id))
+        }
+        displayRows = Self.buildDisplayRows(groups: fileGroups, collapsed: collapsedFileIDs)
     }
 
     private func openFileFromGroup(_ group: DiffFileGroup) {
@@ -487,7 +496,7 @@ struct GitDiffView: View {
 
     private func singleFileDiffContent(geometry: GeometryProxy) -> some View {
         let singleGroup = fileGroups.first
-        let lang = SyntaxLanguage(url: diff.fileURL)
+        let lang = singleGroup?.language ?? SyntaxLanguage(url: diff.fileURL)
 
         return LazyVStack(alignment: .leading, spacing: 0) {
             ForEach(singleGroup?.lines ?? []) { line in
@@ -635,7 +644,7 @@ struct GitDiffView: View {
 
     private func scheduleLiveReload() {
         liveUpdateTask?.cancel()
-        model.diffCache[diff.id] = nil
+        model.diffCache[diff.cacheKey] = nil
         liveUpdateTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
@@ -644,11 +653,13 @@ struct GitDiffView: View {
     }
 
     private func loadDiff() async {
+        let key = diff.cacheKey
         // Reuse cached diff if immutable commit or branch compare
-        if (diff.commitHash != nil || diff.compareBranch != nil), let cached = model.diffCache[diff.id] {
+        if (diff.commitHash != nil || diff.compareBranch != nil), let cached = model.diffCache[key] {
             self.fileGroups = cached.groups
             self.totalAdditions = cached.adds
             self.totalDeletions = cached.dels
+            self.displayRows = Self.buildDisplayRows(groups: cached.groups, collapsed: self.collapsedFileIDs)
             self.isLoading = false
             return
         }
@@ -674,7 +685,8 @@ struct GitDiffView: View {
         self.fileGroups = result.groups
         self.totalAdditions = result.adds
         self.totalDeletions = result.dels
-        self.model.diffCache[diff.id] = result
+        self.displayRows = Self.buildDisplayRows(groups: result.groups, collapsed: self.collapsedFileIDs)
+        self.model.diffCache[key] = result
         self.isLoading = false
         AppLogger.debug("GitDiff", "Loaded diff for '\(diff.relativePath)' (files: \(result.groups.count), +\(result.adds)/-\(result.dels))")
     }
@@ -703,6 +715,7 @@ struct GitDiffView: View {
             let components = trimmedPath.split(separator: "/")
             let fileName = components.last.map(String.init) ?? trimmedPath
             let dirPath = components.dropLast().joined(separator: "/")
+            let lang = SyntaxLanguage(url: URL(filePath: trimmedPath))
 
             groups.append(DiffFileGroup(
                 id: trimmedPath + "_\(groups.count)",
@@ -712,7 +725,8 @@ struct GitDiffView: View {
                 status: currentStatus,
                 additions: currentAdds,
                 deletions: currentDels,
-                lines: currentLines
+                lines: currentLines,
+                language: lang
             ))
             currentLines = []
             currentAdds = 0

@@ -68,10 +68,15 @@ final class SourceControlModel {
     }
 
     // Cache for loaded unified diffs to make tab switching instant without reload spinner
-    var diffCache: [UUID: (groups: [GitDiffView.DiffFileGroup], adds: Int, dels: Int)] = [:]
+    var diffCache: [String: (groups: [GitDiffView.DiffFileGroup], adds: Int, dels: Int)] = [:]
 
-    func invalidateDiffCache() {
-        diffCache.removeAll()
+    func invalidateDiffCache(for relativePath: String? = nil) {
+        if let relativePath {
+            diffCache.removeValue(forKey: "working_\(relativePath)")
+        } else {
+            // Keep immutable commit and branch comparisons; only invalidate working tree diffs
+            diffCache = diffCache.filter { !$0.key.hasPrefix("working_") }
+        }
     }
 
     init(rootURL: URL) {

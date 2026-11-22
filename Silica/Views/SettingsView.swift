@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Settings (⌘,), with sidebar layout, typography,
 /// metrics, native switch toggles, and centered detail content.
@@ -13,7 +14,7 @@ struct SettingsView: View {
             case .general: "General"
             case .fontsAndColors: "Fonts & Colors"
             case .editor: "Editor"
-            case .sourceControl: "Source Control"
+            case .sourceControl: "Git Controls"
             case .about: "About"
             }
         }
@@ -30,10 +31,10 @@ struct SettingsView: View {
 
         var keywords: [String] {
             switch self {
-            case .general: ["appearance", "theme", "dark", "light", "background", "translucent", "opaque", "glass", "restore", "tabs", "command line", "silica", "update"]
+            case .general: ["appearance", "theme", "dark", "light", "background", "translucent", "opaque", "glass", "restore", "tabs", "command line", "silica", "update", "terminal", "notifications", "logs", "diagnostics"]
             case .fontsAndColors: ["font", "size", "colors", "syntax", "theme", "sidebar", "family", "monospaced", "code"]
             case .editor: ["lines", "line numbers", "indent", "guides", "minimap", "wrap", "tab width", "spaces"]
-            case .sourceControl: ["git", "github", "commit", "messages", "pull request", "branch", "instructions", "notifications", "terminal", "clone"]
+            case .sourceControl: ["git", "github", "commit", "messages", "pull request", "branch", "clone", "controls"]
             case .about: ["version", "build", "license", "acknowledgements", "copyright", "sparkle", "ghostty"]
             }
         }
@@ -164,7 +165,7 @@ struct SettingsView: View {
         case .general: GeneralSettingsPane().id(Pane.general)
         case .fontsAndColors: FontsAndColorsSettingsPane().id(Pane.fontsAndColors)
         case .editor: EditorSettingsPane().id(Pane.editor)
-        case .sourceControl: SourceControlSettingsPane().id(Pane.sourceControl)
+        case .sourceControl: GitControlsSettingsPane().id(Pane.sourceControl)
         case .about: AboutSettingsView().id(Pane.about)
         }
     }
@@ -301,6 +302,46 @@ private struct GeneralSettingsPane: View {
                 commandPath = CommandLineTool.installedPath
             }
 
+            ChromeSection(title: "Terminal & Notifications") {
+                ChromeCard {
+                    ChromeRow(
+                        title: "Command notifications",
+                        detail: "Show toast notifications when terminal commands finish or fail"
+                    ) {
+                        SettingsSwitch(isOn: $settings.terminalCommandNotifications)
+                    }
+                }
+            }
+
+            ChromeSection(
+                title: "Diagnostics & Logs",
+                footer: "Silica maintains low-overhead, rolling diagnostic logs automatically purged after 7 days."
+            ) {
+                ChromeCard {
+                    ChromeRow(
+                        title: "Reveal logs in Finder",
+                        detail: "Inspect local application logs and crash traces"
+                    ) {
+                        Button("Reveal") {
+                            AppLogger.revealLogInFinder()
+                        }
+                        .glassButtonStyle()
+                        .controlSize(.small)
+                    }
+                    ChromeRowDivider()
+                    ChromeRow(
+                        title: "Export logs",
+                        detail: "Save a snapshot of application diagnostics to a file"
+                    ) {
+                        Button("Export…") {
+                            exportLogsPrompt()
+                        }
+                        .glassButtonStyle()
+                        .controlSize(.small)
+                    }
+                }
+            }
+
             ChromeSection(title: "Updates") {
                 ChromeCard {
                     ChromeRow(title: "Check for updates automatically", detail: "Check for new versions once a day") {
@@ -319,6 +360,18 @@ private struct GeneralSettingsPane: View {
                 }
             }
         }
+    }
+
+    private func exportLogsPrompt() {
+        let savePanel = NSSavePanel()
+        savePanel.title = "Export Silica Logs"
+        let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        savePanel.nameFieldStringValue = "silica-\(timestamp).log"
+        savePanel.canCreateDirectories = true
+        savePanel.allowedContentTypes = [.plainText]
+
+        guard savePanel.runModal() == .OK, let destinationURL = savePanel.url else { return }
+        try? AppLogger.exportLogs(to: destinationURL)
     }
 }
 
@@ -501,8 +554,8 @@ private struct EditorSettingsPane: View {
     }
 }
 
-/// Source Control preferences: GitHub connection, commit instructions, notifications, and git integration matching droppy-code.
-private struct SourceControlSettingsPane: View {
+/// Git Controls preferences: GitHub connection and git integration matching droppy-code.
+private struct GitControlsSettingsPane: View {
     @Bindable private var settings = EditorSettings.shared
     private var gitHub = GitHubProfileCache.shared
     @State private var gitVersion: String = ""
@@ -596,40 +649,7 @@ private struct SourceControlSettingsPane: View {
                 }
             }
 
-            // 2. Commit message instructions
-            ChromeSection(title: "Commit message instructions", footer: "Instructions applied when writing commit messages.") {
-                ChromeCard {
-                    ZStack(alignment: .topLeading) {
-                        TextEditor(text: $settings.commitInstructions)
-                            .font(.system(.body))
-                            .scrollContentBackground(.hidden)
-                            .frame(minHeight: 90)
-                        if settings.commitInstructions.isEmpty {
-                            Text("For example: use conventional commit prefixes (feat:, fix:, docs:)")
-                                .font(.system(.body))
-                                .foregroundStyle(Chrome.secondaryText)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 8)
-                                .allowsHitTesting(false)
-                        }
-                    }
-                    .padding(10)
-                }
-            }
-
-            // 3. Terminal & Notifications
-            ChromeSection(title: "Terminal & Notifications") {
-                ChromeCard {
-                    ChromeRow(
-                        title: "Command notifications",
-                        detail: "Show toast notifications when terminal commands finish or fail"
-                    ) {
-                        SettingsSwitch(isOn: $settings.terminalCommandNotifications)
-                    }
-                }
-            }
-
-            // 4. Git Integration
+            // 2. Git Integration
             ChromeSection(title: "Git Integration") {
                 ChromeCard {
                     ChromeRow(
