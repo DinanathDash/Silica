@@ -467,7 +467,17 @@ final class SourceControlModel {
             ))
         }
 
-        self.commits = computeTimeline(from: rawList)
+        // Determine unpushed commits (commits ahead of remote upstream or all remotes)
+        var unpushedHashes: Set<String> = []
+        let unpushedRes = await runner.run(arguments: ["log", "--branches", "--not", "--remotes", "--format=%H"], in: rootURL)
+        if unpushedRes.isSuccess {
+            for line in unpushedRes.stdout.split(separator: "\n") {
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { unpushedHashes.insert(trimmed) }
+            }
+        }
+
+        self.commits = computeTimeline(from: rawList, unpushedHashes: unpushedHashes)
     }
 
     func loadMoreCommits() async {
@@ -508,7 +518,7 @@ final class SourceControlModel {
         return (files, additions, deletions)
     }
 
-    private func computeTimeline(from rawCommits: [RawCommitData]) -> [GitCommitItem] {
+    private func computeTimeline(from rawCommits: [RawCommitData], unpushedHashes: Set<String> = []) -> [GitCommitItem] {
         let maxAllowedLanes = 4
         var activeLanes: [String?] = []
         var items: [GitCommitItem] = []
@@ -606,7 +616,8 @@ final class SourceControlModel {
                 filesChanged: raw.filesChanged,
                 additions: raw.additions,
                 deletions: raw.deletions,
-                timelineNode: node
+                timelineNode: node,
+                isUnpushed: unpushedHashes.contains(raw.hash)
             ))
         }
 
@@ -844,8 +855,52 @@ final class SourceControlModel {
         if result.isSuccess {
             errorMessage = nil
             await refresh()
+            return
+        }
+
+        let lower = result.stderr.lowercased()
+        // If push failed because no upstream branch exists, auto-link to remote and push
+        if (lower.contains("no upstream branch") || lower.contains("set-upstream") || lower.contains("no tracking information")),
+           let branch = branchName, !branch.isEmpty, branch != "HEAD" {
+            let remotesRes = await runner.run(arguments: ["remote"], in: rootURL)
+            let remotes = remotesRes.stdout.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            let targetRemote = remotes.contains("origin") ? "origin" : (remotes.first ?? "origin")
+
+            if !targetRemote.isEmpty && (remoteOriginURL != nil || !remotes.isEmpty) {
+                let upstreamRes = await runner.run(arguments: ["push", "--set-upstream", targetRemote, branch], in: rootURL)
+                if upstreamRes.isSuccess {
+                    errorMessage = nil
+                    await refresh()
+                    return
+                } else {
+                    let alert = parseGitError(upstreamRes.stderr, fallbackTitle: "Push Failed", fallbackMessage: "Could not push and link branch to remote.")
+                    errorMessage = alert.message
+                    activeAlert = alert
+                    return
+                }
+            }
+        }
+
+        let alert = parseGitError(result.stderr, fallbackTitle: "Push Failed", fallbackMessage: "Could not push commits to the remote repository.")
+        errorMessage = alert.message
+        activeAlert = alert
+    }
+
+    func publishCurrentBranch() async {
+        guard let branch = branchName, !branch.isEmpty, branch != "HEAD" else {
+            activeAlert = GitAlertItem(title: "Cannot Publish", message: "Cannot publish branch in detached HEAD state.")
+            return
+        }
+        let remotesRes = await runner.run(arguments: ["remote"], in: rootURL)
+        let remotes = remotesRes.stdout.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        let targetRemote = remotes.contains("origin") ? "origin" : (remotes.first ?? "origin")
+
+        let result = await runner.run(arguments: ["push", "--set-upstream", targetRemote, branch], in: rootURL)
+        if result.isSuccess {
+            errorMessage = nil
+            await refresh()
         } else {
-            let alert = parseGitError(result.stderr, fallbackTitle: "Push Failed", fallbackMessage: "Could not push commits to the remote repository.")
+            let alert = parseGitError(result.stderr, fallbackTitle: "Publish Branch Failed", fallbackMessage: "Could not publish branch to remote.")
             errorMessage = alert.message
             activeAlert = alert
         }

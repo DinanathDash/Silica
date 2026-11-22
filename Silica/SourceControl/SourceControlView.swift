@@ -145,6 +145,12 @@ struct SourceControlView: View {
                         }
 
                         Button {
+                            Task { await model.publishCurrentBranch() }
+                        } label: {
+                            Label("Publish Branch…", systemImage: "arrow.up.to.line")
+                        }
+
+                        Button {
                             Task { await model.fetch() }
                         } label: {
                             Label("Fetch", systemImage: "arrow.triangle.2.circlepath")

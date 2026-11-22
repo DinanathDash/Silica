@@ -182,6 +182,7 @@ struct GitCommitItem: Identifiable, Hashable, Sendable {
     let additions: Int
     let deletions: Int
     var timelineNode: GitTimelineNode
+    var isUnpushed: Bool = false
 
     var isMerge: Bool { parentHashes.count > 1 }
     var isRoot: Bool { parentHashes.isEmpty }

@@ -218,7 +218,8 @@ struct SourceControlHistoryView: View {
             // Visual Git timeline graph with natural Bézier physics
             GitTimelineCanvas(
                 node: commit.timelineNode,
-                isMerge: commit.isMerge
+                isMerge: commit.isMerge,
+                isUnpushed: commit.isUnpushed
             )
             .frame(width: rowCanvasWidth, height: rowHeight)
 
@@ -228,6 +229,20 @@ struct SourceControlHistoryView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .foregroundStyle(Color.primary.opacity(isCurrentPopover ? 1.0 : 0.88))
+
+            if commit.isUnpushed {
+                HStack(spacing: 2) {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 8, weight: .bold))
+                    Text("Unpushed")
+                        .font(.system(size: 9, weight: .semibold))
+                }
+                .foregroundStyle(Color.orange)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(Color.orange.opacity(0.12), in: Capsule())
+                .liquidGlassTooltip("Local commit not yet pushed to remote")
+            }
 
             Spacer(minLength: 4)
 
@@ -546,6 +561,7 @@ enum GitTimelineColors {
 struct GitTimelineCanvas: View {
     let node: GitTimelineNode
     let isMerge: Bool
+    var isUnpushed: Bool = false
 
     @Environment(\.colorScheme) private var colorScheme
     private var settings: EditorSettings { .shared }
@@ -580,13 +596,14 @@ struct GitTimelineCanvas: View {
                 context.stroke(path, with: .color(GitTimelineColors.color(for: passingLane)), style: solidStyle)
             }
 
-            // 2. Draw incoming line to node (solid on main trunk, dashed between branch commits)
+            // 2. Draw incoming line to node (solid on main trunk, dashed between branch commits, orange if unpushed)
             if node.hasIncoming {
                 var path = Path()
                 path.move(to: CGPoint(x: nodeX, y: 0))
                 path.addLine(to: CGPoint(x: nodeX, y: centerY))
-                let style = node.lane > 0 ? dashedStyle : solidStyle
-                context.stroke(path, with: .color(GitTimelineColors.color(for: node.lane)), style: style)
+                let lineColor = isUnpushed ? Color.orange : GitTimelineColors.color(for: node.lane)
+                let style = (isUnpushed || node.lane > 0) ? dashedStyle : solidStyle
+                context.stroke(path, with: .color(lineColor), style: style)
             }
 
             // 3. Draw outgoing connections
@@ -598,10 +615,11 @@ struct GitTimelineCanvas: View {
                 path.move(to: CGPoint(x: fromX, y: centerY))
 
                 if conn.fromLane == conn.toLane {
-                    // Straight track: dashed between commits on feature branch (lane > 0), solid on main (lane 0)
+                    // Straight track: dashed between commits on feature branch (lane > 0) or unpushed, solid on main
                     path.addLine(to: CGPoint(x: toX, y: rowHeight))
-                    let style = conn.fromLane > 0 ? dashedStyle : solidStyle
-                    context.stroke(path, with: .color(connColor), style: style)
+                    let lineColor = isUnpushed ? Color.orange : connColor
+                    let style = (isUnpushed || conn.fromLane > 0) ? dashedStyle : solidStyle
+                    context.stroke(path, with: .color(lineColor), style: style)
                 } else if toX > fromX {
                     // Branch-off curve: leaves the node horizontally to the right, then 90° circular fillet down to target lane
                     let dy = rowHeight - centerY
@@ -627,7 +645,7 @@ struct GitTimelineCanvas: View {
             }
 
             // 4. Draw commit node
-            let nodeColor = GitTimelineColors.color(for: node.lane)
+            let nodeColor = isUnpushed ? Color.orange : GitTimelineColors.color(for: node.lane)
             let center = CGPoint(x: nodeX, y: centerY)
 
             if isMerge {
@@ -637,6 +655,13 @@ struct GitTimelineCanvas: View {
                 context.stroke(Path(ellipseIn: outerRect), with: .color(nodeColor), lineWidth: 1.75)
                 let innerRect = CGRect(x: center.x - 2.25, y: center.y - 2.25, width: 4.5, height: 4.5)
                 context.fill(Path(ellipseIn: innerRect), with: .color(nodeColor))
+            } else if isUnpushed {
+                // Unpushed commit node: distinctive warm amber halo and dual accent ring
+                let outerRing = CGRect(x: center.x - 5.5, y: center.y - 5.5, width: 11, height: 11)
+                context.fill(Path(ellipseIn: outerRing.insetBy(dx: -1.0, dy: -1.0)), with: .color(knockoutColor))
+                context.stroke(Path(ellipseIn: outerRing), with: .color(Color.orange.opacity(0.85)), lineWidth: 1.5)
+                let dotRect = CGRect(x: center.x - 3.25, y: center.y - 3.25, width: 6.5, height: 6.5)
+                context.fill(Path(ellipseIn: dotRect), with: .color(Color.orange))
             } else {
                 // Normal commit node: solid filled circle with clear background knockout halo
                 let haloRect = CGRect(x: center.x - 4.75, y: center.y - 4.75, width: 9.5, height: 9.5)
@@ -793,6 +818,19 @@ struct CommitDetailsPopoverView: View {
                 }
 
                 Spacer(minLength: 0)
+
+                if commit.isUnpushed {
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 8, weight: .bold))
+                        Text("Unpushed")
+                            .font(.system(size: 9, weight: .semibold))
+                    }
+                    .foregroundStyle(Color.orange)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Color.orange.opacity(0.12), in: Capsule())
+                }
             }
 
             // 2. Commit Title and Description with Rich Markdown formatting

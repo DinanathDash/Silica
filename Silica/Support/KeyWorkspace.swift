@@ -5,7 +5,11 @@ import SwiftUI
 /// The workspace whose window is key, for menu commands and shortcuts to act on.
 final class KeyWorkspace: ObservableObject {
     static let shared = KeyWorkspace()
-    @Published var current: WorkspaceModel?
+    weak var current: WorkspaceModel? {
+        didSet {
+            objectWillChange.send()
+        }
+    }
     private init() {}
 
     private var keyMonitor: Any?

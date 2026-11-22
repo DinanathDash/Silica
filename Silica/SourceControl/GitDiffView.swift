@@ -116,7 +116,10 @@ struct GitDiffView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .fileDidSave)) { note in
             if let savedURL = note.object as? URL, savedURL == diff.fileURL {
-                Task { await loadDiff() }
+                liveUpdateTask?.cancel()
+                liveUpdateTask = Task { @MainActor in
+                    await loadDiff()
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSText.didChangeNotification)) { _ in
