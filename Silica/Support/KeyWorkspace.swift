@@ -34,7 +34,21 @@ final class KeyWorkspace: ObservableObject {
                 }
             }
 
-            if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "k" {
+            if flags == .command, (event.keyCode == 40 || event.charactersIgnoringModifiers?.lowercased() == "k") {
+                if let workspace = self?.current {
+                    let firstResponder = event.window?.firstResponder
+                    let isTerminalActive = workspace.terminal?.isFocused == true ||
+                        (firstResponder is TerminalView) ||
+                        ((firstResponder as? NSView)?.isDescendant(of: workspace.terminal?.view ?? NSView()) == true) ||
+                        (workspace.isTerminalVisible && firstResponder !== workspace.activeBuffer?.textController?.textView && !((firstResponder as? NSTextView)?.isFieldEditor ?? false))
+
+                    if isTerminalActive, let terminal = workspace.terminal {
+                        DispatchQueue.main.async {
+                            terminal.clear()
+                        }
+                        return nil
+                    }
+                }
                 self?.pendingChord = "cmd+k"
                 self?.chordTimestamp = ProcessInfo.processInfo.systemUptime
                 return nil

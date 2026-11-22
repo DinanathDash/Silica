@@ -333,10 +333,14 @@ final class TerminalSession {
 
     /// Clears the screen and the history, like ⌘K in Terminal.
     func clear() {
-        guard terminal != nil, !isAlternateScreen else { return }
-        receive(Data("\u{1B}[H\u{1B}[2J\u{1B}[3J".utf8))
+        guard let terminal, !isAlternateScreen else { return }
         // Control-L: a shell at its prompt draws the prompt again on the empty screen.
         send("\u{0C}")
+        // VT sequence: home cursor, erase screen, erase scrollback
+        receive(Data("\u{1B}[H\u{1B}[2J\u{1B}[3J".utf8))
+        ghostty_terminal_scroll_viewport(terminal, GhosttyTerminalScrollViewport(tag: GHOSTTY_TERMINAL_SCROLL_VIEWPORT_BOTTOM, value: .init()))
+        view?.terminalDidChange()
+        view?.needsDisplay = true
     }
 
     // MARK: Selection

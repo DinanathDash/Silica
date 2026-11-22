@@ -24,6 +24,15 @@ extension TerminalView {
         return true
     }
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        if modifiers == .command && (event.keyCode == 40 || event.charactersIgnoringModifiers?.lowercased() == "k") {
+            session?.clear()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func keyDown(with event: NSEvent) {
         guard let session, session.terminal != nil else { return }
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
