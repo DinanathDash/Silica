@@ -162,6 +162,36 @@
             "mods": ["ctrl", "shift"]
         },
         {
+            "id": "split_right",
+            "title": "Split Right",
+            "key": "d",
+            "mods": ["cmd"]
+        },
+        {
+            "id": "split_down",
+            "title": "Split Down",
+            "key": "d",
+            "mods": ["shift", "cmd"]
+        },
+        {
+            "id": "focus_next_pane",
+            "title": "Focus Next Pane",
+            "key": "→",
+            "mods": ["opt", "cmd"]
+        },
+        {
+            "id": "focus_previous_pane",
+            "title": "Focus Previous Pane",
+            "key": "←",
+            "mods": ["opt", "cmd"]
+        },
+        {
+            "id": "close_pane",
+            "title": "Close Pane",
+            "key": "w",
+            "mods": ["ctrl", "cmd"]
+        },
+        {
             "id": "toggle_comment",
             "title": "Toggle Comment",
             "key": "/",

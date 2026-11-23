@@ -538,6 +538,8 @@ final class GitDiffPreview: NSObject, WKNavigationDelegate {
 /// Hosts a tab's changes in the editor card.
 struct GitDiffHost: NSViewRepresentable {
     let preview: GitDiffPreview
+    /// Whether this card is still the one showing the changes; see `TextViewHost`.
+    var isCurrent: () -> Bool = { true }
 
     func makeNSView(context: Context) -> NSView {
         let container = NSView()
@@ -546,7 +548,7 @@ struct GitDiffHost: NSViewRepresentable {
     }
 
     func updateNSView(_ container: NSView, context: Context) {
-        if preview.webView.superview !== container {
+        if preview.webView.superview !== container, isCurrent() {
             container.subviews.forEach { $0.removeFromSuperview() }
             attach(to: container)
         }

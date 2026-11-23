@@ -11,9 +11,27 @@ struct ProjectSession: Codable {
         var topLine: Int?
     }
 
+    /// One pane's tabs, by their paths, while the editor area is split.
+    struct Pane: Codable {
+        var id: PaneLayout.PaneID
+        var tabs: [String]
+        var activeTab: String?
+    }
+
+    /// How the editor area was divided, and which tabs each pane had.
+    struct Split: Codable {
+        var layout: PaneLayout
+        var panes: [Pane]
+        var focused: PaneLayout.PaneID
+    }
+
+    /// Every pane's tabs, pane by pane.
     var tabs: [Tab]
+    /// The tab the focused pane showed.
     var activeTab: String?
     var isSidebarVisible: Bool
+    /// `nil` with a single pane, and in sessions saved before there were panes.
+    var split: Split?
     var savedAt: Date
 }
 

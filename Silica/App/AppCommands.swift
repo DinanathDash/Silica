@@ -17,7 +17,7 @@ struct AppCommands: Commands {
 
     /// "Show Markdown", "Show CSV" or "Show HTML" while the preview is up, to go back to the source.
     private var previewToggleTitle: String {
-        guard let buffer = workspace?.activeBuffer, buffer.isShowingPreview,
+        guard let workspace, let buffer = workspace.activeBuffer, workspace.showsPreview(buffer, in: workspace.focusedPane),
               let format = buffer.previewFormat else { return "Show Preview" }
         return "Show \(format.sourceName)"
     }
@@ -100,10 +100,13 @@ struct AppCommands: Commands {
 
             Divider()
 
-            // As in VS Code: ⌘W closes the tab, and the window once no tabs are left.
+            // As in VS Code: ⌘W closes the tab, a pane that has none left, and the
+            // window once the last pane has none.
             Button("Close Tab") {
                 if let workspace, workspace.activeTab != nil {
                     workspace.closeActiveTab()
+                } else if let workspace, workspace.layout.isSplit {
+                    workspace.closePane()
                 } else {
                     NSApp.keyWindow?.performClose(nil)
                 }
@@ -162,15 +165,20 @@ struct AppCommands: Commands {
 
             // Its keybind is also handled by KeyWorkspace.installKeyboardShortcuts().
             Button(previewToggleTitle) {
-                workspace?.activeBuffer?.togglePreview()
+                workspace?.togglePreview()
             }
             .keybindShortcut(for: .togglePreview, keybinds)
             .disabled(workspace?.activeBuffer?.previewFormat == nil)
 
-            Button(workspace?.activeBuffer?.isShowingChanges == true ? "Hide Changes" : "Show Changes") {
+            // In the focused pane: another pane with the file open may be showing them.
+            let showsChanges = workspace.flatMap { workspace in
+                workspace.activeBuffer.map { workspace.showsChanges($0, in: workspace.focusedPane) }
+            } == true
+
+            Button(showsChanges ? "Hide Changes" : "Show Changes") {
                 workspace?.toggleChanges()
             }
-            .disabled(workspace?.activeBuffer.map { $0.isShowingChanges || workspace?.hasChanges($0) == true } != true)
+            .disabled(!showsChanges && workspace?.activeBuffer.map { workspace?.hasChanges($0) == true } != true)
 
             Toggle("Changes Side by Side", isOn: Binding(
                 get: { settings.showsChangesSideBySide },
@@ -203,6 +211,31 @@ struct AppCommands: Commands {
             Button("Select Previous Tab") { workspace?.selectTab(offsetBy: -1) }
                 .keybindShortcut(for: .selectPreviousTab, keybinds)
                 .disabled(!hasOtherTabs)
+
+            Divider()
+
+            // The panes' keybinds are also handled by KeyWorkspace.installKeyboardShortcuts().
+            let isSplit = workspace?.layout.isSplit == true
+
+            Button("Split Right") { workspace?.splitPane(.horizontal) }
+                .keybindShortcut(for: .splitRight, keybinds)
+                .disabled(workspace == nil)
+
+            Button("Split Down") { workspace?.splitPane(.vertical) }
+                .keybindShortcut(for: .splitDown, keybinds)
+                .disabled(workspace == nil)
+
+            Button("Focus Next Pane") { workspace?.focusPane(offsetBy: 1) }
+                .keybindShortcut(for: .focusNextPane, keybinds)
+                .disabled(!isSplit)
+
+            Button("Focus Previous Pane") { workspace?.focusPane(offsetBy: -1) }
+                .keybindShortcut(for: .focusPreviousPane, keybinds)
+                .disabled(!isSplit)
+
+            Button("Close Pane") { workspace?.closePane() }
+                .keybindShortcut(for: .closePane, keybinds)
+                .disabled(!isSplit)
         }
 
         CommandGroup(after: .sidebar) {

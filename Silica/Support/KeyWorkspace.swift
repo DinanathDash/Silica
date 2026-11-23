@@ -44,8 +44,8 @@ final class KeyWorkspace: ObservableObject {
             }
             switch pressed {
             case _ where runs(.togglePreview):
-                guard let buffer = workspace.activeBuffer, buffer.previewFormat != nil else { return event }
-                buffer.togglePreview()
+                guard workspace.activeBuffer?.previewFormat != nil else { return event }
+                workspace.togglePreview()
             case _ where runs(.findInProject):
                 workspace.showSearch()
             case _ where keybinds.isKeybind(pressed, of: FixedKeyCommand.explorer):
@@ -63,6 +63,21 @@ final class KeyWorkspace: ObservableObject {
             case _ where runs(.selectPreviousTab):
                 guard workspace.canSelectOtherTab else { return event }
                 workspace.selectTab(offsetBy: -1)
+            // The panes' commands, for keybinds such as ⇧⌘D: the menu item could lose
+            // it to Split Right's ⌘D.
+            case _ where runs(.splitRight):
+                workspace.splitPane(.horizontal)
+            case _ where runs(.splitDown):
+                workspace.splitPane(.vertical)
+            case _ where runs(.focusNextPane):
+                guard workspace.layout.isSplit else { return event }
+                workspace.focusPane(offsetBy: 1)
+            case _ where runs(.focusPreviousPane):
+                guard workspace.layout.isSplit else { return event }
+                workspace.focusPane(offsetBy: -1)
+            case _ where runs(.closePane):
+                guard workspace.layout.isSplit else { return event }
+                workspace.closePane()
             // The other usual pair for stepping through tabs, next to the menu's keybind,
             // unless a command uses it.
             case _ where keybinds.isSameKeystroke(pressed, Self.nextTab) && !keybinds.isBound(pressed):

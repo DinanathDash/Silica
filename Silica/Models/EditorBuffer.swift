@@ -8,7 +8,8 @@ import PDFKit
 import UniformTypeIdentifiers
 
 /// One open file. Text files own a live `TextController` so each tab keeps
-/// its own undo history, selection and scroll position.
+/// its own undo history, selection and scroll position; a file open in several
+/// panes has an editor for each, on the same text.
 @Observable
 final class EditorBuffer: Identifiable {
     enum Content {
@@ -85,8 +86,128 @@ final class EditorBuffer: Identifiable {
     var id: URL { url }
     var name: String { url.lastPathComponent }
 
+    /// The file's editor: the one in the pane last used, when several panes show it.
     var textController: TextController? {
+        currentPane.flatMap { editor(in: $0) } ?? firstEditor
+    }
+
+    // MARK: Editors
+
+    /// The editor the file was opened with.
+    private var firstEditor: TextController? {
         if case .text(let controller) = content { controller } else { nil }
+    }
+
+    /// Whether the file can be open in several panes at once: text, which each
+    /// pane gets its own editor on. An image, a PDF or a video has one view.
+    var allowsSeveralPanes: Bool { firstEditor != nil }
+
+    /// Each pane's editor on the text. Made as panes ask, which the views do.
+    @ObservationIgnored private var editors: [PaneLayout.PaneID: TextController] = [:]
+    /// Editors no pane shows any more. They're kept for the next pane that needs
+    /// one, as the edits made in them are in the undo history.
+    @ObservationIgnored private var spareEditors: [TextController] = []
+    /// The pane last used with this file, whose editor commands and the status
+    /// bar go by.
+    @ObservationIgnored private var currentPane: PaneLayout.PaneID?
+    /// The pane that shows the preview or the changes, which a file has one view
+    /// of. Other panes with the file show its text.
+    private(set) var auxiliaryPane: PaneLayout.PaneID?
+
+    /// The editor a pane shows the text in. The first pane to ask gets the one the
+    /// file was opened with; another gets its own, starting where the file's
+    /// current editor is.
+    func editor(in pane: PaneLayout.PaneID) -> TextController? {
+        guard let firstEditor else { return nil }
+        if let editor = editors[pane] { return editor }
+        let model = currentPane.flatMap { editors[$0] } ?? editors.values.first
+        let editor: TextController
+        if !editors.values.contains(where: { $0 === firstEditor }) {
+            editor = firstEditor
+        } else if let spare = spareEditors.popLast() {
+            editor = spare
+        } else {
+            editor = TextController(sharing: firstEditor)
+        }
+        // With no other pane showing the file, the editor is where it was left.
+        if let model { editor.adoptPosition(of: model) }
+        editors[pane] = editor
+        return editor
+    }
+
+    /// The pane in use shows this file: its editor is the file's from here on.
+    func setCurrentPane(_ pane: PaneLayout.PaneID) {
+        guard currentPane != pane else { return }
+        // Made before the pane is the current one, so it starts where the editor
+        // that was current is.
+        _ = editor(in: pane)
+        currentPane = pane
+        textController?.updateStatus()
+    }
+
+    /// The preview or the changes are being shown in this pane.
+    func setAuxiliaryPane(_ pane: PaneLayout.PaneID) {
+        auxiliaryPane = pane
+    }
+
+    /// The file's tab went from one pane to another, and what it showed goes along.
+    func movePane(from source: PaneLayout.PaneID, to target: PaneLayout.PaneID) {
+        if editors[target] == nil, let editor = editors.removeValue(forKey: source) {
+            editors[target] = editor
+        }
+        if currentPane == source { currentPane = target }
+        moveAuxiliaryPane(from: source, to: target)
+    }
+
+    /// The tab that showed the preview or the changes joined a pane that has the
+    /// file open too: that pane shows them now.
+    func moveAuxiliaryPane(from source: PaneLayout.PaneID, to target: PaneLayout.PaneID) {
+        if auxiliaryPane == source { auxiliaryPane = target }
+    }
+
+    /// Lets go of the editors of panes that no longer have a tab for the file.
+    func keepEditors(in panes: [PaneLayout.PaneID]) {
+        for (pane, editor) in editors where !panes.contains(pane) {
+            editors[pane] = nil
+            if editor !== firstEditor { spareEditors.append(editor) }
+        }
+        if let pane = currentPane, !panes.contains(pane) {
+            currentPane = panes.first
+            textController?.updateStatus()
+        }
+        if let pane = auxiliaryPane, !panes.contains(pane) {
+            auxiliaryPane = nil
+            // The pane that showed the preview or the changes closed its tab. They
+            // close with it, rather than turn up in a pane that was showing the text.
+            if !panes.isEmpty {
+                hideChanges()
+                if isShowingPreview { isShowingPreview = false }
+            }
+        }
+        // With every tab closed there's nothing left to refresh.
+        if panes.isEmpty { previewRefresh?.cancel() }
+    }
+
+    /// The text was edited, in whichever editor.
+    func textDidChange() {
+        schedulePreviewRefresh()
+    }
+
+    @ObservationIgnored private var previewRefresh: Task<Void, Never>?
+
+    /// Brings the preview up to date with the text, once typing pauses: it can be
+    /// in view beside the editor, in another pane.
+    private func schedulePreviewRefresh() {
+        guard isShowingPreview, preview != nil else { return }
+        previewRefresh?.cancel()
+        previewRefresh = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled, let self, self.isShowingPreview,
+                  let preview = self.preview, let controller = self.textController else { return }
+            preview.topVisibleLine { line in
+                preview.show(controller.textView.string, line: line)
+            }
+        }
     }
 
     /// A decoded image shown read-only in the editor card.
@@ -413,9 +534,11 @@ final class EditorBuffer: Identifiable {
         preview.onType = { [weak self] characters in
             guard let self else { return }
             self.isShowingPreview = false
-            // Once the editor is back in the card, type the character there.
+            // Once the editor is back in the card, type the character there: the
+            // editor of the pane the preview was in.
             DispatchQueue.main.async {
-                controller.textView.insertText(characters, replacementRange: controller.textView.selectedRange())
+                guard let textView = self.textController?.textView else { return }
+                textView.insertText(characters, replacementRange: textView.selectedRange())
             }
         }
         return preview
@@ -552,13 +675,14 @@ final class EditorBuffer: Identifiable {
             self.setIndexContent?(request.path, Data(text.utf8), isStaging)
         }
         // The changes are read-only; typing goes back to the text and lands there.
-        if let controller = textController {
+        if textController != nil {
             preview.onType = { [weak self] characters in
                 guard let self else { return }
                 self.hideChanges()
                 self.isShowingPreview = false
                 DispatchQueue.main.async {
-                    controller.textView.insertText(characters, replacementRange: controller.textView.selectedRange())
+                    guard let textView = self.textController?.textView else { return }
+                    textView.insertText(characters, replacementRange: textView.selectedRange())
                 }
             }
         }

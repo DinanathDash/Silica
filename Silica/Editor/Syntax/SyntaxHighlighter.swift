@@ -11,6 +11,9 @@ final class SyntaxHighlighter {
     private let tokenizer: any SyntaxTokenizer
     private var pending: Task<Void, Never>?
     private var generation = 0
+    /// Whether text is being composed in some view of the text; the highlighter's
+    /// own view, when this isn't given.
+    var isComposing: (() -> Bool)?
 
     /// Above this many UTF-16 units, highlighting is skipped entirely.
     private static let maxLength = 2_000_000
@@ -72,7 +75,7 @@ final class SyntaxHighlighter {
     private func apply(_ tokens: [SyntaxToken]) {
         guard let textView, let storage = textView.textStorage else { return }
         // Recoloring under in-progress IME composition would disturb the marked text.
-        if textView.hasMarkedText() {
+        if isComposing?() ?? textView.hasMarkedText() {
             schedule(after: Self.editDelay)
             return
         }

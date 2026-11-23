@@ -87,6 +87,14 @@ enum WorkspaceLayout {
     static let terminalHeightRange: ClosedRange<Double> = 100...1200
     /// What the terminal card leaves of the editor card at the least.
     static let minimumEditorHeight: CGFloat = 120
+    /// The least a pane of a split editor keeps: its tab row and a few lines under it.
+    static let paneMinimumSize = CGSize(width: 220, height: titleBarHeight + minimumEditorHeight)
+    /// Between two panes: the card inset side by side, as between the editor and the
+    /// terminal. One above another has the lower one's tab row between the cards.
+    static let paneSpacing = PaneLayout.Spacing(horizontal: cardInset, vertical: 0)
+    /// How panes come, go and change size when one is opened, closed or evened out:
+    /// a spring without bounce, so the cards glide to their places.
+    static let paneAnimation = Animation.smooth(duration: 0.3)
 }
 
 struct WorkspaceView: View {
@@ -177,22 +185,28 @@ struct SidebarToggleButton: View {
 /// A plain icon button for the title bar row that shows a soft rounded fill under
 /// the pointer, darker while pressed, like the toolbar buttons of system apps.
 struct TitleBarIconButtonStyle: ButtonStyle {
+    /// The size of the button and of the fill under the pointer.
+    var size = CGSize(width: 26, height: 22)
+    var cornerRadius: CGFloat = 6
+
     func makeBody(configuration: Configuration) -> some View {
-        IconLabel(configuration: configuration)
+        IconLabel(configuration: configuration, size: size, cornerRadius: cornerRadius)
     }
 
     private struct IconLabel: View {
         let configuration: Configuration
+        let size: CGSize
+        let cornerRadius: CGFloat
         @State private var isHovering = false
 
         var body: some View {
             configuration.label
-                .frame(width: 26, height: 22)
+                .frame(width: size.width, height: size.height)
                 .background(
                     Color.primary.opacity(configuration.isPressed ? 0.14 : isHovering ? 0.08 : 0),
-                    in: .rect(cornerRadius: 6, style: .continuous)
+                    in: .rect(cornerRadius: cornerRadius, style: .continuous)
                 )
-                .contentShape(.rect(cornerRadius: 6, style: .continuous))
+                .contentShape(.rect(cornerRadius: cornerRadius, style: .continuous))
                 .onHover { isHovering = $0 }
                 .animation(.easeOut(duration: 0.12), value: isHovering)
         }
@@ -201,4 +215,9 @@ struct TitleBarIconButtonStyle: ButtonStyle {
 
 extension ButtonStyle where Self == TitleBarIconButtonStyle {
     static var titleBarIcon: TitleBarIconButtonStyle { TitleBarIconButtonStyle() }
+
+    /// The same, at the size of the status bar's text.
+    static var statusBarIcon: TitleBarIconButtonStyle {
+        TitleBarIconButtonStyle(size: CGSize(width: 22, height: 18), cornerRadius: 5)
+    }
 }

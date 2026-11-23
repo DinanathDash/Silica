@@ -47,6 +47,27 @@ final class EditorTextView: NSTextView {
         cachedIndentation = nil
     }
 
+    /// Whether a point in the window is under something that floats over the text
+    /// (the status bar). It isn't an AppKit view, so the text view still gets the
+    /// pointer's moves there, and would show its I-beam over the bar's buttons.
+    var isCovered: ((NSPoint) -> Bool)?
+
+    override func mouseMoved(with event: NSEvent) {
+        if isCovered?(event.locationInWindow) == true {
+            NSCursor.arrow.set()
+        } else {
+            super.mouseMoved(with: event)
+        }
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        if isCovered?(event.locationInWindow) == true {
+            NSCursor.arrow.set()
+        } else {
+            super.cursorUpdate(with: event)
+        }
+    }
+
     override func didChangeText() {
         super.didChangeText()
         // Guides follow the text, so any edit can move them.

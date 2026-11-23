@@ -48,6 +48,7 @@
             "Models/GitDiff.swift",
             "Models/GitHistory.swift",
             "Models/GitStatus.swift",
+            "Models/PaneLayout.swift",
             "Models/RecentProjectsStore.swift",
           ],
         },
