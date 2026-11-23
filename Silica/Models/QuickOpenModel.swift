@@ -41,6 +41,10 @@ final class QuickOpenModel {
         self.rootURL = rootURL
     }
 
+    deinit {
+        indexTask?.cancel()
+    }
+
     var selectedResult: QuickOpenResult? {
         results.indices.contains(selectedIndex) ? results[selectedIndex] : nil
     }

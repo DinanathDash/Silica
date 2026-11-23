@@ -58,6 +58,10 @@ final class LineNumberRulerView: NSRulerView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { false }
     /// Vibrant label colors blend with the glass behind the card and wash out in dark mode.

@@ -54,6 +54,10 @@ final class ProjectSearchModel {
         self.rootURL = rootURL
     }
 
+    deinit {
+        task?.cancel()
+    }
+
     /// Searches again, e.g. after files changed on disk.
     func refresh() {
         guard !query.isEmpty else { return }

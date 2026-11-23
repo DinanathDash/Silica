@@ -216,6 +216,8 @@ final class WorkspaceModel {
         toastTask = nil
         refreshTask?.cancel()
         refreshTask = nil
+        treeFilterTask?.cancel()
+        treeFilterTask = nil
         // A video left playing would still be heard with its window gone.
         for buffer in buffers.values { buffer.pausePlayback() }
         if let terminationObserver {
@@ -231,6 +233,10 @@ final class WorkspaceModel {
             rootURL.stopAccessingSecurityScopedResource()
             isAccessingScope = false
         }
+    }
+
+    isolated deinit {
+        close()
     }
 
     // MARK: Explorer
@@ -895,7 +901,9 @@ final class WorkspaceModel {
         }
 
         openTabs.remove(at: index)
-        buffers[url] = nil
+        if let buffer = buffers.removeValue(forKey: url) {
+            buffer.pausePlayback()
+        }
         diffTabs.removeValue(forKey: url)
 
         if activeDiff?.fileURL == url {

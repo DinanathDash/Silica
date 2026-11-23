@@ -127,6 +127,10 @@ final class GitInlineDiffZoneController {
         hostingView = nil
         containerView = nil
     }
+
+    isolated deinit {
+        close()
+    }
 }
 
 private struct GitInlineDiffZoneView: View {

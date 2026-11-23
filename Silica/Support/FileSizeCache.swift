@@ -21,6 +21,7 @@ final class FileSizeCache {
             if let values = try? node.url.resourceValues(forKeys: [.fileSizeKey]),
                let size = values.fileSize {
                 let size64 = Int64(size)
+                pruneIfNeeded()
                 cache[node.url] = (size64, Date())
                 return ByteCountFormatter.string(fromByteCount: size64, countStyle: .file)
             }
@@ -42,6 +43,16 @@ final class FileSizeCache {
         return nil
     }
 
+    private func pruneIfNeeded() {
+        guard cache.count > 500 else { return }
+        let now = Date()
+        cache = cache.filter { now.timeIntervalSince($0.value.date) < cacheLifetime }
+        if cache.count > 1000 {
+            let toKeep = cache.sorted { $0.value.date > $1.value.date }.prefix(500)
+            cache = Dictionary(uniqueKeysWithValues: Array(toKeep))
+        }
+    }
+
     private func requestDirectorySize(for url: URL) {
         guard !inFlight.contains(url) else { return }
         inFlight.insert(url)
@@ -51,6 +62,7 @@ final class FileSizeCache {
             await MainActor.run {
                 self.inFlight.remove(url)
                 if let total {
+                    self.pruneIfNeeded()
                     self.cache[url] = (total, Date())
                 }
             }
@@ -67,7 +79,7 @@ final class FileSizeCache {
     }
 }
 
-private enum DirectorySizeScanner {
+nonisolated private enum DirectorySizeScanner {
     static func computeSize(at url: URL) -> Int64? {
         guard let enumerator = FileManager.default.enumerator(
             at: url,

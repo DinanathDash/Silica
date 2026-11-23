@@ -27,38 +27,46 @@ nonisolated enum SyntaxColoring {
         var palette = [plain]
         var paletteIndex = [ObjectIdentifier(plain): UInt16(0)]
         var wanted = [UInt16](repeating: 0, count: length)
-        for token in tokens where token.range.location >= 0 && NSMaxRange(token.range) <= length {
-            let id = ObjectIdentifier(token.color)
-            let index: UInt16
-            if let known = paletteIndex[id] {
-                index = known
-            } else {
-                index = UInt16(palette.count)
-                palette.append(token.color)
-                paletteIndex[id] = index
+        wanted.withUnsafeMutableBufferPointer { buffer in
+            guard let base = buffer.baseAddress else { return }
+            for token in tokens where token.range.location >= 0 && NSMaxRange(token.range) <= length {
+                let id = ObjectIdentifier(token.color)
+                let index: UInt16
+                if let known = paletteIndex[id] {
+                    index = known
+                } else {
+                    index = UInt16(palette.count)
+                    palette.append(token.color)
+                    paletteIndex[id] = index
+                }
+                let loc = token.range.location
+                let len = token.range.length
+                (base + loc).update(repeating: index, count: len)
             }
-            for unit in token.range.location..<NSMaxRange(token.range) { wanted[unit] = index }
         }
 
         var changes: [Run] = []
         let whole = NSRange(location: 0, length: length)
-        text.enumerateAttribute(.foregroundColor, in: whole, options: .longestEffectiveRangeNotRequired) { value, run, _ in
-            let current = value as? NSColor
-            let end = NSMaxRange(run)
-            var start = run.location
-            while start < end {
-                let index = wanted[start]
-                var stop = start + 1
-                while stop < end, wanted[stop] == index { stop += 1 }
-                let color = palette[Int(index)]
-                if current !== color, current != color {
-                    if let last = changes.last, last.color === color, NSMaxRange(last.range) == start {
-                        changes[changes.count - 1] = Run(range: NSRange(location: last.range.location, length: stop - last.range.location), color: color)
-                    } else {
-                        changes.append(Run(range: NSRange(location: start, length: stop - start), color: color))
+        wanted.withUnsafeBufferPointer { buffer in
+            guard let base = buffer.baseAddress else { return }
+            text.enumerateAttribute(.foregroundColor, in: whole, options: .longestEffectiveRangeNotRequired) { value, run, _ in
+                let current = value as? NSColor
+                let end = NSMaxRange(run)
+                var start = run.location
+                while start < end {
+                    let index = base[start]
+                    var stop = start + 1
+                    while stop < end, base[stop] == index { stop += 1 }
+                    let color = palette[Int(index)]
+                    if current !== color, current != color {
+                        if let last = changes.last, last.color === color, NSMaxRange(last.range) == start {
+                            changes[changes.count - 1] = Run(range: NSRange(location: last.range.location, length: stop - last.range.location), color: color)
+                        } else {
+                            changes.append(Run(range: NSRange(location: start, length: stop - start), color: color))
+                        }
                     }
+                    start = stop
                 }
-                start = stop
             }
         }
         return changes

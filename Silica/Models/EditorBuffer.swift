@@ -307,6 +307,10 @@ final class EditorBuffer: Identifiable {
         }
     }
 
+    deinit {
+        pausePlayback()
+    }
+
     // MARK: Status
 
     var language: SyntaxLanguage? { SyntaxLanguage(url: url) }

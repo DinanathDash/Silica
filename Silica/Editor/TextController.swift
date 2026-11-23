@@ -16,6 +16,7 @@ final class TextController: NSObject, NSTextViewDelegate {
 
     deinit {
         gitDiffTask?.cancel()
+        NotificationCenter.default.removeObserver(self)
         Task { @MainActor in
             GitInlineDiffZoneController.shared.close()
         }

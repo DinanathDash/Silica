@@ -140,6 +140,11 @@ final class TerminalView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        releaseTerminal()
+    }
+
     /// Frees everything that refers to the session's terminal, which is about to
     /// go. The view draws nothing and takes no input afterwards.
     func releaseTerminal() {

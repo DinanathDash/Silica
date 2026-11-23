@@ -88,6 +88,12 @@ final class DocumentPreview: NSObject, WKNavigationDelegate {
         )
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        webView.navigationDelegate = nil
+        webView.stopLoading()
+    }
+
     // MARK: - Zoom / Magnification
 
     private var currentSVGZoom: CGFloat = 1.0

@@ -54,6 +54,10 @@ final class MinimapView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { false }
     /// As with the gutter: vibrant colors wash out on the glass card.
