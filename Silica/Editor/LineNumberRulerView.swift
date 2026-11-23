@@ -185,6 +185,18 @@ final class LineNumberRulerView: NSRulerView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+
+        // Check if the click matches any diff marker's line bounds directly (works even on empty lines)
+        for (line, _) in diffMarkers {
+            if let rect = rectForLine(line) {
+                let verticalMargin: CGFloat = 3.0
+                if point.y >= rect.minY - verticalMargin && point.y <= rect.maxY + verticalMargin {
+                    onDiffMarkerClicked?(line, rect)
+                    return
+                }
+            }
+        }
+
         if let line = lineForPoint(point), diffMarkers[line] != nil {
             let rect = rectForLine(line) ?? NSRect(x: bounds.width - 4, y: max(0, point.y - 10), width: 4, height: 20)
             onDiffMarkerClicked?(line, rect)
@@ -208,13 +220,21 @@ final class LineNumberRulerView: NSRulerView {
 
     private func lineForPoint(_ point: NSPoint) -> Int? {
         guard let textView = textView, let layoutManager = textView.textLayoutManager else { return nil }
-        let textPoint = convert(point, to: textView)
-        guard let fragment = layoutManager.textLayoutFragment(for: textPoint) else { return nil }
-        guard let contentManager = layoutManager.textContentManager else { return nil }
-        let docStart = contentManager.documentRange.location
-        let offset = contentManager.offset(from: docStart, to: fragment.rangeInElement.location)
-        let index = lineIndex(for: offset)
-        return index + 1
+        let textY = convert(point, to: textView).y
+        let probePoint = NSPoint(x: max(4, textView.textContainerOrigin.x + 4), y: textY)
+        if let fragment = layoutManager.textLayoutFragment(for: probePoint),
+           let contentManager = layoutManager.textContentManager {
+            let docStart = contentManager.documentRange.location
+            let offset = contentManager.offset(from: docStart, to: fragment.rangeInElement.location)
+            let index = lineIndex(for: offset)
+            return index + 1
+        }
+        for i in 1...lineStarts.count {
+            if let rect = rectForLine(i), point.y >= rect.minY && point.y <= rect.maxY {
+                return i
+            }
+        }
+        return nil
     }
 
     override func resetCursorRects() {

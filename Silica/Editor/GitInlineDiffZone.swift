@@ -239,67 +239,75 @@ private struct GitInlineDiffZoneView: View {
             }
 
             // Stacked Diff Content Body
-            ScrollView([.horizontal, .vertical]) {
-                VStack(alignment: .leading, spacing: 0) {
-                    // Deleted / Previous version lines (red)
-                    ForEach(Array(hunk.oldLines.enumerated()), id: \.offset) { idx, line in
-                        HStack(alignment: .top, spacing: 0) {
-                            Text("\(hunk.oldStart + idx)")
-                                .frame(width: 42, alignment: .trailing)
-                                .foregroundStyle(Color.red.opacity(0.85))
-                                .padding(.trailing, 8)
+            GeometryReader { geo in
+                let scrollAxes: Axis.Set = settings.wrapsLines ? .vertical : [.horizontal, .vertical]
+                ScrollView(scrollAxes) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        // Deleted / Previous version lines (red)
+                        ForEach(Array(hunk.oldLines.enumerated()), id: \.offset) { idx, line in
+                            HStack(alignment: .top, spacing: 0) {
+                                Text("\(hunk.oldStart + idx)")
+                                    .frame(width: 42, alignment: .trailing)
+                                    .foregroundStyle(Color.red.opacity(0.85))
+                                    .padding(.trailing, 8)
 
-                            Text("-")
-                                .frame(width: 14)
-                                .foregroundStyle(Color.red)
-                                .fontWeight(.bold)
+                                Text("-")
+                                    .frame(width: 14)
+                                    .foregroundStyle(Color.red)
+                                    .fontWeight(.bold)
 
-                            Text(GitDiffView.highlightLine(line, language: language, theme: settings.syntaxTheme))
-                                .foregroundStyle(.primary.opacity(0.9))
+                                Text(GitDiffView.highlightLine(line, language: language, theme: settings.syntaxTheme))
+                                    .foregroundStyle(.primary.opacity(0.9))
+                                    .fixedSize(horizontal: !settings.wrapsLines, vertical: false)
 
-                            Spacer(minLength: 32)
+                                Spacer(minLength: 16)
+                            }
+                            .font(.system(size: 11.5, design: .monospaced))
+                            .padding(.vertical, 2)
+                            .padding(.horizontal, 8)
+                            .frame(minWidth: geo.size.width, maxWidth: .infinity, alignment: .leading)
+                            .background(Color.red.opacity(0.12))
+                            .overlay(alignment: .leading) {
+                                Rectangle()
+                                    .fill(Color.red)
+                                    .frame(width: 3)
+                            }
                         }
-                        .font(.system(size: 11.5, design: .monospaced))
-                        .padding(.vertical, 2)
-                        .padding(.horizontal, 8)
-                        .background(Color.red.opacity(0.12))
-                        .overlay(alignment: .leading) {
-                            Rectangle()
-                                .fill(Color.red)
-                                .frame(width: 3)
+
+                        // Added / Current version lines (green)
+                        ForEach(Array(hunk.newLines.enumerated()), id: \.offset) { idx, line in
+                            HStack(alignment: .top, spacing: 0) {
+                                Text("\(hunk.newStart + idx)")
+                                    .frame(width: 42, alignment: .trailing)
+                                    .foregroundStyle(Color.green.opacity(0.85))
+                                    .padding(.trailing, 8)
+
+                                Text("+")
+                                    .frame(width: 14)
+                                    .foregroundStyle(Color.green)
+                                    .fontWeight(.bold)
+
+                                Text(GitDiffView.highlightLine(line, language: language, theme: settings.syntaxTheme))
+                                    .foregroundStyle(.primary)
+                                    .fixedSize(horizontal: !settings.wrapsLines, vertical: false)
+
+                                Spacer(minLength: 16)
+                            }
+                            .font(.system(size: 11.5, design: .monospaced))
+                            .padding(.vertical, 2)
+                            .padding(.horizontal, 8)
+                            .frame(minWidth: geo.size.width, maxWidth: .infinity, alignment: .leading)
+                            .background(Color.green.opacity(0.12))
+                            .overlay(alignment: .leading) {
+                                Rectangle()
+                                    .fill(Color.green)
+                                    .frame(width: 3)
+                            }
                         }
                     }
-
-                    // Added / Current version lines (green)
-                    ForEach(Array(hunk.newLines.enumerated()), id: \.offset) { idx, line in
-                        HStack(alignment: .top, spacing: 0) {
-                            Text("\(hunk.newStart + idx)")
-                                .frame(width: 42, alignment: .trailing)
-                                .foregroundStyle(Color.green.opacity(0.85))
-                                .padding(.trailing, 8)
-
-                            Text("+")
-                                .frame(width: 14)
-                                .foregroundStyle(Color.green)
-                                .fontWeight(.bold)
-
-                            Text(GitDiffView.highlightLine(line, language: language, theme: settings.syntaxTheme))
-                                .foregroundStyle(.primary)
-
-                            Spacer(minLength: 32)
-                        }
-                        .font(.system(size: 11.5, design: .monospaced))
-                        .padding(.vertical, 2)
-                        .padding(.horizontal, 8)
-                        .background(Color.green.opacity(0.12))
-                        .overlay(alignment: .leading) {
-                            Rectangle()
-                                .fill(Color.green)
-                                .frame(width: 3)
-                        }
-                    }
+                    .frame(minWidth: geo.size.width, alignment: .leading)
+                    .padding(.vertical, 4)
                 }
-                .padding(.vertical, 4)
             }
             .background(Color(nsColor: .controlBackgroundColor).opacity(0.98))
         }

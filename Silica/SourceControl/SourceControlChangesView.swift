@@ -366,7 +366,7 @@ struct SourceControlChangesView: View {
                 .padding(.trailing, 2)
         }
         .padding(.horizontal, 6)
-        .padding(.vertical, max(3, (settings.sidebarFontSize - 7) / 2))
+        .frame(height: max(24, settings.sidebarFontSize + 10))
         .background {
             if isHovered {
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -460,7 +460,7 @@ struct SourceControlChangesView: View {
                 .liquidGlassTooltip(badgeTooltip)
         }
         .padding(.horizontal, 6)
-        .padding(.vertical, max(3, (settings.sidebarFontSize - 7) / 2))
+        .frame(height: max(24, settings.sidebarFontSize + 10))
         .background {
             if isHovered {
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
