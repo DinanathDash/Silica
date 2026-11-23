@@ -27,8 +27,8 @@ final class ProjectWatcher {
             nil, callback, &context,
             [url.path(percentEncoded: false)] as CFArray,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
-            0.3,
-            FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes)
+            0.2,
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagFileEvents)
         ) else {
             Unmanaged.passUnretained(self).release()
             return
@@ -48,11 +48,20 @@ final class ProjectWatcher {
     }
 
     private func handle(_ paths: [String]) {
-        // Git rewrites its own files constantly (index, locks, logs); the working
-        // tree changes a checkout makes arrive as their own events.
-        let relevant = paths.contains { path in
+        // Trigger on working tree changes as well as git state mutations (index, HEAD, branch refs)
+        let hasGitStateChange = paths.contains { path in
+            path.hasSuffix("/.git") ||
+            path.hasSuffix("/.git/") ||
+            path.contains("/.git/index") ||
+            path.contains("/.git/HEAD") ||
+            path.contains("/.git/refs") ||
+            path.contains("/.git/packed-refs")
+        }
+        let hasWorkingTreeChange = paths.contains { path in
             !path.contains("/.git/") && !path.hasSuffix("/.git")
         }
-        if relevant { onChange() }
+        if hasWorkingTreeChange || hasGitStateChange {
+            onChange()
+        }
     }
 }

@@ -6,6 +6,7 @@ actor GitRunner {
     static let shared = GitRunner()
 
     private let gitExecutable = "/usr/bin/git"
+    private var activeTask: Task<Result, Never>?
 
     struct Result: Sendable {
         let exitCode: Int32
@@ -15,8 +16,18 @@ actor GitRunner {
         var isSuccess: Bool { exitCode == 0 }
     }
 
-    /// Runs a git command in the target repository path.
+    /// Runs a git command in the target repository path sequentially.
     func run(arguments: [String], in directory: URL) async -> Result {
+        let prev = activeTask
+        let task = Task<Result, Never> {
+            _ = await prev?.value
+            return await executeGitProcess(arguments: arguments, in: directory)
+        }
+        activeTask = task
+        return await task.value
+    }
+
+    private func executeGitProcess(arguments: [String], in directory: URL) async -> Result {
         let process = Process()
         process.executableURL = URL(filePath: gitExecutable)
         process.arguments = ["-C", directory.path(percentEncoded: false)] + arguments

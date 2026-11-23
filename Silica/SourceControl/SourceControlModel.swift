@@ -31,6 +31,8 @@ final class SourceControlModel {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
     private(set) var stashCount: Int = 0
+    private(set) var statusVersion: Int = 0
+    private(set) var isOperating: Bool = false
     var activeAlert: GitAlertItem?
     var activeAlertError: String? {
         get { activeAlert?.message }
@@ -273,6 +275,8 @@ final class SourceControlModel {
             }
         }
         self.statusByPath = statusMap
+        self.invalidateDiffCache()
+        self.statusVersion += 1
     }
 
     private(set) var statusByPath: [String: GitFileItem.Status] = [:]

@@ -170,21 +170,9 @@ struct GitDiffView: View {
                 scheduleLiveReload()
             }
         }
-        .onChange(of: model.stagedFiles) { _, newFiles in
+        .onChange(of: model.statusVersion) { _, _ in
             guard diff.commitHash == nil && diff.compareBranch == nil else { return }
-            if isMultiFile {
-                scheduleLiveReload()
-            } else if newFiles.contains(where: { $0.relativePath == diff.relativePath }) {
-                scheduleLiveReload()
-            }
-        }
-        .onChange(of: model.unstagedFiles) { _, newFiles in
-            guard diff.commitHash == nil && diff.compareBranch == nil else { return }
-            if isMultiFile {
-                scheduleLiveReload()
-            } else if newFiles.contains(where: { $0.relativePath == diff.relativePath }) {
-                scheduleLiveReload()
-            }
+            scheduleLiveReload()
         }
         .onDisappear {
             liveUpdateTask?.cancel()

@@ -207,11 +207,15 @@ final class LineNumberRulerView: NSRulerView {
 
     func rectForLine(_ targetLine: Int) -> NSRect? {
         guard let textView = textView, let layoutManager = textView.textLayoutManager else { return nil }
+        rebuildLineStartsIfNeeded()
         guard targetLine >= 1 && targetLine <= lineStarts.count else { return nil }
         let offset = lineStarts[targetLine - 1]
         guard let contentManager = layoutManager.textContentManager,
-              let location = contentManager.location(contentManager.documentRange.location, offsetBy: offset),
-              let fragment = layoutManager.textLayoutFragment(for: location) else { return nil }
+              let location = contentManager.location(contentManager.documentRange.location, offsetBy: offset) else { return nil }
+        if let range = NSTextRange(location: location, end: location) {
+            layoutManager.ensureLayout(for: range)
+        }
+        guard let fragment = layoutManager.textLayoutFragment(for: location) else { return nil }
         let frame = fragment.layoutFragmentFrame
         let markerHeight = max(frame.height, font.pointSize + 4)
         let markerY = convert(NSPoint(x: 0, y: textView.textContainerOrigin.y + frame.minY), from: textView).y
@@ -219,6 +223,7 @@ final class LineNumberRulerView: NSRulerView {
     }
 
     private func lineForPoint(_ point: NSPoint) -> Int? {
+        rebuildLineStartsIfNeeded()
         guard let textView = textView, let layoutManager = textView.textLayoutManager else { return nil }
         let textY = convert(point, to: textView).y
         let probePoint = NSPoint(x: max(4, textView.textContainerOrigin.x + 4), y: textY)

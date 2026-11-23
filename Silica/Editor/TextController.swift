@@ -670,45 +670,87 @@ final class TextController: NSObject, NSTextViewDelegate {
     func revertHunk(_ hunk: GitHunk) {
         guard let storage = textView.textStorage else { return }
         let text = storage.string as NSString
+        let totalLength = text.length
 
-        var lineStarts: [Int] = [0]
-        text.enumerateSubstrings(in: NSRange(location: 0, length: text.length), options: [.byLines, .substringNotRequired]) { _, substringRange, _, _ in
-            lineStarts.append(substringRange.location)
+        // Build exact line starts using character scanning (matching LineNumberRulerView)
+        var starts: [Int] = [0]
+        let chunk = 8192
+        var buffer = [unichar](repeating: 0, count: chunk)
+        var location = 0
+        var previousWasCR = false
+
+        while location < totalLength {
+            let count = min(chunk, totalLength - location)
+            text.getCharacters(&buffer, range: NSRange(location: location, length: count))
+            for i in 0..<count {
+                switch buffer[i] {
+                case 0x0D: // \r
+                    starts.append(location + i + 1)
+                    previousWasCR = true
+                case 0x0A: // \n
+                    if previousWasCR {
+                        starts[starts.count - 1] = location + i + 1
+                    } else {
+                        starts.append(location + i + 1)
+                    }
+                    previousWasCR = false
+                default:
+                    previousWasCR = false
+                }
+            }
+            location += count
         }
 
-        let startLineIndex = max(0, hunk.newStart - 1)
-        guard startLineIndex < lineStarts.count || text.length == 0 else { return }
-
+        let totalLines = starts.count
         let targetRange: NSRange
         var replacementText: String
 
         if hunk.newLength == 0 {
-            // Pure deletion: restore old lines at start of insertion line
-            let loc = startLineIndex < lineStarts.count ? lineStarts[startLineIndex] : text.length
-            targetRange = NSRange(location: loc, length: 0)
-            replacementText = hunk.oldLines.joined(separator: "\n")
-            if !replacementText.isEmpty && !replacementText.hasSuffix("\n") {
-                replacementText += "\n"
+            // Pure deletion: restore old lines at start of insertion line.
+            // If hunk.newStart == 0, insertion is before line 1 (at offset 0).
+            // If hunk.newStart > 0, deletion was after line newStart, so insertion is at start of line newStart + 1.
+            let insIndex = hunk.newStart
+            let insOffset = insIndex < totalLines ? starts[insIndex] : totalLength
+            targetRange = NSRange(location: insOffset, length: 0)
+
+            var restored = hunk.oldLines.joined(separator: "\n")
+            if insOffset < totalLength {
+                restored += "\n"
+            } else if totalLength > 0 && text.character(at: totalLength - 1) != 0x0A && text.character(at: totalLength - 1) != 0x0D {
+                restored = "\n" + restored + "\n"
+            } else {
+                restored += "\n"
             }
+            replacementText = restored
         } else if hunk.oldLength == 0 {
             // Pure addition: remove added lines including their trailing newline
-            let startLoc = lineStarts[startLineIndex]
-            let endLineIndex = startLineIndex + hunk.newLength
-            let endLoc = endLineIndex < lineStarts.count ? lineStarts[endLineIndex] : text.length
-            targetRange = NSRange(location: startLoc, length: max(0, endLoc - startLoc))
+            let sLine = max(1, hunk.newStart)
+            let startIndex = sLine - 1
+            let startOffset = startIndex < totalLines ? starts[startIndex] : totalLength
+
+            let endIndex = startIndex + hunk.newLength
+            let endOffset = endIndex < totalLines ? starts[endIndex] : totalLength
+
+            targetRange = NSRange(location: startOffset, length: max(0, endOffset - startOffset))
             replacementText = ""
         } else {
             // Modification: replace modified lines with original lines
-            let startLoc = lineStarts[startLineIndex]
-            let endLineIndex = startLineIndex + hunk.newLength
-            let endLoc = endLineIndex < lineStarts.count ? lineStarts[endLineIndex] : text.length
-            targetRange = NSRange(location: startLoc, length: max(0, endLoc - startLoc))
-            replacementText = hunk.oldLines.joined(separator: "\n")
-            if text.substring(with: targetRange).hasSuffix("\n") && !replacementText.hasSuffix("\n") {
-                replacementText += "\n"
+            let sLine = max(1, hunk.newStart)
+            let startIndex = sLine - 1
+            let startOffset = startIndex < totalLines ? starts[startIndex] : totalLength
+
+            let endIndex = startIndex + hunk.newLength
+            let endOffset = endIndex < totalLines ? starts[endIndex] : totalLength
+
+            targetRange = NSRange(location: startOffset, length: max(0, endOffset - startOffset))
+            var restored = hunk.oldLines.joined(separator: "\n")
+            if endOffset < totalLines || (targetRange.length > 0 && text.substring(with: targetRange).hasSuffix("\n")) {
+                restored += "\n"
             }
+            replacementText = restored
         }
 
+        GitInlineDiffZoneController.shared.close()
         textView.applyEdit(in: targetRange, with: replacementText, actionName: "Revert Change")
         scheduleGitDiffUpdate(delay: .milliseconds(50))
     }
