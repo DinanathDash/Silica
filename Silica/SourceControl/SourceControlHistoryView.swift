@@ -456,10 +456,17 @@ struct SourceControlHistoryView: View {
                 .frame(width: rowCanvasWidth, height: fileRowHeight)
 
             // Extreme left: Git badge (M, A, D, etc.)
+            let badgeTooltip: String = {
+                if let old = file.originalPath, file.status == .renamed {
+                    return "Renamed from \(old)"
+                }
+                return file.status.label
+            }()
             Text(file.status.badgeLetter)
                 .font(.system(size: max(settings.sidebarFontSize - 2, 8), weight: .bold, design: .monospaced))
                 .foregroundStyle(file.status.badgeColor)
                 .frame(width: 14)
+                .liquidGlassTooltip(badgeTooltip)
 
             // File icon
             FileIcon(url: fileURL, width: settings.sidebarIconWidth)
@@ -470,7 +477,13 @@ struct SourceControlHistoryView: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
 
-            if !file.directoryPath.isEmpty {
+            if let old = file.originalPath, file.status == .renamed {
+                let oldName = old.split(separator: "/").last.map(String.init) ?? old
+                Text("(from \(oldName))")
+                    .font(.system(size: max(settings.sidebarFontSize - 2.5, 8)))
+                    .foregroundStyle(.secondary.opacity(0.8))
+                    .lineLimit(1)
+            } else if !file.directoryPath.isEmpty {
                 Text(file.directoryPath)
                     .font(.system(size: max(settings.sidebarFontSize - 2, 8)))
                     .foregroundStyle(.secondary)

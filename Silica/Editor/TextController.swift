@@ -16,6 +16,9 @@ final class TextController: NSObject, NSTextViewDelegate {
 
     deinit {
         gitDiffTask?.cancel()
+        Task { @MainActor in
+            GitInlineDiffZoneController.shared.close()
+        }
     }
 
     init(text: String, language: SyntaxLanguage?) {
@@ -541,32 +544,53 @@ final class TextController: NSObject, NSTextViewDelegate {
         var markers: [Int: LineNumberRulerView.LineDiffKind] = [:]
         var hunks: [GitHunk] = []
 
-        var currentOldStart = 0
-        var currentOldLength = 0
-        var currentNewStart = 0
-        var currentNewLength = 0
-        var currentOldLines: [String] = []
-        var currentNewLines: [String] = []
-        var inHunk = false
+        var currentOldLine = 0
+        var currentNewLine = 0
 
-        func flushHunk() {
-            guard inHunk else { return }
+        var pendingOldLines: [String] = []
+        var pendingNewLines: [String] = []
+        var changeOldStart = 0
+        var changeNewStart = 0
+
+        func flushChange() {
+            guard !pendingOldLines.isEmpty || !pendingNewLines.isEmpty else { return }
+
+            let oldLines = pendingOldLines
+            let newLines = pendingNewLines
+            let oldStart = changeOldStart
+            let newStart = changeNewStart
+
             hunks.append(GitHunk(
-                oldStart: currentOldStart,
-                oldLength: currentOldLength,
-                newStart: currentNewStart,
-                newLength: currentNewLength,
-                oldLines: currentOldLines,
-                newLines: currentNewLines
+                oldStart: oldStart,
+                oldLength: oldLines.count,
+                newStart: newStart,
+                newLength: newLines.count,
+                oldLines: oldLines,
+                newLines: newLines
             ))
-            currentOldLines = []
-            currentNewLines = []
-            inHunk = false
+
+            if oldLines.isEmpty && !newLines.isEmpty {
+                // Pure addition (green)
+                for l in newStart..<(newStart + newLines.count) {
+                    markers[l] = .added
+                }
+            } else if !oldLines.isEmpty && newLines.isEmpty {
+                // Pure deletion (red wedge)
+                markers[max(1, newStart)] = .deleted
+            } else {
+                // Modification (blue)
+                for l in newStart..<(newStart + newLines.count) {
+                    markers[l] = .modified
+                }
+            }
+
+            pendingOldLines = []
+            pendingNewLines = []
         }
 
         for line in output.split(separator: "\n", omittingEmptySubsequences: false) {
             if line.hasPrefix("@@ ") {
-                flushHunk()
+                flushChange()
                 let parts = line.split(separator: " ")
                 guard parts.count >= 3 else { continue }
                 let oldPart = parts[1]
@@ -575,35 +599,32 @@ final class TextController: NSObject, NSTextViewDelegate {
                 let oldNums = oldPart.dropFirst().split(separator: ",")
                 let newNums = newPart.dropFirst().split(separator: ",")
                 guard let newStart = Int(newNums[0]), let oldStart = Int(oldNums[0]) else { continue }
-                let oldCount = oldNums.count > 1 ? (Int(oldNums[1]) ?? 1) : 1
-                let newCount = newNums.count > 1 ? (Int(newNums[1]) ?? 1) : 1
 
-                currentOldStart = oldStart
-                currentOldLength = oldCount
-                currentNewStart = newStart
-                currentNewLength = newCount
-                inHunk = true
-
-                if oldCount == 0 {
-                    for l in newStart..<(newStart + max(1, newCount)) {
-                        markers[l] = .added
-                    }
-                } else if newCount == 0 {
-                    markers[newStart] = .deleted
-                } else {
-                    for l in newStart..<(newStart + newCount) {
-                        markers[l] = .modified
-                    }
+                currentOldLine = oldStart
+                currentNewLine = newStart
+            } else if line.hasPrefix("+") {
+                if pendingOldLines.isEmpty && pendingNewLines.isEmpty {
+                    changeOldStart = currentOldLine
+                    changeNewStart = currentNewLine
                 }
-            } else if inHunk {
-                if line.hasPrefix("+") {
-                    currentNewLines.append(String(line.dropFirst()))
-                } else if line.hasPrefix("-") {
-                    currentOldLines.append(String(line.dropFirst()))
+                pendingNewLines.append(String(line.dropFirst()))
+                currentNewLine += 1
+            } else if line.hasPrefix("-") {
+                if pendingOldLines.isEmpty && pendingNewLines.isEmpty {
+                    changeOldStart = currentOldLine
+                    changeNewStart = currentNewLine
                 }
+                pendingOldLines.append(String(line.dropFirst()))
+                currentOldLine += 1
+            } else if line.hasPrefix(" ") {
+                flushChange()
+                currentOldLine += 1
+                currentNewLine += 1
+            } else if line.hasPrefix("\\") {
+                continue
             }
         }
-        flushHunk()
+        flushChange()
         return (markers, hunks)
     }
 
@@ -616,7 +637,8 @@ final class TextController: NSObject, NSTextViewDelegate {
             if hunk.newLength > 0 {
                 return line >= hunk.newStart && line < (hunk.newStart + hunk.newLength)
             } else {
-                return line == hunk.newStart || line == hunk.newStart + 1
+                let target = max(1, hunk.newStart)
+                return line == target || (hunk.newStart > 0 && line == hunk.newStart + 1)
             }
         }) ?? currentHunks.indices.min(by: { abs(currentHunks[$0].newStart - line) < abs(currentHunks[$1].newStart - line) })
 
@@ -654,23 +676,37 @@ final class TextController: NSObject, NSTextViewDelegate {
             lineStarts.append(substringRange.location)
         }
 
-        let startLineIndex = hunk.newStart - 1
-        guard startLineIndex >= 0 else { return }
+        let startLineIndex = max(0, hunk.newStart - 1)
+        guard startLineIndex < lineStarts.count || text.length == 0 else { return }
 
         let targetRange: NSRange
+        var replacementText: String
+
         if hunk.newLength == 0 {
+            // Pure deletion: restore old lines at start of insertion line
             let loc = startLineIndex < lineStarts.count ? lineStarts[startLineIndex] : text.length
             targetRange = NSRange(location: loc, length: 0)
-        } else {
-            let startLoc = startLineIndex < lineStarts.count ? lineStarts[startLineIndex] : text.length
+            replacementText = hunk.oldLines.joined(separator: "\n")
+            if !replacementText.isEmpty && !replacementText.hasSuffix("\n") {
+                replacementText += "\n"
+            }
+        } else if hunk.oldLength == 0 {
+            // Pure addition: remove added lines including their trailing newline
+            let startLoc = lineStarts[startLineIndex]
             let endLineIndex = startLineIndex + hunk.newLength
             let endLoc = endLineIndex < lineStarts.count ? lineStarts[endLineIndex] : text.length
             targetRange = NSRange(location: startLoc, length: max(0, endLoc - startLoc))
-        }
-
-        var replacementText = hunk.oldLines.joined(separator: "\n")
-        if (hunk.newLength == 0 || hunk.newLength > 0) && !hunk.oldLines.isEmpty {
-            replacementText += "\n"
+            replacementText = ""
+        } else {
+            // Modification: replace modified lines with original lines
+            let startLoc = lineStarts[startLineIndex]
+            let endLineIndex = startLineIndex + hunk.newLength
+            let endLoc = endLineIndex < lineStarts.count ? lineStarts[endLineIndex] : text.length
+            targetRange = NSRange(location: startLoc, length: max(0, endLoc - startLoc))
+            replacementText = hunk.oldLines.joined(separator: "\n")
+            if text.substring(with: targetRange).hasSuffix("\n") && !replacementText.hasSuffix("\n") {
+                replacementText += "\n"
+            }
         }
 
         textView.applyEdit(in: targetRange, with: replacementText, actionName: "Revert Change")

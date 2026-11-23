@@ -723,6 +723,7 @@ private struct FileNodeRow: View {
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundStyle(gitStatus.badgeColor)
                     .padding(.trailing, 2)
+                    .liquidGlassTooltip(gitStatus.label)
             }
 
             // File or folder size shown on the right side only when hovered

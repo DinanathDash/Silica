@@ -82,6 +82,7 @@ struct GitFileItem: Identifiable, Hashable, Sendable {
 
     let id: String
     let relativePath: String
+    let originalPath: String?
     let fileName: String
     let directoryPath: String
     let status: Status
@@ -89,9 +90,10 @@ struct GitFileItem: Identifiable, Hashable, Sendable {
     var additions: Int = 0
     var deletions: Int = 0
 
-    init(relativePath: String, status: Status, isStaged: Bool, additions: Int = 0, deletions: Int = 0) {
+    init(relativePath: String, originalPath: String? = nil, status: Status, isStaged: Bool, additions: Int = 0, deletions: Int = 0) {
         self.id = "\(isStaged ? "staged" : "unstaged"):\(relativePath)"
         self.relativePath = relativePath
+        self.originalPath = originalPath
         self.status = status
         self.isStaged = isStaged
         self.additions = additions
@@ -112,14 +114,16 @@ struct GitFileItem: Identifiable, Hashable, Sendable {
 struct CommitChangedFile: Identifiable, Hashable, Sendable {
     var id: String { relativePath }
     let relativePath: String
+    let originalPath: String?
     let fileName: String
     let directoryPath: String
     let status: GitFileItem.Status
     let additions: Int
     let deletions: Int
 
-    init(relativePath: String, status: GitFileItem.Status, additions: Int = 0, deletions: Int = 0) {
+    init(relativePath: String, originalPath: String? = nil, status: GitFileItem.Status, additions: Int = 0, deletions: Int = 0) {
         self.relativePath = relativePath
+        self.originalPath = originalPath
         self.status = status
         self.additions = additions
         self.deletions = deletions

@@ -71,6 +71,17 @@ final class SourceControlModel {
     // Cache for loaded unified diffs to make tab switching instant without reload spinner
     var diffCache: [String: (groups: [GitDiffView.DiffFileGroup], adds: Int, dels: Int)] = [:]
 
+    func setDiffCache(key: String, value: (groups: [GitDiffView.DiffFileGroup], adds: Int, dels: Int)) {
+        if diffCache.count >= 15 {
+            // Keep recent entries; prune older ones to avoid bloat
+            let toRemove = Array(diffCache.keys.prefix(max(1, diffCache.count - 10)))
+            for k in toRemove {
+                diffCache.removeValue(forKey: k)
+            }
+        }
+        diffCache[key] = value
+    }
+
     func invalidateDiffCache(for relativePath: String? = nil) {
         if let relativePath {
             diffCache.removeValue(forKey: "working_\(relativePath)")
@@ -78,6 +89,26 @@ final class SourceControlModel {
             // Keep immutable commit and branch comparisons; only invalidate working tree diffs
             diffCache = diffCache.filter { !$0.key.hasPrefix("working_") }
         }
+    }
+
+    static func parseNumstatPath(_ rawPath: String) -> (newPath: String, oldPath: String?) {
+        let trimmed = rawPath.trimmingCharacters(in: CharacterSet(charactersIn: "\" \t"))
+        if let openBrace = trimmed.range(of: "{"),
+           let arrow = trimmed.range(of: " => ", range: openBrace.upperBound..<trimmed.endIndex),
+           let closeBrace = trimmed.range(of: "}", range: arrow.upperBound..<trimmed.endIndex) {
+            let prefix = String(trimmed[..<openBrace.lowerBound])
+            let oldPart = String(trimmed[openBrace.upperBound..<arrow.lowerBound])
+            let newPart = String(trimmed[arrow.upperBound..<closeBrace.lowerBound])
+            let suffix = String(trimmed[closeBrace.upperBound...])
+            let oldPath = prefix + oldPart + suffix
+            let newPath = prefix + newPart + suffix
+            return (newPath, oldPath)
+        } else if let arrow = trimmed.range(of: " => ") {
+            let oldPath = String(trimmed[..<arrow.lowerBound]).trimmingCharacters(in: .whitespaces)
+            let newPath = String(trimmed[arrow.upperBound...]).trimmingCharacters(in: .whitespaces)
+            return (newPath, oldPath)
+        }
+        return (trimmed, nil)
     }
 
     init(rootURL: URL) {
@@ -153,7 +184,7 @@ final class SourceControlModel {
             guard parts.count == 3 else { continue }
             let add = Int(parts[0]) ?? 0
             let del = Int(parts[1]) ?? 0
-            let path = String(parts[2])
+            let (path, _) = Self.parseNumstatPath(String(parts[2]))
             unstagedStats[path] = (add, del)
         }
 
@@ -163,7 +194,7 @@ final class SourceControlModel {
             guard parts.count == 3 else { continue }
             let add = Int(parts[0]) ?? 0
             let del = Int(parts[1]) ?? 0
-            let path = String(parts[2])
+            let (path, _) = Self.parseNumstatPath(String(parts[2]))
             stagedStats[path] = (add, del)
         }
 
@@ -177,10 +208,18 @@ final class SourceControlModel {
             let workTreeCode = line[line.index(after: line.startIndex)]
             let rawPath = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
 
-            // Normalize path (handle quotes if git quoted paths with spaces)
-            let path = rawPath.hasPrefix("\"") && rawPath.hasSuffix("\"")
-                ? String(rawPath.dropFirst().dropLast())
-                : rawPath
+            let (path, originalPath): (String, String?) = {
+                if rawPath.contains(" -> ") {
+                    let parts = rawPath.components(separatedBy: " -> ")
+                    let oldP = parts[0].trimmingCharacters(in: CharacterSet(charactersIn: "\" \t"))
+                    let newP = parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\" \t"))
+                    return (newP, oldP)
+                }
+                let clean = rawPath.hasPrefix("\"") && rawPath.hasSuffix("\"")
+                    ? String(rawPath.dropFirst().dropLast())
+                    : rawPath
+                return (clean, nil)
+            }()
 
             // Staged entry if index code is not blank or untracked
             if indexCode != " " && indexCode != "?" && indexCode != "!" {
@@ -191,6 +230,7 @@ final class SourceControlModel {
                 }
                 newStaged.append(GitFileItem(
                     relativePath: path,
+                    originalPath: originalPath,
                     status: status,
                     isStaged: true,
                     additions: stat.add,
@@ -207,6 +247,7 @@ final class SourceControlModel {
                 }
                 newUnstaged.append(GitFileItem(
                     relativePath: path,
+                    originalPath: originalPath,
                     status: status,
                     isStaged: false,
                     additions: stat.add,
@@ -298,15 +339,23 @@ final class SourceControlModel {
         let numstatResult = await runner.run(arguments: ["show", "--numstat", "--format=", commitHash], in: rootURL)
         let nameStatusResult = await runner.run(arguments: ["show", "--name-status", "--format=", commitHash], in: rootURL)
 
-        var statusMap: [String: GitFileItem.Status] = [:]
+        var statusMap: [String: (status: GitFileItem.Status, oldPath: String?)] = [:]
         for line in nameStatusResult.stdout.split(separator: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty else { continue }
-            let parts = trimmed.split(separator: "\t", maxSplits: 2)
+            let parts = trimmed.split(separator: "\t")
             guard parts.count >= 2 else { continue }
             let statusCode = parts[0].first ?? "M"
-            let path = String(parts.last!)
-            statusMap[path] = mapStatus(code: statusCode)
+            let status = mapStatus(code: statusCode)
+            if parts.count >= 3 {
+                // Rename or copy: parts[1] is old, parts[2] is new
+                let oldPath = String(parts[1]).trimmingCharacters(in: CharacterSet(charactersIn: "\" \t"))
+                let newPath = String(parts[2]).trimmingCharacters(in: CharacterSet(charactersIn: "\" \t"))
+                statusMap[newPath] = (status, oldPath)
+            } else {
+                let path = String(parts[1]).trimmingCharacters(in: CharacterSet(charactersIn: "\" \t"))
+                statusMap[path] = (status, nil)
+            }
         }
 
         var files: [CommitChangedFile] = []
@@ -315,13 +364,13 @@ final class SourceControlModel {
             guard parts.count == 3 else { continue }
             let add = Int(parts[0]) ?? 0
             let del = Int(parts[1]) ?? 0
-            let rawPath = String(parts[2]).trimmingCharacters(in: .whitespaces)
-            let path = rawPath.hasPrefix("\"") && rawPath.hasSuffix("\"")
-                ? String(rawPath.dropFirst().dropLast())
-                : rawPath
-            let status = statusMap[path] ?? .modified
+            let (newPath, oldPathFromNumstat) = Self.parseNumstatPath(String(parts[2]))
+            let statusEntry = statusMap[newPath]
+            let status = statusEntry?.status ?? (oldPathFromNumstat != nil ? .renamed : .modified)
+            let oldPath = statusEntry?.oldPath ?? oldPathFromNumstat
             files.append(CommitChangedFile(
-                relativePath: path,
+                relativePath: newPath,
+                originalPath: oldPath,
                 status: status,
                 additions: add,
                 deletions: del
@@ -335,11 +384,15 @@ final class SourceControlModel {
             let res = await runner.run(arguments: ["-c", "core.quotepath=false", "show", "--find-renames", commitHash, "--", relativePath], in: rootURL)
             return res.stdout
         } else {
-            let res = await runner.run(arguments: ["-c", "core.quotepath=false", "diff", "HEAD", "--", relativePath], in: rootURL)
+            let res = await runner.run(arguments: ["-c", "core.quotepath=false", "diff", "--find-renames", "HEAD", "--", relativePath], in: rootURL)
             if !res.stdout.isEmpty {
                 return res.stdout
             }
-            let workingDiff = await runner.run(arguments: ["-c", "core.quotepath=false", "diff", "--", relativePath], in: rootURL)
+            let cachedDiff = await runner.run(arguments: ["-c", "core.quotepath=false", "diff", "--cached", "--find-renames", "--", relativePath], in: rootURL)
+            if !cachedDiff.stdout.isEmpty {
+                return cachedDiff.stdout
+            }
+            let workingDiff = await runner.run(arguments: ["-c", "core.quotepath=false", "diff", "--find-renames", "--", relativePath], in: rootURL)
             if !workingDiff.stdout.isEmpty {
                 return workingDiff.stdout
             }

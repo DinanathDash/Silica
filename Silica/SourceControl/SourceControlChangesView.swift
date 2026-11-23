@@ -151,14 +151,13 @@ struct SourceControlChangesView: View {
                             .font(.system(size: max(settings.sidebarFontSize - 1.5, 9), weight: .semibold))
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Button {
+                        SourceControlActionIconButton(
+                            systemName: "minus",
+                            tooltip: "Unstage all changes",
+                            isBold: true
+                        ) {
                             Task { await model.unstageAll() }
-                        } label: {
-                            Image(systemName: "minus")
-                                .font(.system(size: 10))
                         }
-                        .buttonStyle(.plain)
-                        .liquidGlassTooltip("Unstage all changes")
                     }
                     .padding(.horizontal, 4)
                     .padding(.bottom, 2)
@@ -177,23 +176,20 @@ struct SourceControlChangesView: View {
                             .font(.system(size: max(settings.sidebarFontSize - 1.5, 9), weight: .semibold))
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Button {
+                        SourceControlActionIconButton(
+                            systemName: "plus",
+                            tooltip: "Stage all changes",
+                            isBold: true
+                        ) {
                             Task { await model.stageAll() }
-                        } label: {
-                            Image(systemName: "plus")
-                                .font(.system(size: 10))
                         }
-                        .buttonStyle(.plain)
-                        .liquidGlassTooltip("Stage all changes")
 
-                        Button {
+                        SourceControlActionIconButton(
+                            systemName: "arrow.uturn.backward",
+                            tooltip: "Discard all changes"
+                        ) {
                             Task { await model.discardAllChanges() }
-                        } label: {
-                            Image(systemName: "arrow.uturn.backward")
-                                .font(.system(size: 10))
                         }
-                        .buttonStyle(.plain)
-                        .liquidGlassTooltip("Discard all changes")
                     }
                     .padding(.horizontal, 4)
                     .padding(.bottom, 2)
@@ -339,32 +335,28 @@ struct SourceControlChangesView: View {
 
             if isHovered {
                 if isStaged {
-                    Button {
+                    SourceControlActionIconButton(
+                        systemName: "minus",
+                        tooltip: "Unstage folder",
+                        isBold: true
+                    ) {
                         Task { await model.unstageFolder(node.relativePath) }
-                    } label: {
-                        Image(systemName: "minus")
-                            .font(.system(size: 10, weight: .bold))
                     }
-                    .buttonStyle(.plain)
-                    .liquidGlassTooltip("Unstage folder")
                 } else {
-                    Button {
+                    SourceControlActionIconButton(
+                        systemName: "plus",
+                        tooltip: "Stage folder",
+                        isBold: true
+                    ) {
                         Task { await model.stageFolder(node.relativePath) }
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 10, weight: .bold))
                     }
-                    .buttonStyle(.plain)
-                    .liquidGlassTooltip("Stage folder")
 
-                    Button {
+                    SourceControlActionIconButton(
+                        systemName: "arrow.uturn.backward",
+                        tooltip: "Discard folder changes"
+                    ) {
                         Task { await model.discardFolderChanges(node.relativePath) }
-                    } label: {
-                        Image(systemName: "arrow.uturn.backward")
-                            .font(.system(size: 10))
                     }
-                    .buttonStyle(.plain)
-                    .liquidGlassTooltip("Discard folder changes")
                 }
             }
 
@@ -418,7 +410,11 @@ struct SourceControlChangesView: View {
             Spacer(minLength: 4)
 
             if isHovered {
-                Button {
+                SourceControlActionIconButton(
+                    systemName: file.isStaged ? "minus" : "plus",
+                    tooltip: file.isStaged ? "Unstage changes" : "Stage changes",
+                    isBold: true
+                ) {
                     Task {
                         if file.isStaged {
                             await model.unstageFile(file)
@@ -426,22 +422,15 @@ struct SourceControlChangesView: View {
                             await model.stageFile(file)
                         }
                     }
-                } label: {
-                    Image(systemName: file.isStaged ? "minus" : "plus")
-                        .font(.system(size: 10, weight: .bold))
                 }
-                .buttonStyle(.plain)
-                .liquidGlassTooltip(file.isStaged ? "Unstage changes" : "Stage changes")
 
                 if !file.isStaged {
-                    Button {
+                    SourceControlActionIconButton(
+                        systemName: "arrow.uturn.backward",
+                        tooltip: "Discard changes"
+                    ) {
                         Task { await model.discardChanges(for: file) }
-                    } label: {
-                        Image(systemName: "arrow.uturn.backward")
-                            .font(.system(size: 10))
                     }
-                    .buttonStyle(.plain)
-                    .liquidGlassTooltip("Discard changes")
                 }
             }
 
@@ -457,11 +446,18 @@ struct SourceControlChangesView: View {
                 .font(.system(size: max(settings.sidebarFontSize - 2, 8), weight: .semibold, design: .monospaced))
             }
 
-            // Extreme right: Git change badge (M, U, A, D)
+            // Extreme right: Git change badge (M, U, A, D) with glass tooltip
+            let badgeTooltip: String = {
+                if let old = file.originalPath, file.status == .renamed {
+                    return "Renamed from \(old)"
+                }
+                return file.status.label
+            }()
             Text(file.status.badgeLetter)
                 .font(.system(size: max(settings.sidebarFontSize - 2, 8), weight: .bold, design: .monospaced))
                 .foregroundStyle(file.status.badgeColor)
                 .frame(width: 14)
+                .liquidGlassTooltip(badgeTooltip)
         }
         .padding(.horizontal, 6)
         .padding(.vertical, max(3, (settings.sidebarFontSize - 7) / 2))
@@ -566,5 +562,31 @@ struct SourceControlChangesView: View {
             }
             return a.name.localizedStandardCompare(b.name) == .orderedAscending
         }
+    }
+}
+
+/// Compact button with generous 20x20 hit area and rounded hover card for source control actions
+struct SourceControlActionIconButton: View {
+    let systemName: String
+    let tooltip: String
+    var isBold: Bool = false
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 10, weight: isBold ? .bold : .medium))
+                .frame(width: 20, height: 20)
+                .background(
+                    isHovering ? Color.primary.opacity(0.12) : Color.primary.opacity(0.04),
+                    in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .liquidGlassTooltip(tooltip)
     }
 }

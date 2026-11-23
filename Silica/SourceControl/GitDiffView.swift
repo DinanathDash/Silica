@@ -430,6 +430,7 @@ struct GitDiffView: View {
                 .padding(.horizontal, 4)
                 .padding(.vertical, 1)
                 .background(group.status.badgeColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
+                .liquidGlassTooltip(group.status.label)
 
             Spacer()
 
@@ -693,7 +694,7 @@ struct GitDiffView: View {
         self.totalAdditions = result.adds
         self.totalDeletions = result.dels
         self.displayRows = Self.buildDisplayRows(groups: result.groups, collapsed: self.collapsedFileIDs)
-        self.model.diffCache[key] = result
+        self.model.setDiffCache(key: key, value: result)
         self.isLoading = false
         AppLogger.debug("GitDiff", "Loaded diff for '\(diff.relativePath)' (files: \(result.groups.count), +\(result.adds)/-\(result.dels))")
     }
