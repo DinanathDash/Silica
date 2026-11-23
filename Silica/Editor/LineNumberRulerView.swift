@@ -148,20 +148,35 @@ final class LineNumberRulerView: NSRulerView {
                 let x = bounds.width - trailingPadding - label.size().width
                 label.draw(at: NSPoint(x: x, y: y))
 
-                // Gutter Git Diff Indicator (3pt rounded vertical bar on right edge of ruler)
+                // Gutter Git Diff Indicator (VS Code style: 3pt vertical stripe on right edge; wedge triangle for deletion)
                 if let diffKind = diffMarkers[index + 1] {
-                    let markerColor: NSColor
-                    switch diffKind {
-                    case .added: markerColor = .systemGreen
-                    case .modified: markerColor = .systemBlue
-                    case .deleted: markerColor = .systemRed
-                    }
-                    markerColor.setFill()
                     let markerHeight = max(line.typographicBounds.height, font.pointSize + 4)
                     let markerY = convert(NSPoint(x: 0, y: origin.y + frame.minY + line.typographicBounds.minY), from: textView).y
-                    let markerRect = NSRect(x: bounds.width - 3.0, y: markerY, width: 3.0, height: markerHeight)
-                    let path = NSBezierPath(roundedRect: markerRect, xRadius: 1.5, yRadius: 1.5)
-                    path.fill()
+                    let rightX = bounds.width
+
+                    switch diffKind {
+                    case .added:
+                        NSColor(red: 0.16, green: 0.65, blue: 0.27, alpha: 1.0).setFill()
+                        let markerRect = NSRect(x: rightX - 3.0, y: markerY, width: 3.0, height: markerHeight)
+                        let path = NSBezierPath(rect: markerRect)
+                        path.fill()
+                    case .modified:
+                        NSColor(red: 0.13, green: 0.47, blue: 0.83, alpha: 1.0).setFill()
+                        let markerRect = NSRect(x: rightX - 3.0, y: markerY, width: 3.0, height: markerHeight)
+                        let path = NSBezierPath(rect: markerRect)
+                        path.fill()
+                    case .deleted:
+                        // VS Code renders deleted lines as an arrow/wedge pointing into the editor
+                        NSColor(red: 0.84, green: 0.23, blue: 0.29, alpha: 1.0).setFill()
+                        let triangle = NSBezierPath()
+                        let triSize: CGFloat = 5.0
+                        let triY = markerY
+                        triangle.move(to: NSPoint(x: rightX, y: triY))
+                        triangle.line(to: NSPoint(x: rightX - triSize, y: triY))
+                        triangle.line(to: NSPoint(x: rightX, y: triY + triSize))
+                        triangle.close()
+                        triangle.fill()
+                    }
                 }
             }
             return true

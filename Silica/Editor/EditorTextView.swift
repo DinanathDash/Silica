@@ -53,6 +53,14 @@ final class EditorTextView: NSTextView {
         setNeedsDisplay(visibleRect)
     }
 
+    override func cancelOperation(_ sender: Any?) {
+        if GitQuickDiffPopoverController.shared.isVisible {
+            GitQuickDiffPopoverController.shared.close()
+            return
+        }
+        super.cancelOperation(sender)
+    }
+
     /// TextKit 2 can move its viewport toward `range` without scrolling the view when
     /// the range is already on screen, and nothing lays the viewport out again. The
     /// text view then reports no visible text, so the find bar counts matches but

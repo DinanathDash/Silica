@@ -78,11 +78,15 @@ final class WorkspaceModel {
     private(set) var terminals: [TerminalSession] = []
     /// The terminal the card shows: one of `terminals`, as long as there are any.
     private(set) var terminal: TerminalSession?
-    private(set) var isTerminalVisible = false
+    private(set) var isTerminalVisible = false {
+        didSet { scheduleSessionSave() }
+    }
 
     /// Source control (Git) sidebar that slides in from the right edge.
     let sourceControl: SourceControlModel
-    private(set) var isSourceControlVisible = false
+    private(set) var isSourceControlVisible = false {
+        didSet { scheduleSessionSave() }
+    }
 
     /// Floating notification toast, e.g. for terminal command completions
     struct Toast: Identifiable {
@@ -1142,6 +1146,12 @@ final class WorkspaceModel {
         defer { isRestoringSession = false }
 
         isSidebarVisible = session.isSidebarVisible
+        if let termVis = session.isTerminalVisible, termVis {
+            showTerminal()
+        }
+        if let scVis = session.isSourceControlVisible, scVis {
+            showSourceControl()
+        }
         for tab in session.tabs {
             let url = sessionURL(for: tab.path)
             var isDirectory: ObjCBool = false
@@ -1177,6 +1187,8 @@ final class WorkspaceModel {
             tabs: tabs,
             activeTab: activeTab.flatMap { $0.isUntitled ? nil : relativePath(of: $0) },
             isSidebarVisible: isSidebarVisible,
+            isTerminalVisible: isTerminalVisible,
+            isSourceControlVisible: isSourceControlVisible,
             savedAt: .now
         )
         ProjectSessionStore.save(session, for: rootURL)

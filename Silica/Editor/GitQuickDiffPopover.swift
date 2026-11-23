@@ -55,6 +55,10 @@ final class GitQuickDiffPopoverController {
         popover.show(relativeTo: rect, of: view, preferredEdge: .maxX)
     }
 
+    var isVisible: Bool {
+        popover?.isShown == true
+    }
+
     func close() {
         popover?.performClose(nil)
         popover = nil

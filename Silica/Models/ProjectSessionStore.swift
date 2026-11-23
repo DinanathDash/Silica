@@ -14,6 +14,8 @@ struct ProjectSession: Codable {
     var tabs: [Tab]
     var activeTab: String?
     var isSidebarVisible: Bool
+    var isTerminalVisible: Bool?
+    var isSourceControlVisible: Bool?
     var savedAt: Date
 }
 
