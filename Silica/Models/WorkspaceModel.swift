@@ -637,9 +637,14 @@ final class WorkspaceModel {
     private func syncOpenFilesWithDisk() {
         for url in openTabs {
             if diffTabs[url] != nil { continue }
-            guard let buffer = buffers[url], buffer.syncWithDisk() else { continue }
-            // An image or other non-text file changed: read it again.
-            buffers[url] = makeBuffer(for: url)
+            guard let buffer = buffers[url] else { continue }
+            let hadExternalChange = buffer.isChangedOnDisk
+            if buffer.syncWithDisk() {
+                // An image or other non-text file changed: read it again.
+                buffers[url] = makeBuffer(for: url)
+            } else if !hadExternalChange && buffer.isChangedOnDisk {
+                showToast("File '\(buffer.name)' was modified on disk. Your unsaved edits were kept.", title: "External Edit")
+            }
         }
     }
 

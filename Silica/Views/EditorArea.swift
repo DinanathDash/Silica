@@ -91,6 +91,7 @@ struct EditorArea: View {
             if let activeURL = workspace.activeTab,
                let diff = workspace.diffTabs[activeURL] ?? (workspace.activeDiff?.fileURL == activeURL ? workspace.activeDiff : nil) {
                 GitDiffView(diff: diff, workspace: workspace, model: workspace.sourceControl)
+                    .id(diff.cacheKey)
             } else if let buffer = workspace.activeBuffer {
                 BufferView(buffer: buffer, workspace: workspace)
             } else {
@@ -178,6 +179,7 @@ private struct EditorTabBar: View {
                             isDiffTab: workspace.diffTabs[url] != nil,
                             isDirty: workspace.buffers[url]?.isDirty == true,
                             isMissing: workspace.diffTabs[url] == nil && workspace.buffers[url]?.isMissingOnDisk == true,
+                            isChangedOnDisk: workspace.diffTabs[url] == nil && workspace.buffers[url]?.isChangedOnDisk == true,
                             select: { workspace.activate(url) },
                             close: { withAnimation(.snappy) { workspace.closeTab(url) } },
                             closeOthers: { withAnimation(.snappy) { workspace.closeOtherTabs(than: url) } },
@@ -590,6 +592,8 @@ private struct EditorTab: View {
     let isDirty: Bool
     /// Deleted or moved on disk since it was opened.
     let isMissing: Bool
+    /// Changed on disk while it had unsaved edits.
+    var isChangedOnDisk: Bool = false
     let select: () -> Void
     let close: () -> Void
     let closeOthers: () -> Void
@@ -617,12 +621,12 @@ private struct EditorTab: View {
                 .font(.callout)
                 .lineLimit(1)
                 .strikethrough(isMissing)
-                .liquidGlassTooltip(isMissing ? "Deleted from disk. Save to write it again." : "")
+                .liquidGlassTooltip(isMissing ? "Deleted from disk. Save to write it again." : isChangedOnDisk ? "Changed on disk since you started editing it." : "")
 
             ZStack {
                 if isDirty && !isHovering {
                     Circle()
-                        .fill(.primary.opacity(0.7))
+                        .fill(isChangedOnDisk ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.primary.opacity(0.7)))
                         .frame(width: 7, height: 7)
                 } else {
                     Button(action: close) {
@@ -693,14 +697,17 @@ private struct BufferView: View {
             if buffer.isShowingPreview, let preview = buffer.preview {
                 PreviewHost(preview: preview)
             } else {
-                // The status bar floats over the text's bottom corner rather than
-                // taking a strip of the card, left of the minimap when it's shown.
-                TextViewHost(controller: controller)
-                    .overlay(alignment: .bottomTrailing) {
-                        StatusBar(buffer: buffer, workspace: workspace)
-                            .padding(4)
-                            .padding(.trailing, EditorSettings.shared.showsMinimap ? MinimapView.width : 0)
+                VStack(spacing: 0) {
+                    if buffer.isChangedOnDisk {
+                        DiskChangeBar(buffer: buffer)
                     }
+                    TextViewHost(controller: controller)
+                        .overlay(alignment: .bottomTrailing) {
+                            StatusBar(buffer: buffer, workspace: workspace)
+                                .padding(4)
+                                .padding(.trailing, EditorSettings.shared.showsMinimap ? MinimapView.width : 0)
+                        }
+                }
             }
         case .image(let file):
             ImagePreview(file: file)
@@ -730,6 +737,35 @@ private struct BufferView: View {
     }
 }
 
+// MARK: - Changes on disk
+
+private struct DiskChangeBar: View {
+    let buffer: EditorBuffer
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .symbolRenderingMode(.multicolor)
+            Text("This file changed on disk. Your unsaved edits are on the version you opened.")
+                .truncationMode(.tail)
+            Spacer(minLength: 8)
+            Button("Revert") { buffer.revertToDisk() }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .liquidGlassTooltip("Discard your unsaved edits and show the file as it is on disk (⌘Z brings them back)")
+            Button("Keep My Edits") { buffer.keepEditsOverDisk() }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .liquidGlassTooltip("Keep editing your version; saving writes it over the one on disk")
+        }
+        .font(.caption)
+        .lineLimit(1)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Color.orange.opacity(0.12))
+    }
+}
+
 // MARK: - Status bar
 
 /// Cursor position, indentation, encoding, line endings and language, in a small
@@ -745,6 +781,9 @@ private struct StatusBar: View {
             }
             .buttonStyle(.plain)
             .liquidGlassTooltip("Go to Line (⌘L)")
+
+            blame
+
             Text(buffer.indentation.usesTabs ? "Tabs" : "Spaces: \(buffer.indentation.width)")
             Text(buffer.encodingName)
             Text(buffer.lineEndingName)
@@ -758,6 +797,39 @@ private struct StatusBar: View {
         .padding(.vertical, 4)
         .glassSurface(in: .capsule)
         .fixedSize()
+    }
+
+    @ViewBuilder
+    private var blame: some View {
+        if workspace.sourceControl.isGitRepository && !buffer.url.isUntitled {
+            let line = buffer.isDirty ? nil : buffer.blame.flatMap { $0.indices.contains(buffer.cursor.line - 1) ? $0[buffer.cursor.line - 1] : nil }
+            Button {
+                if let line, !line.isUncommitted {
+                    workspace.openCommitDiff(commitHash: line.hash, commitTitle: line.summary, relativePath: workspace.relativePath(of: buffer.url))
+                } else if !workspace.isSourceControlVisible {
+                    workspace.toggleSourceControl()
+                }
+            } label: {
+                if let line {
+                    Text(line.isUncommitted ? "Not committed yet" : "\(line.author), \(line.date.formatted(.relative(presentation: .named)))")
+                } else {
+                    Text(buffer.isDirty ? "Save to see blame" : "Blame…")
+                }
+            }
+            .buttonStyle(.plain)
+            .liquidGlassTooltip(line.map { $0.isUncommitted ? "This line has changed since the last commit" : "\($0.hash.prefix(7)) · \($0.summary)" } ?? "Source Control Blame")
+            .accessibilityLabel("Blame")
+            .task(id: BlameKey(url: buffer.url, isDirty: buffer.isDirty, version: workspace.sourceControl.statusVersion)) {
+                guard !buffer.isDirty else { return }
+                buffer.blame = await workspace.sourceControl.blame(of: workspace.relativePath(of: buffer.url))
+            }
+        }
+    }
+
+    private struct BlameKey: Equatable {
+        var url: URL
+        var isDirty: Bool
+        var version: Int
     }
 
     private var position: String {

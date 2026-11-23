@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import SwiftUI
 
 public struct GitAlertItem: Identifiable, Equatable {
     public let id = UUID()
@@ -140,8 +141,10 @@ final class SourceControlModel {
             return
         }
 
+        if !isGitRepository {
+            currentCommitLimit = initialCommitLimit
+        }
         isGitRepository = true
-        currentCommitLimit = initialCommitLimit
 
         await loadStatus()
         await loadBranches()
@@ -484,11 +487,18 @@ final class SourceControlModel {
         self.branches = list
     }
 
-    private let initialCommitLimit = 50
+    let initialCommitLimit = 50
     private let commitPageStep = 20
     private(set) var currentCommitLimit = 50
     private(set) var hasMoreCommits = true
     private(set) var isLoadingMoreCommits = false
+    var isInspectingOlderCommit = false
+
+    var hasExtraCommits: Bool {
+        currentCommitLimit > initialCommitLimit
+    }
+
+    private var autoPruneTask: Task<Void, Never>?
 
     var maxHistoryLanes: Int {
         commits.map { $0.timelineNode.lane + 1 }.max() ?? 1
@@ -585,9 +595,32 @@ final class SourceControlModel {
         defer { isLoadingMoreCommits = false }
         currentCommitLimit += commitPageStep
         await loadCommits()
+        scheduleAutoPrune(seconds: 45)
+    }
+
+    func scheduleAutoPrune(seconds: TimeInterval = 45) {
+        autoPruneTask?.cancel()
+        guard hasExtraCommits else { return }
+        autoPruneTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            if self.isInspectingOlderCommit {
+                self.scheduleAutoPrune(seconds: 30)
+                return
+            }
+            withAnimation(.snappy(duration: 0.2)) {
+                self.pruneExtraCommits()
+            }
+        }
+    }
+
+    func cancelAutoPrune() {
+        autoPruneTask?.cancel()
+        autoPruneTask = nil
     }
 
     func pruneExtraCommits() {
+        cancelAutoPrune()
         guard currentCommitLimit > initialCommitLimit else { return }
         currentCommitLimit = initialCommitLimit
         hasMoreCommits = true
@@ -1305,5 +1338,48 @@ final class SourceControlModel {
         } else {
             return URL(string: "\(trimmedBase)/commit/\(commitHash)")
         }
+    }
+
+    // MARK: - Blame
+
+    func blame(of relativePath: String) async -> [GitBlameLine] {
+        guard isGitRepository, !relativePath.isEmpty else { return [] }
+        let res = await runner.run(arguments: ["blame", "--porcelain", "--", relativePath], in: rootURL)
+        guard res.isSuccess else { return [] }
+
+        struct Commit { var author = ""; var time: TimeInterval = 0; var summary = "" }
+        var commits: [String: Commit] = [:]
+        var lines: [GitBlameLine] = []
+        var current = ""
+
+        for record in res.stdout.split(separator: "\n", omittingEmptySubsequences: false) {
+            if record.first == "\t" {
+                let commit = commits[current] ?? Commit()
+                lines.append(GitBlameLine(
+                    hash: current,
+                    author: commit.author,
+                    date: Date(timeIntervalSince1970: commit.time),
+                    summary: commit.summary
+                ))
+                continue
+            }
+            let line = String(record)
+            let space = line.firstIndex(of: " ") ?? line.endIndex
+            let key = line[..<space]
+            let value = space < line.endIndex ? String(line[line.index(after: space)...]) : ""
+            switch key {
+            case "author":
+                commits[current, default: Commit()].author = value
+            case "author-time":
+                commits[current, default: Commit()].time = TimeInterval(value) ?? 0
+            case "summary":
+                commits[current, default: Commit()].summary = value
+            default:
+                if key.count >= 40, key.allSatisfy(\.isHexDigit) {
+                    current = String(key)
+                }
+            }
+        }
+        return lines
     }
 }

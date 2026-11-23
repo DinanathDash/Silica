@@ -79,6 +79,36 @@ struct SourceControlHistoryView: View {
             }
             .padding(.bottom, 2)
 
+            if model.hasExtraCommits {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                    Text("Showing \(model.commits.count) commits")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        withAnimation(.snappy(duration: 0.2)) {
+                            model.pruneExtraCommits()
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 9))
+                            Text("Close Extra")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                    .liquidGlassTooltip("Free up extra older commits and return to latest 50")
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+            }
+
             if model.commits.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "clock")
@@ -111,30 +141,60 @@ struct SourceControlHistoryView: View {
                                 commitFilesList(commit: commit)
                             }
                         }
+                        .onAppear {
+                            if commit.id == filteredCommits.first?.id && model.hasExtraCommits {
+                                model.scheduleAutoPrune(seconds: 30)
+                            }
+                        }
                     }
                 }
 
-                // Paging button: loads older commits at the bottom
-                if searchQuery.isEmpty && model.hasMoreCommits {
-                    Button {
-                        Task { await model.loadMoreCommits() }
-                    } label: {
-                        HStack(spacing: 6) {
-                            if model.isLoadingMoreCommits {
-                                ProgressView()
-                                    .controlSize(.mini)
-                            } else {
-                                Image(systemName: "arrow.down.circle")
-                                    .font(.system(size: 11))
+                // Paging button: loads older commits or closes extra commits
+                if searchQuery.isEmpty && (model.hasMoreCommits || model.hasExtraCommits) {
+                    HStack(spacing: 8) {
+                        if model.hasMoreCommits {
+                            Button {
+                                Task { await model.loadMoreCommits() }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    if model.isLoadingMoreCommits {
+                                        ProgressView()
+                                            .controlSize(.mini)
+                                    } else {
+                                        Image(systemName: "arrow.down.circle")
+                                            .font(.system(size: 11))
+                                    }
+                                    Text(model.isLoadingMoreCommits ? "Loading older commits…" : "Load Older Commits")
+                                        .font(.system(size: 11, weight: .medium))
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 5)
                             }
-                            Text(model.isLoadingMoreCommits ? "Loading older commits…" : "Load Older Commits")
-                                .font(.system(size: 11, weight: .medium))
+                            .glassButtonStyle()
+                            .controlSize(.small)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 5)
+
+                        if model.hasExtraCommits {
+                            Button {
+                                withAnimation(.snappy(duration: 0.2)) {
+                                    model.pruneExtraCommits()
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "arrow.up.to.line.compact")
+                                        .font(.system(size: 10))
+                                    Text("Close Extra")
+                                        .font(.system(size: 11, weight: .medium))
+                                }
+                                .frame(maxWidth: model.hasMoreCommits ? nil : .infinity)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                            }
+                            .glassButtonStyle()
+                            .controlSize(.small)
+                            .liquidGlassTooltip("Free up extra older commits and return to latest 50")
+                        }
                     }
-                    .glassButtonStyle()
-                    .controlSize(.small)
                     .padding(.top, 6)
                     .padding(.bottom, 12)
                 }
@@ -144,8 +204,24 @@ struct SourceControlHistoryView: View {
             hoverTask?.cancel()
             dismissTask?.cancel()
             activePopoverCommitID = nil
-            // Automatically dismiss extra older commits to free up memory when leaving view
             model.pruneExtraCommits()
+        }
+        .onChange(of: model.commits.count) { _, _ in
+            if let expanded = expandedCommitID, !model.commits.contains(where: { $0.id == expanded }) {
+                expandedCommitID = nil
+            }
+            if let popover = activePopoverCommitID, !model.commits.contains(where: { $0.id == popover }) {
+                activePopoverCommitID = nil
+            }
+        }
+        .onChange(of: expandedCommitID) { _, newExpanded in
+            if let newExpanded,
+               let index = model.commits.firstIndex(where: { $0.id == newExpanded }),
+               index >= model.initialCommitLimit {
+                model.isInspectingOlderCommit = true
+            } else {
+                model.isInspectingOlderCommit = false
+            }
         }
         .alert("Create Branch", isPresented: $isShowingCreateBranchSheet) {
             TextField("Branch name", text: $newBranchName)

@@ -71,6 +71,11 @@ struct SourceControlView: View {
                 }
                 .scrollIndicators(.never)
                 .softVerticalScrollEdges()
+                .onChange(of: selectedTab) { _, newTab in
+                    if newTab != .history {
+                        model.pruneExtraCommits()
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

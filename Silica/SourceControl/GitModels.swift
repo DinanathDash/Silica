@@ -215,3 +215,14 @@ extension String {
         return digest.map { String(format: "%02hhx", $0) }.joined()
     }
 }
+
+/// Who last changed a line of a file, and in which commit.
+struct GitBlameLine: Sendable, Equatable {
+    let hash: String
+    let author: String
+    let date: Date
+    let summary: String
+
+    /// A line changed since the last commit: git blames it on a commit of zeros.
+    var isUncommitted: Bool { hash.allSatisfy { $0 == "0" } }
+}

@@ -35,6 +35,7 @@ actor GitRunner {
         var environment = ProcessInfo.processInfo.environment
         environment["LC_ALL"] = "C"
         environment["GIT_TERMINAL_PROMPT"] = "0"
+        environment["GIT_OPTIONAL_LOCKS"] = "0"
         process.environment = environment
 
         let stdoutPipe = Pipe()

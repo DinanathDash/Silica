@@ -31,9 +31,17 @@ final class EditorBuffer: Identifiable {
     /// The file was deleted or moved away after it was opened. The tab keeps its
     /// text; saving writes the file again.
     private(set) var isMissingOnDisk = false
+    /// Another app (a `git switch`, a formatter) changed the file while the tab had
+    /// unsaved edits, so the edits are now on top of a version the file no longer
+    /// has. Cleared by saving, reverting, keeping the edits, or the file going back
+    /// to what it was.
+    private(set) var isChangedOnDisk = false
     /// The file on disk as Silica last read or wrote it, to tell when another app
     /// changes it.
     @ObservationIgnored private var diskSnapshot: DiskSnapshot?
+
+    /// Who last changed each line of the file, for the status bar.
+    var blame: [GitBlameLine]?
 
     /// Where the cursor is, for the status bar.
     struct CursorStatus: Equatable {
@@ -410,6 +418,7 @@ final class EditorBuffer: Identifiable {
         diskSnapshot = Self.attributes(of: url).map { DiskSnapshot(attributes: $0, digest: Self.digest(of: data)) }
         isDirty = false
         isMissingOnDisk = false
+        isChangedOnDisk = false
         controller.scheduleGitDiffUpdate(delay: .zero)
         NotificationCenter.default.post(name: .fileDidSave, object: url)
     }
@@ -460,17 +469,32 @@ final class EditorBuffer: Identifiable {
         switch diskChange() {
         case .unchanged:
             if isMissingOnDisk { isMissingOnDisk = false }
+            if isChangedOnDisk { isChangedOnDisk = false }
             return false
         case .deleted:
             if !isMissingOnDisk { isMissingOnDisk = true }
+            if isChangedOnDisk { isChangedOnDisk = false }
             return false
         case .modified(let data):
             if isMissingOnDisk { isMissingOnDisk = false }
             guard textController != nil else { return true }
-            // Edited here too: keep the edits; saving asks which version wins.
-            if !isDirty, let data { revert(to: data) }
+            if !isDirty, let data {
+                revert(to: data)
+            } else if !isChangedOnDisk {
+                isChangedOnDisk = true
+            }
             return false
         }
+    }
+
+    /// Keeps the unsaved edits over a file that changed on disk: the version there
+    /// now is taken as the one they replace, so saving writes over it without
+    /// asking. A later change on disk is noticed again.
+    func keepEditsOverDisk() {
+        guard let attributes = Self.attributes(of: url) else { return }
+        let digest = (try? Data(contentsOf: url)).map(Self.digest(of:))
+        diskSnapshot = DiskSnapshot(attributes: attributes, digest: digest)
+        isChangedOnDisk = false
     }
 
     /// Replaces the text with the file on disk, discarding unsaved edits. It's one
@@ -488,6 +512,7 @@ final class EditorBuffer: Identifiable {
         diskSnapshot = Self.attributes(of: url).map { DiskSnapshot(attributes: $0, digest: Self.digest(of: data)) }
         isDirty = false
         isMissingOnDisk = false
+        isChangedOnDisk = false
         if isShowingPreview, let preview {
             preview.topVisibleLine { line in
                 preview.show(controller.textView.string, line: line)
