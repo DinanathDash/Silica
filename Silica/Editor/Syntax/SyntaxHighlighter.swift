@@ -4,8 +4,9 @@ import AppKit
 ///
 /// Only the foreground color attribute is touched, directly on the text storage,
 /// so highlighting never marks the document dirty or adds undo steps. After an edit,
-/// the whole document is re-tokenized off the main thread once typing pauses briefly;
-/// meanwhile newly typed text inherits the color of the text around it.
+/// the whole document is re-tokenized off the main thread once typing pauses briefly,
+/// and the text whose color that changes is recolored; meanwhile newly typed text
+/// inherits the color of the text around it.
 final class SyntaxHighlighter {
     private weak var textView: NSTextView?
     private let tokenizer: any SyntaxTokenizer
@@ -81,11 +82,17 @@ final class SyntaxHighlighter {
         }
 
         let theme = EditorSettings.shared.syntaxTheme
-        let length = storage.length
+        // Only what changed color: setting the rest again would cost the editor its
+        // layout (see `SyntaxColoring`).
+        let changes = SyntaxColoring.changes(
+            in: storage,
+            tokens: tokens.map { SyntaxColoring.Run(range: $0.range, color: theme.color(for: $0.kind)) },
+            plain: SyntaxTheme.plain
+        )
+        guard !changes.isEmpty else { return }
         storage.beginEditing()
-        storage.addAttribute(.foregroundColor, value: SyntaxTheme.plain, range: NSRange(location: 0, length: length))
-        for token in tokens where NSMaxRange(token.range) <= length {
-            storage.addAttribute(.foregroundColor, value: theme.color(for: token.kind), range: token.range)
+        for change in changes {
+            storage.addAttribute(.foregroundColor, value: change.color, range: change.range)
         }
         storage.endEditing()
     }
