@@ -44,6 +44,7 @@ final class SourceControlModel {
     }
     private var isRefreshing = false
     @ObservationIgnored var onActionFinished: ((_ message: String, _ title: String?, _ isFailure: Bool) -> Void)?
+    @ObservationIgnored var onFileDiscarded: ((_ relativePath: String) -> Void)?
 
     func notifyAction(message: String, title: String? = nil, isFailure: Bool = false) {
         onActionFinished?(message, title, isFailure)
@@ -694,13 +695,17 @@ final class SourceControlModel {
         } else {
             _ = await runner.run(arguments: ["restore", "--", file.relativePath], in: rootURL)
         }
+        invalidateDiffCache(for: file.relativePath)
         await loadStatus()
+        onFileDiscarded?(file.relativePath)
     }
 
     func discardAllChanges() async {
         _ = await runner.run(arguments: ["restore", "."], in: rootURL)
         _ = await runner.run(arguments: ["clean", "-fd"], in: rootURL)
+        invalidateDiffCache()
         await loadStatus()
+        onFileDiscarded?("")
         notifyAction(message: "Discarded all uncommitted changes", title: "Changes Discarded", isFailure: false)
     }
 

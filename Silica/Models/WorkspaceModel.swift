@@ -164,6 +164,28 @@ final class WorkspaceModel {
         self.sourceControl.onActionFinished = { [weak self] message, title, isFailure in
             self?.showToast(message, title: title, isFailure: isFailure)
         }
+        self.sourceControl.onFileDiscarded = { [weak self] relativePath in
+            guard let self else { return }
+            if relativePath.isEmpty {
+                // All changes were discarded
+                for (url, buffer) in self.buffers {
+                    buffer.revertToDisk()
+                }
+                // If any working-tree diff tab is open, switch back to file editor or close
+                if let active = self.activeDiff, active.commitHash == nil && active.compareBranch == nil {
+                    self.closeDiff()
+                }
+            } else {
+                let fileURL = self.rootURL.appending(path: relativePath)
+                if let buffer = self.buffers[fileURL] {
+                    buffer.revertToDisk()
+                }
+                // If diff tab was open for this discarded file, return to the code editor
+                if let active = self.activeDiff, active.commitHash == nil && active.compareBranch == nil && active.relativePath == relativePath {
+                    self.closeDiff()
+                }
+            }
+        }
         root.isExpanded = true
         root.loadChildrenIfNeeded()
         search.unsavedTexts = { [weak self] in

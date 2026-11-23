@@ -629,6 +629,7 @@ final class TextController: NSObject, NSTextViewDelegate {
             currentIndex: hunkIndex,
             relativeTo: anchorRect,
             of: ruler,
+            language: textView.language,
             onRevert: { [weak self] in
                 self?.revertHunk(hunk)
             },
