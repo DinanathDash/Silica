@@ -47,15 +47,25 @@ final class EditorTextView: NSTextView {
         cachedIndentation = nil
     }
 
+    override func mouseDown(with event: NSEvent) {
+        if GitInlineDiffZoneController.shared.isVisible {
+            GitInlineDiffZoneController.shared.close()
+        }
+        super.mouseDown(with: event)
+    }
+
     override func didChangeText() {
         super.didChangeText()
+        if GitInlineDiffZoneController.shared.isVisible {
+            GitInlineDiffZoneController.shared.close()
+        }
         // Guides follow the text, so any edit can move them.
         setNeedsDisplay(visibleRect)
     }
 
     override func cancelOperation(_ sender: Any?) {
-        if GitQuickDiffPopoverController.shared.isVisible {
-            GitQuickDiffPopoverController.shared.close()
+        if GitInlineDiffZoneController.shared.isVisible {
+            GitInlineDiffZoneController.shared.close()
             return
         }
         super.cancelOperation(sender)

@@ -623,12 +623,14 @@ final class TextController: NSObject, NSTextViewDelegate {
         guard let hunkIndex else { return }
         let hunk = currentHunks[hunkIndex]
 
-        GitQuickDiffPopoverController.shared.show(
+        GitInlineDiffZoneController.shared.show(
             hunk: hunk,
             allHunks: currentHunks,
             currentIndex: hunkIndex,
-            relativeTo: anchorRect,
-            of: ruler,
+            anchorRectInRuler: anchorRect,
+            ruler: ruler,
+            containerView: view,
+            scrollView: scrollView,
             language: textView.language,
             onRevert: { [weak self] in
                 self?.revertHunk(hunk)
@@ -671,11 +673,8 @@ final class TextController: NSObject, NSTextViewDelegate {
             replacementText += "\n"
         }
 
-        if textView.shouldChangeText(in: targetRange, replacementString: replacementText) {
-            textView.replaceCharacters(in: targetRange, with: replacementText)
-            textView.didChangeText()
-            scheduleGitDiffUpdate(delay: .milliseconds(50))
-        }
+        textView.applyEdit(in: targetRange, with: replacementText, actionName: "Revert Change")
+        scheduleGitDiffUpdate(delay: .milliseconds(50))
     }
 }
 
