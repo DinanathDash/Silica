@@ -295,7 +295,8 @@ struct SourceControlHistoryView: View {
             GitTimelineCanvas(
                 node: commit.timelineNode,
                 isMerge: commit.isMerge,
-                isUnpushed: commit.isUnpushed
+                isUnpushed: commit.isUnpushed,
+                isHead: commit.isHead
             )
             .frame(width: rowCanvasWidth, height: rowHeight)
 
@@ -397,6 +398,7 @@ struct SourceControlHistoryView: View {
             CommitDetailsPopoverView(
                 commit: commit,
                 remoteHost: model.remoteHostType,
+                remoteOriginURL: model.remoteOriginURL,
                 commitWebURL: model.commitWebURL(for: commit.hash),
                 onHoverChange: { isInside in
                     isMouseInsidePopover = isInside
@@ -615,16 +617,14 @@ struct TimelineContinuationTrack: View {
     var body: some View {
         Canvas { context, size in
             let rowHeight = size.height
-            let solidStyle = StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round)
-            let dashedStyle = StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round, dash: [3.5, 2.5])
+            let solidStyle = StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round)
 
             for lane in lanes.sorted() {
                 let x = laneX(lane)
                 var path = Path()
                 path.move(to: CGPoint(x: x, y: 0))
                 path.addLine(to: CGPoint(x: x, y: rowHeight))
-                let style = lane > 0 ? dashedStyle : solidStyle
-                context.stroke(path, with: .color(GitTimelineColors.color(for: lane)), style: style)
+                context.stroke(path, with: .color(GitTimelineColors.color(for: lane)), style: solidStyle)
             }
         }
         .frame(width: width)
@@ -634,17 +634,16 @@ struct TimelineContinuationTrack: View {
 // MARK: - Git Timeline Components
 
 enum GitTimelineColors {
-    // Vibrant, high-contrast timeline palette matching Droppy Code & modern Git graphs:
-    // Electric Purple (main), Warm Amber, Bright Teal, Lilac, Sunflower Yellow, Hot Magenta, Sky Blue, Mint
+    // High-contrast timeline palette matching VS Code & modern Git graphs:
     static let palette: [Color] = [
-        Color(red: 0.62, green: 0.42, blue: 0.94), // Lane 0: Electric Purple / Indigo
-        Color(red: 0.92, green: 0.54, blue: 0.14), // Lane 1: Warm Amber / Orange
+        Color(red: 0.62, green: 0.42, blue: 0.94), // Lane 0: Indigo / Purple
+        Color(red: 0.96, green: 0.64, blue: 0.12), // Lane 1: Warm Amber / Gold
         Color(red: 0.16, green: 0.74, blue: 0.68), // Lane 2: Bright Teal / Cyan
-        Color(red: 0.74, green: 0.40, blue: 0.96), // Lane 3: Lilac / Violet
-        Color(red: 0.96, green: 0.68, blue: 0.15), // Lane 4: Sunflower Yellow / Gold
-        Color(red: 0.95, green: 0.26, blue: 0.60), // Lane 5: Hot Magenta / Pink
-        Color(red: 0.32, green: 0.66, blue: 0.98), // Lane 6: Sky Blue
-        Color(red: 0.22, green: 0.78, blue: 0.42)  // Lane 7: Mint Green
+        Color(red: 0.88, green: 0.24, blue: 0.56), // Lane 3: Hot Magenta / Pink
+        Color(red: 0.24, green: 0.58, blue: 0.96), // Lane 4: Royal Blue
+        Color(red: 0.22, green: 0.78, blue: 0.44), // Lane 5: Mint Green
+        Color(red: 0.95, green: 0.45, blue: 0.15), // Lane 6: Tangerine
+        Color(red: 0.75, green: 0.48, blue: 0.96)  // Lane 7: Lilac
     ]
 
     static func color(for lane: Int) -> Color {
@@ -652,11 +651,12 @@ enum GitTimelineColors {
     }
 }
 
-/// Renders visual git graph branches, merges, and commit nodes with orthogonal fillets and dashed branch tracks.
+/// Renders visual git graph branches, merges, and commit nodes matching VS Code's Source Control history graph.
 struct GitTimelineCanvas: View {
     let node: GitTimelineNode
     let isMerge: Bool
     var isUnpushed: Bool = false
+    var isHead: Bool = false
 
     @Environment(\.colorScheme) private var colorScheme
     private var settings: EditorSettings { .shared }
@@ -679,8 +679,7 @@ struct GitTimelineCanvas: View {
             let rowHeight: CGFloat = size.height
             let centerY: CGFloat = rowHeight / 2.0
             let nodeX = laneX(node.lane)
-            let solidStyle = StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round)
-            let dashedStyle = StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round, dash: [3.5, 2.5])
+            let solidStyle = StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round)
 
             // 1. Draw passing lines (continuous vertical tracks for active parallel branches)
             for passingLane in node.passingLanes {
@@ -691,14 +690,13 @@ struct GitTimelineCanvas: View {
                 context.stroke(path, with: .color(GitTimelineColors.color(for: passingLane)), style: solidStyle)
             }
 
-            // 2. Draw incoming line to node (solid on main trunk, dashed between branch commits, orange if unpushed)
+            // 2. Draw incoming line to node (solid vertical line from top of row to node center)
             if node.hasIncoming {
                 var path = Path()
                 path.move(to: CGPoint(x: nodeX, y: 0))
                 path.addLine(to: CGPoint(x: nodeX, y: centerY))
                 let lineColor = isUnpushed ? Color.orange : GitTimelineColors.color(for: node.lane)
-                let style = (isUnpushed || node.lane > 0) ? dashedStyle : solidStyle
-                context.stroke(path, with: .color(lineColor), style: style)
+                context.stroke(path, with: .color(lineColor), style: solidStyle)
             }
 
             // 3. Draw outgoing connections
@@ -710,15 +708,14 @@ struct GitTimelineCanvas: View {
                 path.move(to: CGPoint(x: fromX, y: centerY))
 
                 if conn.fromLane == conn.toLane {
-                    // Straight track: dashed between commits on feature branch (lane > 0) or unpushed, solid on main
+                    // Straight track downward to parent
                     path.addLine(to: CGPoint(x: toX, y: rowHeight))
                     let lineColor = isUnpushed ? Color.orange : connColor
-                    let style = (isUnpushed || conn.fromLane > 0) ? dashedStyle : solidStyle
-                    context.stroke(path, with: .color(lineColor), style: style)
+                    context.stroke(path, with: .color(lineColor), style: solidStyle)
                 } else if toX > fromX {
-                    // Branch-off curve: leaves the node horizontally to the right, then 90° circular fillet down to target lane
+                    // Branch-off curve: leaves horizontally, then rounds into target lane descending to bottom
                     let dy = rowHeight - centerY
-                    let r = min(7.5, (toX - fromX) * 0.7, dy * 0.8)
+                    let r = min(5.0, (toX - fromX) * 0.5, dy * 0.9)
                     path.addLine(to: CGPoint(x: toX - r, y: centerY))
                     path.addArc(
                         tangent1End: CGPoint(x: toX, y: centerY),
@@ -728,37 +725,44 @@ struct GitTimelineCanvas: View {
                     path.addLine(to: CGPoint(x: toX, y: rowHeight))
                     context.stroke(path, with: .color(connColor), style: solidStyle)
                 } else {
-                    // Merge-in curve: transitions from branch lane leftwards into parent lane with smooth tangent
+                    // Merge-in curve: connects branch lane smoothly into parent lane descending to bottom
                     let dy = rowHeight - centerY
                     path.addCurve(
                         to: CGPoint(x: toX, y: rowHeight),
-                        control1: CGPoint(x: fromX, y: centerY + dy * 0.6),
-                        control2: CGPoint(x: toX, y: rowHeight - dy * 0.6)
+                        control1: CGPoint(x: fromX, y: centerY + dy * 0.55),
+                        control2: CGPoint(x: toX, y: rowHeight - dy * 0.55)
                     )
                     context.stroke(path, with: .color(connColor), style: solidStyle)
                 }
             }
 
-            // 4. Draw commit node
+            // 4. Draw commit node matching VS Code's design system
             let nodeColor = isUnpushed ? Color.orange : GitTimelineColors.color(for: node.lane)
             let center = CGPoint(x: nodeX, y: centerY)
 
-            if isMerge {
-                // Merge commit node: concentric double-ring target (outer stroked ring + inner filled dot)
+            if isHead {
+                // HEAD commit node (VS Code concentric target: outer ring + inner dot)
                 let outerRect = CGRect(x: center.x - 5.5, y: center.y - 5.5, width: 11, height: 11)
                 context.fill(Path(ellipseIn: outerRect.insetBy(dx: -1.0, dy: -1.0)), with: .color(knockoutColor))
-                context.stroke(Path(ellipseIn: outerRect), with: .color(nodeColor), lineWidth: 1.75)
+                context.stroke(Path(ellipseIn: outerRect), with: .color(nodeColor), lineWidth: 1.5)
                 let innerRect = CGRect(x: center.x - 2.25, y: center.y - 2.25, width: 4.5, height: 4.5)
                 context.fill(Path(ellipseIn: innerRect), with: .color(nodeColor))
+            } else if isMerge {
+                // Merge commit node (VS Code concentric double ring)
+                let outerRect = CGRect(x: center.x - 5.5, y: center.y - 5.5, width: 11, height: 11)
+                context.fill(Path(ellipseIn: outerRect.insetBy(dx: -1.0, dy: -1.0)), with: .color(knockoutColor))
+                context.stroke(Path(ellipseIn: outerRect), with: .color(nodeColor), lineWidth: 1.5)
+                let innerRect = CGRect(x: center.x - 2.5, y: center.y - 2.5, width: 5.0, height: 5.0)
+                context.fill(Path(ellipseIn: innerRect), with: .color(nodeColor))
             } else if isUnpushed {
-                // Unpushed commit node: distinctive warm amber halo and dual accent ring
+                // Unpushed commit node (VS Code outgoing changes dashed outer circle + inner dot)
                 let outerRing = CGRect(x: center.x - 5.5, y: center.y - 5.5, width: 11, height: 11)
                 context.fill(Path(ellipseIn: outerRing.insetBy(dx: -1.0, dy: -1.0)), with: .color(knockoutColor))
-                context.stroke(Path(ellipseIn: outerRing), with: .color(Color.orange.opacity(0.85)), lineWidth: 1.5)
+                context.stroke(Path(ellipseIn: outerRing), with: .color(Color.orange.opacity(0.9)), style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
                 let dotRect = CGRect(x: center.x - 3.25, y: center.y - 3.25, width: 6.5, height: 6.5)
                 context.fill(Path(ellipseIn: dotRect), with: .color(Color.orange))
             } else {
-                // Normal commit node: solid filled circle with clear background knockout halo
+                // Normal commit node: solid circular node with clear background knockout halo
                 let haloRect = CGRect(x: center.x - 4.75, y: center.y - 4.75, width: 9.5, height: 9.5)
                 context.stroke(Path(ellipseIn: haloRect), with: .color(knockoutColor), lineWidth: 1.5)
                 let dotRect = CGRect(x: center.x - 3.75, y: center.y - 3.75, width: 7.5, height: 7.5)
@@ -770,49 +774,14 @@ struct GitTimelineCanvas: View {
 
 // MARK: - Avatar View
 
-/// Displays author profile picture according to repository remote origin (GitHub vs GitLab) with fallback badge.
+/// Displays author profile picture according to repository remote origin (GitHub, GitLab, Bitbucket, Gravatar) with fallback badge.
 struct CommitAuthorAvatarView: View {
     let authorName: String
     let authorEmail: String
     let remoteHost: RemoteHostType
+    var remoteOriginURL: String? = nil
 
     @State private var loadedImage: NSImage?
-
-    private var avatarURL: URL? {
-        let cleanEmail = authorEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let cleanName = authorName.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        switch remoteHost {
-        case .github:
-            // Noreply GitHub emails: e.g. 12345+username@users.noreply.github.com
-            if cleanEmail.contains("noreply.github.com") {
-                let local = cleanEmail.components(separatedBy: "@").first ?? ""
-                let username = local.components(separatedBy: "+").last ?? local
-                if !username.isEmpty {
-                    return URL(string: "https://github.com/\(username).png?size=96")
-                }
-            }
-            // Use GitHub username directly if single word (no spaces)
-            if !cleanName.isEmpty && !cleanName.contains(" ") {
-                return URL(string: "https://github.com/\(cleanName).png?size=96")
-            }
-            // Gravatar with 404 fallback so initials badge triggers if no match
-            return URL(string: "https://www.gravatar.com/avatar/\(cleanEmail.md5Hash)?s=96&d=404")
-
-        case .gitlab:
-            // GitLab remote origin: load from GitLab or GitLab's Gravatar service
-            if !cleanName.isEmpty && !cleanName.contains(" ") {
-                return URL(string: "https://gitlab.com/\(cleanName).png")
-            }
-            return URL(string: "https://secure.gravatar.com/avatar/\(cleanEmail.md5Hash)?s=96&d=identicon")
-
-        case .unknown:
-            if !cleanName.isEmpty && !cleanName.contains(" ") {
-                return URL(string: "https://github.com/\(cleanName).png?size=96")
-            }
-            return URL(string: "https://www.gravatar.com/avatar/\(cleanEmail.md5Hash)?s=96&d=identicon")
-        }
-    }
 
     private var initials: String {
         let trimmed = authorName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -847,17 +816,21 @@ struct CommitAuthorAvatarView: View {
             }
         }
         .onAppear {
-            if let url = avatarURL, let cached = AvatarImageCache.shared.cachedImage(for: url) {
+            if let cached = AvatarImageCache.shared.cachedAuthorAvatar(email: authorEmail, name: authorName) {
                 self.loadedImage = cached
             }
         }
-        .task(id: avatarURL) {
-            guard let url = avatarURL else { return }
-            if let cached = AvatarImageCache.shared.cachedImage(for: url) {
+        .task(id: "\(authorEmail)|\(authorName)|\(remoteOriginURL ?? "")") {
+            if let cached = AvatarImageCache.shared.cachedAuthorAvatar(email: authorEmail, name: authorName) {
                 self.loadedImage = cached
                 return
             }
-            loadedImage = await AvatarImageCache.shared.image(for: url)
+            loadedImage = await AvatarImageCache.shared.resolveAuthorAvatar(
+                authorName: authorName,
+                authorEmail: authorEmail,
+                remoteHost: remoteHost,
+                remoteOriginURL: remoteOriginURL
+            )
         }
     }
 
@@ -877,6 +850,7 @@ struct CommitAuthorAvatarView: View {
 struct CommitDetailsPopoverView: View {
     let commit: GitCommitItem
     let remoteHost: RemoteHostType
+    var remoteOriginURL: String? = nil
     var commitWebURL: URL? = nil
     var onHoverChange: (Bool) -> Void
 
@@ -889,7 +863,8 @@ struct CommitDetailsPopoverView: View {
                 CommitAuthorAvatarView(
                     authorName: commit.authorName,
                     authorEmail: commit.authorEmail,
-                    remoteHost: remoteHost
+                    remoteHost: remoteHost,
+                    remoteOriginURL: remoteOriginURL
                 )
                 .frame(width: 32, height: 32)
 

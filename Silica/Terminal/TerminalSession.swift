@@ -43,6 +43,7 @@ final class TerminalSession {
 
     @ObservationIgnored private var commandStartTime: Date?
     @ObservationIgnored private var isCommandActive = false
+    @ObservationIgnored private var wasCancelled = false
     @ObservationIgnored private var pendingCommandText = ""
 
     @ObservationIgnored private let shell: String
@@ -176,22 +177,33 @@ final class TerminalSession {
         // Check if a running command finished
         if isCommandActive, let started = commandStartTime {
             let duration = Date().timeIntervalSince(started)
-            if duration >= 1.5, let str = String(data: data, encoding: .utf8) {
-                // If prompt indicator reappears (OSC 133;D, shell prompt symbols, or carriage return before prompt)
-                let isPrompt = str.contains("\u{1b}]133;D") ||
-                    str.contains("% ") || str.contains("$ ") || str.contains("# ") ||
-                    str.contains("> ") || str.contains("❯") || str.contains("➜") ||
-                    str.contains("%") && (str.contains("\u{1b}[") || str.hasSuffix("%"))
-                if isPrompt {
+            if let str = String(data: data, encoding: .utf8) {
+                // If command was terminated midway by Ctrl+C / SIGINT
+                if wasCancelled || str.contains("^C") || str.contains("\u{1b}]133;D;130") {
+                    wasCancelled = false
                     isCommandActive = false
                     commandStartTime = nil
-                    let folderName = directory.lastPathComponent.isEmpty ? "Terminal" : directory.lastPathComponent
-                    let durStr = duration >= 60 ? String(format: "%.1fm", duration / 60) : String(format: "%.1fs", duration)
-                    let isFailure = str.contains("command not found") || str.contains("error:") || str.contains("FAILED") || str.contains("Error:") || str.contains("fatal:")
-                    let title = isFailure ? "Command Failed \(folderName)" : "Command Succeeded \(folderName)"
-                    let msg = isFailure ? "Process finished with error after \(durStr)" : "Completed in \(durStr)"
-                    DispatchQueue.main.async { [weak self] in
-                        self?.onCommandFinished?(msg, title, isFailure)
+                    return
+                }
+
+                if duration >= 1.5 {
+                    let isOSC133D = str.contains("\u{1b}]133;D")
+                    // If prompt indicator reappears (OSC 133;D, shell prompt symbols, or carriage return before prompt)
+                    let isPrompt = isOSC133D ||
+                        str.contains("% ") || str.contains("$ ") || str.contains("# ") ||
+                        str.contains("> ") || str.contains("❯") || str.contains("➜") ||
+                        str.contains("%") && (str.contains("\u{1b}[") || str.hasSuffix("%"))
+                    if isPrompt {
+                        isCommandActive = false
+                        commandStartTime = nil
+                        let folderName = directory.lastPathComponent.isEmpty ? "Terminal" : directory.lastPathComponent
+                        let durStr = duration >= 60 ? String(format: "%.1fm", duration / 60) : String(format: "%.1fs", duration)
+                        let isFailure = str.contains("command not found") || str.contains("error:") || str.contains("FAILED") || str.contains("Error:") || str.contains("fatal:") || (isOSC133D && !str.contains("\u{1b}]133;D;0") && !str.contains("\u{1b}]133;D\u{07}") && !str.contains("\u{1b}]133;D\u{1b}\\"))
+                        let title = isFailure ? "Command Failed \(folderName)" : "Command Succeeded \(folderName)"
+                        let msg = isFailure ? "Process finished with error after \(durStr)" : "Completed in \(durStr)"
+                        DispatchQueue.main.async { [weak self] in
+                            self?.onCommandFinished?(msg, title, isFailure)
+                        }
                     }
                 }
             }
@@ -256,12 +268,18 @@ final class TerminalSession {
 
     /// Sends bytes to the shell as if typed.
     func send(_ data: Data) {
-        if let str = String(data: data, encoding: .utf8) {
+        if data.contains(0x03) {
+            wasCancelled = true
+            isCommandActive = false
+            commandStartTime = nil
+            pendingCommandText = ""
+        } else if let str = String(data: data, encoding: .utf8) {
             if str.contains("\r") || str.contains("\n") {
                 let trimmed = pendingCommandText.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
                     commandStartTime = Date()
                     isCommandActive = true
+                    wasCancelled = false
                 }
                 pendingCommandText = ""
             } else {

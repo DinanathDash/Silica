@@ -80,8 +80,233 @@ final class AvatarImageCache {
         return result
     }
 
+    /// Fast synchronous memory-only hit for author avatar
+    func cachedAuthorAvatar(email: String, name: String) -> NSImage? {
+        let key = authorKey(email: email, name: name) as NSString
+        return memoryCache.object(forKey: key)
+    }
+
+    private func authorKey(email: String, name: String) -> String {
+        let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return cleanEmail.isEmpty ? cleanName : cleanEmail
+    }
+
+    /// Resolves author avatar from repository host platform (GitLab, GitHub, Bitbucket, Gravatar, etc.)
+    func resolveAuthorAvatar(
+        authorName: String,
+        authorEmail: String,
+        remoteHost: RemoteHostType,
+        remoteOriginURL: String?
+    ) async -> NSImage? {
+        let key = authorKey(email: authorEmail, name: authorName)
+        guard !key.isEmpty else { return nil }
+
+        if let mem = memoryCache.object(forKey: key as NSString) {
+            return mem
+        }
+
+        if let ongoing = inFlight[key] {
+            return await ongoing.value
+        }
+
+        let task = Task<NSImage?, Never>.detached(priority: .userInitiated) { [weak self] in
+            guard let self else { return nil }
+            let path = self.fileURL(for: key)
+            if let data = try? Data(contentsOf: path), let img = NSImage(data: data) {
+                return img
+            }
+
+            let candidates = await self.candidateAvatarURLs(
+                name: authorName,
+                email: authorEmail,
+                remoteHost: remoteHost,
+                remoteOriginURL: remoteOriginURL
+            )
+
+            for url in candidates {
+                if let rawImg = await self.fetchAndProcessImage(from: url) {
+                    let finalImg = self.compressAndDownscale(rawImage: rawImg)
+                    if let finalData = finalImg {
+                        try? finalData.write(to: path, options: .atomic)
+                        self.pruneDiskCacheIfNeeded()
+                        return NSImage(data: finalData)
+                    }
+                    return rawImg
+                }
+            }
+
+            return nil
+        }
+
+        inFlight[key] = task
+        defer { inFlight.removeValue(forKey: key) }
+        let result = await task.value
+
+        if let result {
+            let cost = Int(result.size.width * result.size.height * 4)
+            memoryCache.setObject(result, forKey: key as NSString, cost: cost)
+        }
+        return result
+    }
+
+    nonisolated private func parseHost(from remoteOrigin: String?) -> String? {
+        guard let remote = remoteOrigin?.trimmingCharacters(in: .whitespacesAndNewlines), !remote.isEmpty else { return nil }
+        if let atIdx = remote.firstIndex(of: "@"), let colonIdx = remote.firstIndex(of: ":"), atIdx < colonIdx {
+            let hostPart = String(remote[remote.index(after: atIdx)..<colonIdx])
+            if !hostPart.isEmpty { return hostPart.lowercased() }
+        }
+        if let url = URL(string: remote), let host = url.host {
+            return host.lowercased()
+        }
+        return nil
+    }
+
+    nonisolated private func candidateAvatarURLs(
+        name: String,
+        email: String,
+        remoteHost: RemoteHostType,
+        remoteOriginURL: String?
+    ) async -> [URL] {
+        let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsedHost = parseHost(from: remoteOriginURL)
+        let host = parsedHost ?? (remoteHost == .gitlab ? "gitlab.com" : (remoteHost == .github ? "github.com" : nil))
+
+        var candidates: [URL] = []
+
+        let isGitLab = remoteHost == .gitlab || (host?.contains("gitlab") ?? false)
+        let isGitHub = remoteHost == .github || (host?.contains("github") ?? false)
+        let isBitbucket = (host?.contains("bitbucket") ?? false)
+
+        if isGitLab {
+            let gitlabHost = host ?? "gitlab.com"
+            var glUsername: String?
+            if cleanEmail.contains("noreply.gitlab.com") || cleanEmail.contains("gitlab") {
+                let local = cleanEmail.components(separatedBy: "@").first ?? ""
+                let parts = local.components(separatedBy: "-")
+                glUsername = parts.count > 1 ? parts.last : local
+            } else if !cleanName.isEmpty && !cleanName.contains(" ") {
+                glUsername = cleanName
+            }
+
+            if let username = glUsername, !username.isEmpty,
+               let apiURL = URL(string: "https://\(gitlabHost)/api/v4/users?username=\(username.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? username)") {
+                if let avatar = await fetchGitLabAvatarFromJSON(apiURL: apiURL) {
+                    candidates.append(avatar)
+                }
+            }
+
+            if !cleanEmail.isEmpty,
+               let apiURL = URL(string: "https://\(gitlabHost)/api/v4/avatar?email=\(cleanEmail.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? cleanEmail)&size=96") {
+                if let avatar = await fetchGitLabAvatarFromJSON(apiURL: apiURL) {
+                    candidates.append(avatar)
+                }
+            }
+
+            if !cleanEmail.isEmpty {
+                if let url = URL(string: "https://secure.gravatar.com/avatar/\(cleanEmail.md5Hash)?s=96&d=404") {
+                    candidates.append(url)
+                }
+                if let url = URL(string: "https://seccdn.libravatar.org/avatar/\(cleanEmail.md5Hash)?s=96&d=404") {
+                    candidates.append(url)
+                }
+            }
+        } else if isGitHub {
+            if cleanEmail.contains("noreply.github.com") {
+                let local = cleanEmail.components(separatedBy: "@").first ?? ""
+                let username = local.components(separatedBy: "+").last ?? local
+                if !username.isEmpty, let url = URL(string: "https://github.com/\(username).png?size=96") {
+                    candidates.append(url)
+                }
+            }
+            if !cleanName.isEmpty && !cleanName.contains(" "),
+               let url = URL(string: "https://github.com/\(cleanName).png?size=96") {
+                candidates.append(url)
+            }
+            if !cleanEmail.isEmpty {
+                if let url = URL(string: "https://www.gravatar.com/avatar/\(cleanEmail.md5Hash)?s=96&d=404") {
+                    candidates.append(url)
+                }
+                if let url = URL(string: "https://seccdn.libravatar.org/avatar/\(cleanEmail.md5Hash)?s=96&d=404") {
+                    candidates.append(url)
+                }
+            }
+        } else if isBitbucket {
+            if !cleanName.isEmpty && !cleanName.contains(" "),
+               let url = URL(string: "https://bitbucket.org/account/\(cleanName)/avatar/96/") {
+                candidates.append(url)
+            }
+            if !cleanEmail.isEmpty {
+                if let url = URL(string: "https://www.gravatar.com/avatar/\(cleanEmail.md5Hash)?s=96&d=404") {
+                    candidates.append(url)
+                }
+            }
+        } else {
+            // Self-hosted, Codeberg, Gitea, or generic git repo
+            if let host, !host.isEmpty, !cleanEmail.isEmpty {
+                if let url = URL(string: "https://\(host)/avatar/\(cleanEmail.md5Hash)?size=96") {
+                    candidates.append(url)
+                }
+            }
+            if !cleanEmail.isEmpty {
+                if let url = URL(string: "https://www.gravatar.com/avatar/\(cleanEmail.md5Hash)?s=96&d=404") {
+                    candidates.append(url)
+                }
+                if let url = URL(string: "https://seccdn.libravatar.org/avatar/\(cleanEmail.md5Hash)?s=96&d=404") {
+                    candidates.append(url)
+                }
+            }
+            if !cleanName.isEmpty && !cleanName.contains(" ") && cleanEmail.contains("github"),
+               let url = URL(string: "https://github.com/\(cleanName).png?size=96") {
+                candidates.append(url)
+            }
+        }
+
+        return candidates
+    }
+
+    nonisolated private func fetchGitLabAvatarFromJSON(apiURL: URL) async -> URL? {
+        var req = URLRequest(url: apiURL)
+        req.timeoutInterval = 3
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
+            return nil
+        }
+        if let jsonDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let avatarStr = jsonDict["avatar_url"] as? String,
+           let url = URL(string: avatarStr) {
+            return url
+        }
+        if let jsonArr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+           let first = jsonArr.first,
+           let avatarStr = first["avatar_url"] as? String,
+           let url = URL(string: avatarStr) {
+            return url
+        }
+        return nil
+    }
+
+    nonisolated private func fetchAndProcessImage(from url: URL) async -> NSImage? {
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 3
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse,
+              http.statusCode == 200,
+              let mime = http.mimeType?.lowercased(),
+              mime.hasPrefix("image/"),
+              let img = NSImage(data: data) else {
+            return nil
+        }
+        return img
+    }
+
     nonisolated private func fileURL(for url: URL) -> URL {
-        let hash = Insecure.MD5.hash(data: Data(url.absoluteString.utf8)).map { String(format: "%02hhx", $0) }.joined()
+        fileURL(for: url.absoluteString)
+    }
+
+    nonisolated private func fileURL(for key: String) -> URL {
+        let hash = Insecure.MD5.hash(data: Data(key.utf8)).map { String(format: "%02hhx", $0) }.joined()
         return diskCacheURL.appendingPathComponent("\(hash).jpg")
     }
 

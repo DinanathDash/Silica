@@ -586,7 +586,13 @@ final class SourceControlModel {
             }
         }
 
-        self.commits = computeTimeline(from: rawList, unpushedHashes: unpushedHashes)
+        var headHash: String?
+        let headRes = await runner.run(arguments: ["rev-parse", "HEAD"], in: rootURL)
+        if headRes.isSuccess {
+            headHash = headRes.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        self.commits = computeTimeline(from: rawList, unpushedHashes: unpushedHashes, headHash: headHash)
     }
 
     func loadMoreCommits() async {
@@ -650,8 +656,8 @@ final class SourceControlModel {
         return (files, additions, deletions)
     }
 
-    private func computeTimeline(from rawCommits: [RawCommitData], unpushedHashes: Set<String> = []) -> [GitCommitItem] {
-        let maxAllowedLanes = 4
+    private func computeTimeline(from rawCommits: [RawCommitData], unpushedHashes: Set<String> = [], headHash: String? = nil) -> [GitCommitItem] {
+        let maxAllowedLanes = 12
         var activeLanes: [String?] = []
         var items: [GitCommitItem] = []
 
@@ -693,7 +699,7 @@ final class SourceControlModel {
                     outgoing.append(.init(fromLane: clampedLane, toLane: clampedLane))
                 }
             } else {
-                // Merge commit with multiple parents
+                // Merge commit with multiple parents (matching VS Code)
                 let p0 = raw.parentHashes[0]
                 if let targetLane = activeLanes.firstIndex(of: p0), targetLane != lane {
                     outgoing.append(.init(fromLane: clampedLane, toLane: min(targetLane, maxAllowedLanes - 1)))
@@ -749,7 +755,8 @@ final class SourceControlModel {
                 additions: raw.additions,
                 deletions: raw.deletions,
                 timelineNode: node,
-                isUnpushed: unpushedHashes.contains(raw.hash)
+                isUnpushed: unpushedHashes.contains(raw.hash),
+                isHead: raw.hash == headHash
             ))
         }
 

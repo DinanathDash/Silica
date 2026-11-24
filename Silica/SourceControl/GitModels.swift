@@ -187,6 +187,7 @@ struct GitCommitItem: Identifiable, Hashable, Sendable {
     let deletions: Int
     var timelineNode: GitTimelineNode
     var isUnpushed: Bool = false
+    var isHead: Bool = false
 
     var isMerge: Bool { parentHashes.count > 1 }
     var isRoot: Bool { parentHashes.isEmpty }
@@ -212,6 +213,11 @@ struct GitCommitItem: Identifiable, Hashable, Sendable {
 extension String {
     var md5Hash: String {
         let digest = Insecure.MD5.hash(data: Data(self.utf8))
+        return digest.map { String(format: "%02hhx", $0) }.joined()
+    }
+
+    var sha256Hash: String {
+        let digest = SHA256.hash(data: Data(self.utf8))
         return digest.map { String(format: "%02hhx", $0) }.joined()
     }
 }
