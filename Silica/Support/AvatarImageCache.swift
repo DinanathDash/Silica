@@ -81,15 +81,16 @@ final class AvatarImageCache {
     }
 
     /// Fast synchronous memory-only hit for author avatar
-    func cachedAuthorAvatar(email: String, name: String) -> NSImage? {
-        let key = authorKey(email: email, name: name) as NSString
+    func cachedAuthorAvatar(email: String, name: String, remoteHost: RemoteHostType = .unknown) -> NSImage? {
+        let key = authorKey(email: email, name: name, host: remoteHost) as NSString
         return memoryCache.object(forKey: key)
     }
 
-    private func authorKey(email: String, name: String) -> String {
+    private func authorKey(email: String, name: String, host: RemoteHostType = .unknown) -> String {
         let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return cleanEmail.isEmpty ? cleanName : cleanEmail
+        let id = cleanEmail.isEmpty ? cleanName : cleanEmail
+        return "\(host.rawValue):\(id)"
     }
 
     /// Resolves author avatar from repository host platform (GitLab, GitHub, Bitbucket, Gravatar, etc.)
@@ -99,7 +100,7 @@ final class AvatarImageCache {
         remoteHost: RemoteHostType,
         remoteOriginURL: String?
     ) async -> NSImage? {
-        let key = authorKey(email: authorEmail, name: authorName)
+        let key = authorKey(email: authorEmail, name: authorName, host: remoteHost)
         guard !key.isEmpty else { return nil }
 
         if let mem = memoryCache.object(forKey: key as NSString) {

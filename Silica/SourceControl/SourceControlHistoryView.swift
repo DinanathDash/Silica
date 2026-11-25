@@ -40,20 +40,26 @@ struct SourceControlHistoryView: View {
                 searchBar
 
                 Menu {
-                    Button("Current (\(model.branchName ?? "HEAD"))") {
+                    Button("All Branches (Graph)") {
                         Task { await model.setHistoryBranch(nil) }
+                    }
+                    Divider()
+                    Button("Current (\(model.branchName ?? "HEAD"))") {
+                        Task { await model.setHistoryBranch(model.branchName ?? "HEAD") }
                     }
                     if !model.branches.isEmpty {
                         Divider()
                         ForEach(model.branches) { branch in
-                            Button(branch.name) {
-                                Task { await model.setHistoryBranch(branch.name) }
+                            if branch.name != (model.branchName ?? "HEAD") {
+                                Button(branch.name) {
+                                    Task { await model.setHistoryBranch(branch.name) }
+                                }
                             }
                         }
                     }
                 } label: {
                     HStack(spacing: 4) {
-                        Text(model.historyBranch ?? "Current (\(model.branchName ?? "HEAD"))")
+                        Text(model.historyBranch ?? "All Branches")
                             .font(.system(size: settings.sidebarFontSize))
                             .lineLimit(1)
                         Spacer(minLength: 2)
@@ -284,21 +290,33 @@ struct SourceControlHistoryView: View {
 
     // MARK: - Timeline Row
 
+    private var timelineGutterWidth: CGFloat {
+        let maxLane = model.commits.map(\.timelineNode.maxLanes).max() ?? 1
+        return max(26, CGFloat(max(1, maxLane) + 1) * 14 + 4)
+    }
+
     private func commitTimelineRow(commit: GitCommitItem) -> some View {
         let isCurrentPopover = activePopoverCommitID == commit.id
         let rowHeight = max(24, settings.sidebarFontSize + 13)
-        // Dynamic row width: sizes tightly to the maximum active lane in this specific row, eliminating dead space
-        let rowCanvasWidth = CGFloat(commit.timelineNode.rowMaxLane + 1) * 12 + 6
 
         return HStack(spacing: 5) {
-            // Visual Git timeline graph with natural Bézier physics
+            // Visual Git timeline graph with uniform column gutter matching VS Code
             GitTimelineCanvas(
                 node: commit.timelineNode,
                 isMerge: commit.isMerge,
                 isUnpushed: commit.isUnpushed,
                 isHead: commit.isHead
             )
-            .frame(width: rowCanvasWidth, height: rowHeight)
+            .frame(width: timelineGutterWidth, height: rowHeight)
+
+            // Ref badges (branches, tags, HEAD) inline next to graph - matching VS Code
+            if !commit.refDecorations.isEmpty {
+                HStack(spacing: 3) {
+                    ForEach(commit.refDecorations) { ref in
+                        GitRefBadgeView(ref: ref)
+                    }
+                }
+            }
 
             // Commit summary with trailing dots for long messages
             Text(commit.summary)
@@ -474,7 +492,7 @@ struct SourceControlHistoryView: View {
 
     private func commitFilesList(commit: GitCommitItem) -> some View {
         let activeLanes = continuingLanes(for: commit)
-        let rowCanvasWidth = CGFloat(commit.timelineNode.rowMaxLane + 1) * 12 + 6
+        let rowCanvasWidth = timelineGutterWidth
         let fileRowHeight = max(22, settings.sidebarFontSize + 9)
 
         return VStack(alignment: .leading, spacing: 0) {
@@ -605,13 +623,69 @@ struct SourceControlHistoryView: View {
     }
 }
 
+// MARK: - Git Ref Badge
+
+/// Compact branch, HEAD, or tag badge matching VS Code's inline graph ref labels.
+struct GitRefBadgeView: View {
+    let ref: GitRefDecoration
+
+    var body: some View {
+        HStack(spacing: 2.5) {
+            Image(systemName: iconName)
+                .font(.system(size: 7.5, weight: .bold))
+            Text(ref.displayName)
+                .font(.system(size: 8.5, weight: .semibold))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 1)
+        .background(badgeColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 3.5, style: .continuous))
+        .foregroundStyle(badgeColor)
+        .overlay(
+            RoundedRectangle(cornerRadius: 3.5, style: .continuous)
+                .stroke(badgeColor.opacity(0.28), lineWidth: 0.5)
+        )
+        .liquidGlassTooltip(tooltipText)
+    }
+
+    private var iconName: String {
+        switch ref.type {
+        case .head: return "arrow.triangle.branch"
+        case .detachedHead: return "circle.circle"
+        case .localBranch: return "arrow.triangle.branch"
+        case .remoteBranch: return "cloud"
+        case .tag: return "tag.fill"
+        }
+    }
+
+    private var badgeColor: Color {
+        switch ref.type {
+        case .head: return .green
+        case .detachedHead: return .yellow
+        case .localBranch: return Color(red: 0.35, green: 0.60, blue: 0.98)
+        case .remoteBranch: return Color(red: 0.65, green: 0.45, blue: 0.95)
+        case .tag: return Color(red: 0.95, green: 0.65, blue: 0.15)
+        }
+    }
+
+    private var tooltipText: String {
+        switch ref.type {
+        case .head(let b): return "HEAD -> \(b)"
+        case .detachedHead: return "HEAD (detached)"
+        case .localBranch(let b): return "Branch: \(b)"
+        case .remoteBranch(let b): return "Remote tracking: \(b)"
+        case .tag(let t): return "Tag: \(t)"
+        }
+    }
+}
+
 /// Continuous vertical timeline track running through expanded commit file rows so the line never breaks.
 struct TimelineContinuationTrack: View {
     let lanes: Set<Int>
     let width: CGFloat
 
     private func laneX(_ lane: Int) -> CGFloat {
-        CGFloat(lane) * 12 + 8
+        CGFloat(lane) * 14 + 10
     }
 
     var body: some View {
@@ -636,14 +710,14 @@ struct TimelineContinuationTrack: View {
 enum GitTimelineColors {
     // High-contrast timeline palette matching VS Code & modern Git graphs:
     static let palette: [Color] = [
-        Color(red: 0.62, green: 0.42, blue: 0.94), // Lane 0: Indigo / Purple
-        Color(red: 0.96, green: 0.64, blue: 0.12), // Lane 1: Warm Amber / Gold
-        Color(red: 0.16, green: 0.74, blue: 0.68), // Lane 2: Bright Teal / Cyan
-        Color(red: 0.88, green: 0.24, blue: 0.56), // Lane 3: Hot Magenta / Pink
-        Color(red: 0.24, green: 0.58, blue: 0.96), // Lane 4: Royal Blue
-        Color(red: 0.22, green: 0.78, blue: 0.44), // Lane 5: Mint Green
-        Color(red: 0.95, green: 0.45, blue: 0.15), // Lane 6: Tangerine
-        Color(red: 0.75, green: 0.48, blue: 0.96)  // Lane 7: Lilac
+        Color(red: 0.22, green: 0.58, blue: 0.98), // Lane 0: Dodger Blue (VS Code primary trunk)
+        Color(red: 0.88, green: 0.24, blue: 0.56), // Lane 1: Hot Magenta / Pink
+        Color(red: 0.96, green: 0.60, blue: 0.14), // Lane 2: Warm Amber / Gold
+        Color(red: 0.12, green: 0.74, blue: 0.68), // Lane 3: Vibrant Teal / Cyan
+        Color(red: 0.62, green: 0.40, blue: 0.92), // Lane 4: Purple / Violet
+        Color(red: 0.24, green: 0.75, blue: 0.42), // Lane 5: Mint Green
+        Color(red: 0.94, green: 0.35, blue: 0.35), // Lane 6: Crimson / Coral
+        Color(red: 0.95, green: 0.75, blue: 0.20)  // Lane 7: Sunflower Yellow
     ]
 
     static func color(for lane: Int) -> Color {
@@ -662,7 +736,7 @@ struct GitTimelineCanvas: View {
     private var settings: EditorSettings { .shared }
 
     private func laneX(_ lane: Int) -> CGFloat {
-        CGFloat(lane) * 12 + 8
+        CGFloat(lane) * 14 + 10
     }
 
     var body: some View {
@@ -690,7 +764,20 @@ struct GitTimelineCanvas: View {
                 context.stroke(path, with: .color(GitTimelineColors.color(for: passingLane)), style: solidStyle)
             }
 
-            // 2. Draw incoming line to node (solid vertical line from top of row to node center)
+            // 2. Incoming merge curves (branches joining into this node from top)
+            for mergeLane in node.incomingMergeLanes {
+                let fromX = laneX(mergeLane)
+                var path = Path()
+                path.move(to: CGPoint(x: fromX, y: 0))
+                path.addCurve(
+                    to: CGPoint(x: nodeX, y: centerY),
+                    control1: CGPoint(x: fromX, y: centerY * 0.55),
+                    control2: CGPoint(x: nodeX, y: centerY * 0.45)
+                )
+                context.stroke(path, with: .color(GitTimelineColors.color(for: mergeLane)), style: solidStyle)
+            }
+
+            // 3. Draw direct incoming line to node (solid vertical line from top of row to node center)
             if node.hasIncoming {
                 var path = Path()
                 path.move(to: CGPoint(x: nodeX, y: 0))
@@ -699,11 +786,11 @@ struct GitTimelineCanvas: View {
                 context.stroke(path, with: .color(lineColor), style: solidStyle)
             }
 
-            // 3. Draw outgoing connections
+            // 4. Draw outgoing connections downward
             for conn in node.outgoingConnections {
                 let fromX = laneX(conn.fromLane)
                 let toX = laneX(conn.toLane)
-                let connColor = GitTimelineColors.color(for: conn.toLane)
+                let connColor = GitTimelineColors.color(for: conn.colorLane)
                 var path = Path()
                 path.move(to: CGPoint(x: fromX, y: centerY))
 
@@ -712,25 +799,12 @@ struct GitTimelineCanvas: View {
                     path.addLine(to: CGPoint(x: toX, y: rowHeight))
                     let lineColor = isUnpushed ? Color.orange : connColor
                     context.stroke(path, with: .color(lineColor), style: solidStyle)
-                } else if toX > fromX {
-                    // Branch-off curve: leaves horizontally, then rounds into target lane descending to bottom
-                    let dy = rowHeight - centerY
-                    let r = min(5.0, (toX - fromX) * 0.5, dy * 0.9)
-                    path.addLine(to: CGPoint(x: toX - r, y: centerY))
-                    path.addArc(
-                        tangent1End: CGPoint(x: toX, y: centerY),
-                        tangent2End: CGPoint(x: toX, y: rowHeight),
-                        radius: r
-                    )
-                    path.addLine(to: CGPoint(x: toX, y: rowHeight))
-                    context.stroke(path, with: .color(connColor), style: solidStyle)
                 } else {
-                    // Merge-in curve: connects branch lane smoothly into parent lane descending to bottom
                     let dy = rowHeight - centerY
                     path.addCurve(
                         to: CGPoint(x: toX, y: rowHeight),
                         control1: CGPoint(x: fromX, y: centerY + dy * 0.55),
-                        control2: CGPoint(x: toX, y: rowHeight - dy * 0.55)
+                        control2: CGPoint(x: toX, y: rowHeight - dy * 0.45)
                     )
                     context.stroke(path, with: .color(connColor), style: solidStyle)
                 }
@@ -816,12 +890,12 @@ struct CommitAuthorAvatarView: View {
             }
         }
         .onAppear {
-            if let cached = AvatarImageCache.shared.cachedAuthorAvatar(email: authorEmail, name: authorName) {
+            if let cached = AvatarImageCache.shared.cachedAuthorAvatar(email: authorEmail, name: authorName, remoteHost: remoteHost) {
                 self.loadedImage = cached
             }
         }
-        .task(id: "\(authorEmail)|\(authorName)|\(remoteOriginURL ?? "")") {
-            if let cached = AvatarImageCache.shared.cachedAuthorAvatar(email: authorEmail, name: authorName) {
+        .task(id: "\(authorEmail)|\(authorName)|\(remoteHost.rawValue)|\(remoteOriginURL ?? "")") {
+            if let cached = AvatarImageCache.shared.cachedAuthorAvatar(email: authorEmail, name: authorName, remoteHost: remoteHost) {
                 self.loadedImage = cached
                 return
             }
@@ -900,6 +974,15 @@ struct CommitDetailsPopoverView: View {
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
                     .background(Color.orange.opacity(0.12), in: Capsule())
+                }
+            }
+
+            // Ref badges (branches, tags, HEAD) - matching VS Code
+            if !commit.refDecorations.isEmpty {
+                HStack(spacing: 4) {
+                    ForEach(commit.refDecorations) { ref in
+                        GitRefBadgeView(ref: ref)
+                    }
                 }
             }
 

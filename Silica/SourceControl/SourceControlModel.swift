@@ -508,6 +508,7 @@ final class SourceControlModel {
         let hash: String
         let shortHash: String
         let parentHashes: [String]
+        let refDecorations: [GitRefDecoration]
         let authorName: String
         let authorEmail: String
         let date: Date
@@ -530,11 +531,13 @@ final class SourceControlModel {
     private func loadCommits() async {
         let fetchCount = currentCommitLimit + 1
         var args = [
-            "log", "-n", "\(fetchCount)", "--diff-merges=1", "--shortstat",
-            "--pretty=format:\u{1e}%H\u{1f}%h\u{1f}%P\u{1f}%an\u{1f}%ae\u{1f}%at\u{1f}%s\u{1f}%b\u{1f}"
+            "log", "-n", "\(fetchCount)", "--topo-order", "--diff-merges=1", "--shortstat",
+            "--pretty=format:\u{1e}%H\u{1f}%h\u{1f}%P\u{1f}%D\u{1f}%an\u{1f}%ae\u{1f}%at\u{1f}%s\u{1f}%b\u{1f}"
         ]
-        if let target = historyBranch, !target.isEmpty {
+        if let target = historyBranch, !target.isEmpty, target != "all" {
             args.insert(target, at: 1)
+        } else {
+            args.insert(contentsOf: ["--branches", "--tags", "--remotes", "HEAD"], at: 1)
         }
         let result = await runner.run(arguments: args, in: rootURL)
         guard result.isSuccess else { return }
@@ -546,25 +549,32 @@ final class SourceControlModel {
         for (index, record) in records.enumerated() {
             guard index < currentCommitLimit else { break }
             let fields = record.split(separator: "\u{1f}", omittingEmptySubsequences: false)
-            guard fields.count >= 8 else { continue }
+            guard fields.count >= 9 else { continue }
 
             let hash = String(fields[0]).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !hash.isEmpty else { continue }
             let shortHash = String(fields[1]).trimmingCharacters(in: .whitespacesAndNewlines)
             let parentHashes = fields[2].split(separator: " ").map(String.init)
-            let authorName = String(fields[3]).trimmingCharacters(in: .whitespacesAndNewlines)
-            let authorEmail = String(fields[4]).trimmingCharacters(in: .whitespacesAndNewlines)
-            let timestamp = Double(fields[5].trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
-            let summary = String(fields[6]).trimmingCharacters(in: .whitespacesAndNewlines)
-            let body = String(fields[7]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let refDecorations = GitRefDecoration.parse(String(fields[3]))
+            let authorName = String(fields[4]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let authorEmail = String(fields[5]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let timestamp = Double(fields[6].trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+            let summary = String(fields[7]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let body = String(fields[8]).trimmingCharacters(in: .whitespacesAndNewlines)
 
-            let statString = fields.count > 8 ? String(fields[8]) : ""
+            // Exclude internal tooling checkpoint commits
+            if summary.contains("Droppy Code checkpoint") || refDecorations.contains(where: { $0.rawName.contains("droppy-code") }) {
+                continue
+            }
+
+            let statString = fields.count > 9 ? String(fields[9]) : ""
             let stats = parseDiffStats(statString)
 
             rawList.append(RawCommitData(
                 hash: hash,
                 shortHash: shortHash,
                 parentHashes: parentHashes,
+                refDecorations: refDecorations,
                 authorName: authorName,
                 authorEmail: authorEmail,
                 date: Date(timeIntervalSince1970: timestamp),
@@ -657,17 +667,27 @@ final class SourceControlModel {
     }
 
     private func computeTimeline(from rawCommits: [RawCommitData], unpushedHashes: Set<String> = [], headHash: String? = nil) -> [GitCommitItem] {
-        let maxAllowedLanes = 12
+        let maxAllowedLanes = 16
         var activeLanes: [String?] = []
         var items: [GitCommitItem] = []
 
-        for (index, raw) in rawCommits.enumerated() {
+        for raw in rawCommits {
             let lane: Int
             let hadIncoming: Bool
+            var incomingMergeLanes: [Int] = []
 
-            if let existingIndex = activeLanes.firstIndex(of: raw.hash) {
-                lane = existingIndex
+            // 1. Locate all lanes expecting this commit
+            let matchingIndices = activeLanes.indices.filter { activeLanes[$0] == raw.hash }
+
+            if !matchingIndices.isEmpty {
+                lane = matchingIndices[0]
                 hadIncoming = true
+                if matchingIndices.count > 1 {
+                    for mergeIdx in matchingIndices.dropFirst() {
+                        incomingMergeLanes.append(min(mergeIdx, maxAllowedLanes - 1))
+                        activeLanes[mergeIdx] = nil // Freed as it joins into this node
+                    }
+                }
             } else {
                 if let freeIndex = activeLanes.firstIndex(of: nil) {
                     lane = freeIndex
@@ -675,77 +695,79 @@ final class SourceControlModel {
                     lane = activeLanes.count
                     activeLanes.append(nil)
                 }
-                hadIncoming = index > 0 && lane < activeLanes.count
+                hadIncoming = false
             }
 
             let clampedLane = min(lane, maxAllowedLanes - 1)
 
+            // 2. Passing lanes: active tracks neither consumed nor joined
             var passingLanes: [Int] = []
-            for (i, target) in activeLanes.enumerated() where i != lane && target != nil {
+            for (i, target) in activeLanes.enumerated() where i != lane && target != nil && !matchingIndices.contains(i) {
                 passingLanes.append(min(i, maxAllowedLanes - 1))
             }
 
+            // 3. Outgoing connections to parents
             var outgoing: [GitTimelineNode.Connection] = []
 
             if raw.parentHashes.isEmpty {
+                // Root commit ends this track
                 activeLanes[lane] = nil
             } else if raw.parentHashes.count == 1 {
                 let p0 = raw.parentHashes[0]
-                if let targetLane = activeLanes.firstIndex(of: p0), targetLane != lane {
-                    outgoing.append(.init(fromLane: clampedLane, toLane: min(targetLane, maxAllowedLanes - 1)))
-                    activeLanes[lane] = nil
-                } else {
-                    activeLanes[lane] = p0
-                    outgoing.append(.init(fromLane: clampedLane, toLane: clampedLane))
-                }
+                activeLanes[lane] = p0
+                outgoing.append(.init(fromLane: clampedLane, toLane: clampedLane, colorLane: clampedLane))
             } else {
-                // Merge commit with multiple parents (matching VS Code)
+                // Merge commit with 2 or more parents (P0 = trunk / continued branch, P1..Pn = incoming branches)
                 let p0 = raw.parentHashes[0]
-                if let targetLane = activeLanes.firstIndex(of: p0), targetLane != lane {
-                    outgoing.append(.init(fromLane: clampedLane, toLane: min(targetLane, maxAllowedLanes - 1)))
-                    activeLanes[lane] = nil
-                } else {
-                    activeLanes[lane] = p0
-                    outgoing.append(.init(fromLane: clampedLane, toLane: clampedLane))
-                }
+                activeLanes[lane] = p0
+                outgoing.append(.init(fromLane: clampedLane, toLane: clampedLane, colorLane: clampedLane))
 
                 for pk in raw.parentHashes.dropFirst() {
                     if let targetLane = activeLanes.firstIndex(of: pk) {
-                        outgoing.append(.init(fromLane: clampedLane, toLane: min(targetLane, maxAllowedLanes - 1)))
+                        outgoing.append(.init(fromLane: clampedLane, toLane: min(targetLane, maxAllowedLanes - 1), colorLane: min(targetLane, maxAllowedLanes - 1)))
                     } else {
-                        let newLane: Int
-                        if let free = activeLanes.firstIndex(of: nil) {
-                            newLane = free
-                            activeLanes[free] = pk
-                        } else {
+                        // Always allocate auxiliary branch lanes to the right of the current lane
+                        var newLane = -1
+                        for i in (clampedLane + 1)..<activeLanes.count {
+                            if activeLanes[i] == nil {
+                                newLane = i
+                                break
+                            }
+                        }
+                        if newLane == -1 {
                             newLane = activeLanes.count
                             activeLanes.append(pk)
+                        } else {
+                            activeLanes[newLane] = pk
                         }
-                        outgoing.append(.init(fromLane: clampedLane, toLane: min(newLane, maxAllowedLanes - 1)))
+                        let targetClamped = min(newLane, maxAllowedLanes - 1)
+                        outgoing.append(.init(fromLane: clampedLane, toLane: targetClamped, colorLane: targetClamped))
                     }
                 }
             }
 
+            // 4. Compact trailing empty slots
             while activeLanes.last == Optional<String>.none {
                 activeLanes.removeLast()
             }
 
-            let allLanesInRow = [clampedLane] + passingLanes + outgoing.map(\.toLane) + outgoing.map(\.fromLane)
-            let rowMaxLane = allLanesInRow.max() ?? clampedLane
+            let allLanesInRow = [clampedLane] + passingLanes + incomingMergeLanes + outgoing.map(\.toLane) + outgoing.map(\.fromLane)
+            let maxLane = min(allLanesInRow.max() ?? clampedLane, maxAllowedLanes - 1)
 
             let node = GitTimelineNode(
                 lane: clampedLane,
                 hasIncoming: hadIncoming,
+                incomingMergeLanes: Array(Set(incomingMergeLanes)).sorted(),
                 outgoingConnections: outgoing,
                 passingLanes: Array(Set(passingLanes)).sorted(),
-                maxLanes: min(max(1, activeLanes.count), maxAllowedLanes),
-                rowMaxLane: rowMaxLane
+                maxLanes: maxLane
             )
 
             items.append(GitCommitItem(
                 hash: raw.hash,
                 shortHash: raw.shortHash,
                 parentHashes: raw.parentHashes,
+                refDecorations: raw.refDecorations,
                 authorName: raw.authorName,
                 authorEmail: raw.authorEmail,
                 date: raw.date,

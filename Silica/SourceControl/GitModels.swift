@@ -150,10 +150,54 @@ struct GitBranchItem: Identifiable, Hashable, Sendable {
 }
 
 /// Hosting platform of the remote origin repository.
-enum RemoteHostType: Sendable {
+enum RemoteHostType: String, Sendable {
     case github
     case gitlab
     case unknown
+}
+
+/// Git ref decoration representing a branch, HEAD, or tag pointing to a commit.
+struct GitRefDecoration: Hashable, Identifiable, Sendable {
+    enum RefType: Hashable, Sendable {
+        case head(branch: String)
+        case detachedHead
+        case localBranch(name: String)
+        case remoteBranch(name: String)
+        case tag(name: String)
+    }
+
+    var id: String { rawName }
+    let rawName: String
+    let displayName: String
+    let type: RefType
+
+    static func parse(_ raw: String) -> [GitRefDecoration] {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        var result: [GitRefDecoration] = []
+        let parts = trimmed.components(separatedBy: ", ")
+        for part in parts {
+            let t = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !t.isEmpty else { continue }
+            if t.contains("droppy-code") || t.contains("refs/notes") || t.contains("refs/stash") || t.contains("refs/original") {
+                continue
+            }
+            if t.hasPrefix("HEAD -> ") {
+                let name = String(t.dropFirst("HEAD -> ".count))
+                result.append(GitRefDecoration(rawName: t, displayName: name, type: .head(branch: name)))
+            } else if t == "HEAD" {
+                result.append(GitRefDecoration(rawName: t, displayName: "HEAD", type: .detachedHead))
+            } else if t.hasPrefix("tag: ") {
+                let tag = String(t.dropFirst("tag: ".count))
+                result.append(GitRefDecoration(rawName: t, displayName: tag, type: .tag(name: tag)))
+            } else if t.contains("/") {
+                result.append(GitRefDecoration(rawName: t, displayName: t, type: .remoteBranch(name: t)))
+            } else {
+                result.append(GitRefDecoration(rawName: t, displayName: t, type: .localBranch(name: t)))
+            }
+        }
+        return result
+    }
 }
 
 /// Visual timeline graph metadata for branch and merge layout in git history.
@@ -161,14 +205,15 @@ struct GitTimelineNode: Hashable, Sendable {
     struct Connection: Hashable, Sendable {
         let fromLane: Int
         let toLane: Int
+        var colorLane: Int
     }
 
     let lane: Int
     let hasIncoming: Bool
+    let incomingMergeLanes: [Int]
     let outgoingConnections: [Connection]
     let passingLanes: [Int]
     let maxLanes: Int
-    let rowMaxLane: Int
 }
 
 /// A git commit entry with timeline metadata and diff statistics.
@@ -177,6 +222,7 @@ struct GitCommitItem: Identifiable, Hashable, Sendable {
     let hash: String
     let shortHash: String
     let parentHashes: [String]
+    let refDecorations: [GitRefDecoration]
     let authorName: String
     let authorEmail: String
     let date: Date
