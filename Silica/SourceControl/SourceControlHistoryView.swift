@@ -290,24 +290,31 @@ struct SourceControlHistoryView: View {
 
     // MARK: - Timeline Row
 
-    private var timelineGutterWidth: CGFloat {
-        let maxLane = model.commits.map(\.timelineNode.maxLanes).max() ?? 1
-        return max(26, CGFloat(max(1, maxLane) + 1) * 14 + 4)
+    private func timelineGutterWidth(for commit: GitCommitItem) -> CGFloat {
+        let node = commit.timelineNode
+        var lanes = [node.lane]
+        lanes.append(contentsOf: node.passingLanes)
+        lanes.append(contentsOf: node.incomingMergeLanes)
+        lanes.append(contentsOf: node.outgoingConnections.map(\.toLane))
+        lanes.append(contentsOf: node.outgoingConnections.map(\.fromLane))
+        let maxRowLane = max(0, lanes.max() ?? node.lane)
+        return CGFloat(maxRowLane + 1) * 14 + 8
     }
 
     private func commitTimelineRow(commit: GitCommitItem) -> some View {
         let isCurrentPopover = activePopoverCommitID == commit.id
         let rowHeight = max(24, settings.sidebarFontSize + 13)
+        let gutterWidth = timelineGutterWidth(for: commit)
 
         return HStack(spacing: 5) {
-            // Visual Git timeline graph with uniform column gutter matching VS Code
+            // Visual Git timeline graph with dynamic width as per the row's branches and graph lines
             GitTimelineCanvas(
                 node: commit.timelineNode,
                 isMerge: commit.isMerge,
                 isUnpushed: commit.isUnpushed,
                 isHead: commit.isHead
             )
-            .frame(width: timelineGutterWidth, height: rowHeight)
+            .frame(width: gutterWidth, height: rowHeight)
 
             // Ref badges (branches, tags, HEAD) inline next to graph - matching VS Code
             if !commit.refDecorations.isEmpty {
@@ -492,7 +499,7 @@ struct SourceControlHistoryView: View {
 
     private func commitFilesList(commit: GitCommitItem) -> some View {
         let activeLanes = continuingLanes(for: commit)
-        let rowCanvasWidth = timelineGutterWidth
+        let rowCanvasWidth = timelineGutterWidth(for: commit)
         let fileRowHeight = max(22, settings.sidebarFontSize + 9)
 
         return VStack(alignment: .leading, spacing: 0) {
