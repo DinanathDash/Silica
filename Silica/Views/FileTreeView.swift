@@ -311,6 +311,15 @@ private struct ProjectTitle: View {
             repoImage.size = NSSize(width: 16, height: 16)
             icon = repoImage
             isCustomImage = true
+        } else if let emoji = workspace.effectiveIcon?.emoji {
+            let img = NSImage(size: NSSize(width: 16, height: 16))
+            img.lockFocus()
+            let str = NSAttributedString(string: emoji, attributes: [.font: NSFont.systemFont(ofSize: 13)])
+            let strSize = str.size()
+            str.draw(at: NSPoint(x: (16 - strSize.width) / 2, y: (16 - strSize.height) / 2))
+            img.unlockFocus()
+            icon = img
+            isCustomImage = true
         } else if icon == nil {
             let image = NSWorkspace.shared.icon(forFile: workspace.rootURL.path(percentEncoded: false))
             image.size = NSSize(width: 16, height: 16)
@@ -325,7 +334,12 @@ private struct FolderProxyIcon: NSViewRepresentable {
     let icon: NSImage
     var isCustomImage: Bool = false
 
-    func makeNSView(context: Context) -> ProxyIconView { ProxyIconView() }
+    func makeNSView(context: Context) -> ProxyIconView {
+        let view = ProxyIconView()
+        view.imageScaling = .scaleProportionallyUpOrDown
+        view.imageAlignment = .alignCenter
+        return view
+    }
 
     func updateNSView(_ view: ProxyIconView, context: Context) {
         view.url = url

@@ -1,5 +1,7 @@
 import AppKit
+import CryptoKit
 import Foundation
+import QuickLookThumbnailing
 import SwiftUI
 
 /// The mark a project wears: an emoji, the name of an SF Symbol, or an image file path.
@@ -173,6 +175,9 @@ final class ProjectTypeDetector {
 
             if fileURL.pathExtension == "icon" {
                 enumerator?.skipDescendants()
+                if let rendered = renderedThumbnailPath(for: fileURL) {
+                    return rendered
+                }
                 let assetsURL = fileURL.appendingPathComponent("Assets")
                 if let assetFiles = try? fm.contentsOfDirectory(atPath: assetsURL.path) {
                     let candidates = assetFiles.filter {
@@ -186,6 +191,36 @@ final class ProjectTypeDetector {
                     }
                 }
             }
+        }
+        return nil
+    }
+
+    /// Renders an Apple Icon Composer (.icon) bundle to a cached high-resolution PNG using QuickLook.
+    private static func renderedThumbnailPath(for iconBundleURL: URL) -> String? {
+        guard let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("com.silica.project-icons", isDirectory: true) else {
+            return nil
+        }
+        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        let hash = Insecure.MD5.hash(data: Data(iconBundleURL.path.utf8)).map { String(format: "%02hhx", $0) }.joined()
+        let cachedFile = cacheDir.appendingPathComponent("\(hash).png")
+        if FileManager.default.fileExists(atPath: cachedFile.path) {
+            return cachedFile.path
+        }
+        let req = QLThumbnailGenerator.Request(fileAt: iconBundleURL, size: CGSize(width: 256, height: 256), scale: 2.0, representationTypes: .thumbnail)
+        let sema = DispatchSemaphore(value: 0)
+        var generatedImage: NSImage?
+        QLThumbnailGenerator.shared.generateRepresentations(for: req) { rep, _, _ in
+            if let rep { generatedImage = rep.nsImage }
+            sema.signal()
+        }
+        _ = sema.wait(timeout: .now() + 0.8)
+        if let generatedImage,
+           let tiff = generatedImage.tiffRepresentation,
+           let bitmap = NSBitmapImageRep(data: tiff),
+           let png = bitmap.representation(using: .png, properties: [:]) {
+            try? png.write(to: cachedFile)
+            return cachedFile.path
         }
         return nil
     }
@@ -254,7 +289,7 @@ extension WorkspaceModel {
 }
 
 /// A project's mark: draws the detected repo logo image, emoji or symbol, or falls back to
-/// the Finder folder icon.
+/// the Finder folder icon with uniform square sizing across all project items.
 struct ProjectIconMark: View {
     let icon: ProjectIcon?
     var fallbackURL: URL? = nil
@@ -264,19 +299,26 @@ struct ProjectIconMark: View {
         Group {
             if let emoji = icon?.emoji {
                 Text(verbatim: emoji)
-                    .font(.system(size: size))
+                    .font(.system(size: size * 0.82))
+                    .frame(width: size, height: size, alignment: .center)
             } else if let path = icon?.imagePath, let nsImage = NSImage(contentsOfFile: path) {
                 Image(nsImage: nsImage)
                     .resizable()
-                    .scaledToFit()
-                    .frame(width: size, height: size)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: size, height: size, alignment: .center)
                     .clipShape(RoundedRectangle(cornerRadius: max(2, size * 0.22), style: .continuous))
             } else if let fallbackURL {
                 FileIcon(url: fallbackURL, isDirectory: true, width: size)
+                    .frame(width: size, height: size, alignment: .center)
             } else {
                 Image(systemName: icon?.symbolName ?? "folder.fill")
-                    .font(.system(size: size))
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: size * 0.75, height: size * 0.75, alignment: .center)
+                    .frame(width: size, height: size, alignment: .center)
             }
         }
+        .frame(width: size, height: size, alignment: .center)
     }
 }

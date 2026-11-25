@@ -23,7 +23,8 @@ struct FileIcon: View {
             Image(nsImage: FolderIcons.shared.icon(for: url))
                 .resizable()
                 .interpolation(.high)
-                .frame(width: effectiveWidth, height: effectiveWidth)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: effectiveWidth, height: effectiveWidth, alignment: .center)
         } else {
             Image(systemName: fallbackSymbol)
                 .foregroundStyle(color)

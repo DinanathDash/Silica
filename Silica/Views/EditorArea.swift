@@ -1334,24 +1334,29 @@ private struct EmptyEditorView: View {
 
     @ViewBuilder
     private var repoIconView: some View {
-        if let icon = workspace.effectiveIcon, icon.imagePath != nil, let image = cachedImage {
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFit()
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
-        } else if let icon = workspace.effectiveIcon, let emoji = icon.emoji {
-            Text(verbatim: emoji)
-                .font(.system(size: 72))
-        } else if let image = cachedImage {
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 88, height: 88)
-        } else {
-            Color.clear
-                .frame(width: 88, height: 88)
+        Group {
+            if let icon = workspace.effectiveIcon, icon.imagePath != nil, let image = cachedImage {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 96, height: 96, alignment: .center)
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+            } else if let icon = workspace.effectiveIcon, let emoji = icon.emoji {
+                Text(verbatim: emoji)
+                    .font(.system(size: 72))
+                    .frame(width: 96, height: 96, alignment: .center)
+            } else if let image = cachedImage {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 96, height: 96, alignment: .center)
+            } else {
+                Color.clear
+                    .frame(width: 96, height: 96, alignment: .center)
+            }
         }
+        .frame(width: 96, height: 96, alignment: .center)
     }
 }
 
