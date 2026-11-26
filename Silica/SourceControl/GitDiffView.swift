@@ -148,6 +148,7 @@ struct GitDiffView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(DiffFocusHost())
         .task(id: diff.cacheKey) {
             await loadDiff()
         }
@@ -849,5 +850,59 @@ struct GitDiffView: View {
             attrStr[range].foregroundColor = Color(nsColor: theme.color(for: token.kind))
         }
         return attrStr
+    }
+}
+
+struct DiffFocusHost: NSViewRepresentable {
+    func makeNSView(context: Context) -> DiffFocusView {
+        DiffFocusView()
+    }
+
+    func updateNSView(_ nsView: DiffFocusView, context: Context) {}
+
+    final class DiffFocusView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            stopMonitoring()
+            guard window != nil else { return }
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let window = self.window else { return }
+                if window.firstResponder is TerminalView {
+                    window.makeFirstResponder(self)
+                }
+            }
+
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+                guard let self, let window = self.window, event.window === window else { return event }
+                let location = self.convert(event.locationInWindow, from: nil)
+                if self.bounds.contains(location) {
+                    if window.firstResponder !== self {
+                        window.makeFirstResponder(self)
+                    }
+                }
+                return event
+            }
+        }
+
+        func stopMonitoring() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+        }
+
+        deinit {
+            stopMonitoring()
+        }
+
+        override func resignFirstResponder() -> Bool {
+            true
+        }
+
+        override func becomeFirstResponder() -> Bool {
+            true
+        }
     }
 }

@@ -42,9 +42,9 @@ final class KeyWorkspace: ObservableObject {
                 if let workspace = self?.current {
                     let firstResponder = event.window?.firstResponder
                     let terminalView = workspace.terminal?.view
-                    let isTerminalActive = workspace.terminal?.isFocused == true ||
-                        (firstResponder is TerminalView) ||
-                        (terminalView != nil && (firstResponder as? NSView)?.isDescendant(of: terminalView!) == true)
+                    let isTerminalActive = workspace.terminal?.isFocused == true &&
+                        ((firstResponder is TerminalView) ||
+                        (terminalView != nil && (firstResponder as? NSView)?.isDescendant(of: terminalView!) == true))
 
                     if isTerminalActive, let terminal = workspace.terminal {
                         DispatchQueue.main.async {
@@ -107,6 +107,36 @@ final class KeyWorkspace: ObservableObject {
                             workspace.moveToTrash(targets)
                         }
                         return nil
+                    }
+                }
+            }
+            // ⌘C (Copy) and ⌘V (Paste) for file tree when explorer is active
+            if flags == .command, (event.charactersIgnoringModifiers?.lowercased() == "c" || event.charactersIgnoringModifiers?.lowercased() == "v"),
+               let workspace = self?.current,
+               workspace.treeEdit == nil,
+               workspace.sidebarMode == .explorer {
+                let firstResponder = event.window?.firstResponder
+                let isEditingField = (firstResponder as? NSTextView)?.isFieldEditor ?? false
+                let isEditorTextView = (firstResponder as? NSTextView) != nil &&
+                    (firstResponder === workspace.activeBuffer?.textController?.textView)
+                let isTerminalFocused = workspace.terminal?.isFocused == true
+
+                if !isEditingField && !isEditorTextView && !isTerminalFocused {
+                    if event.charactersIgnoringModifiers?.lowercased() == "c" {
+                        if !workspace.selections.isEmpty || workspace.selection != nil {
+                            DispatchQueue.main.async {
+                                workspace.copySelectionToClipboard()
+                            }
+                            return nil
+                        }
+                    } else if event.charactersIgnoringModifiers?.lowercased() == "v" {
+                        if workspace.canPasteFromClipboard {
+                            let folder = workspace.targetFolderForPaste()
+                            DispatchQueue.main.async {
+                                workspace.pasteClipboard(into: folder)
+                            }
+                            return nil
+                        }
                     }
                 }
             }

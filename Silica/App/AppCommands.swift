@@ -161,7 +161,7 @@ struct AppCommands: Commands {
 
             Button("Clear Terminal") { workspace?.terminal?.clear() }
                 .keyboardShortcut("k")
-                .disabled(workspace?.isTerminalVisible != true || workspace?.terminal == nil)
+                .disabled(workspace?.isTerminalVisible != true || workspace?.terminal == nil || workspace?.terminal?.isFocused != true)
 
             Divider()
 

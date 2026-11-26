@@ -99,6 +99,7 @@ struct EditorArea: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(EditorCardFocusMonitor(workspace: workspace))
         // Liquid Glass card, or a bordered one with the glass effect off. Corners
         // next to the window's corners follow its radius minus the inset; the
         // others (under the tab bar) fall back to the minimum.
@@ -376,6 +377,56 @@ struct WheelScrollsSideways: NSViewRepresentable {
         func stopWatching() {
             if let monitor { NSEvent.removeMonitor(monitor) }
             monitor = nil
+        }
+    }
+}
+
+/// Releases terminal keyboard focus whenever the user clicks in the editor card.
+private struct EditorCardFocusMonitor: NSViewRepresentable {
+    let workspace: WorkspaceModel
+
+    func makeNSView(context: Context) -> MonitorView {
+        MonitorView(workspace: workspace)
+    }
+
+    func updateNSView(_ nsView: MonitorView, context: Context) {
+        nsView.workspace = workspace
+    }
+
+    final class MonitorView: NSView {
+        var workspace: WorkspaceModel
+        private var monitor: Any?
+
+        init(workspace: WorkspaceModel) {
+            self.workspace = workspace
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+                guard let self, let window = self.window, event.window === window else { return event }
+                let location = self.convert(event.locationInWindow, from: nil)
+                if self.bounds.contains(location) {
+                    if window.firstResponder is TerminalView {
+                        if let textView = self.workspace.activeBuffer?.textController?.textView {
+                            window.makeFirstResponder(textView)
+                        } else {
+                            window.makeFirstResponder(nil)
+                        }
+                    }
+                }
+                return event
+            }
+        }
+
+        deinit {
+            if let monitor { NSEvent.removeMonitor(monitor) }
         }
     }
 }

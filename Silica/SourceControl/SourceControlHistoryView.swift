@@ -316,15 +316,6 @@ struct SourceControlHistoryView: View {
             )
             .frame(width: gutterWidth, height: rowHeight)
 
-            // Ref badges (branches, tags, HEAD) inline next to graph - matching VS Code
-            if !commit.refDecorations.isEmpty {
-                HStack(spacing: 3) {
-                    ForEach(commit.refDecorations) { ref in
-                        GitRefBadgeView(ref: ref)
-                    }
-                }
-            }
-
             // Commit summary with trailing dots for long messages
             Text(commit.summary)
                 .font(.system(size: settings.sidebarFontSize, weight: .regular))
@@ -632,25 +623,25 @@ struct SourceControlHistoryView: View {
 
 // MARK: - Git Ref Badge
 
-/// Compact branch, HEAD, or tag badge matching VS Code's inline graph ref labels.
+/// Branch, HEAD, or tag badge displayed in commit detail popover.
 struct GitRefBadgeView: View {
     let ref: GitRefDecoration
 
     var body: some View {
-        HStack(spacing: 2.5) {
+        HStack(spacing: 4) {
             Image(systemName: iconName)
-                .font(.system(size: 7.5, weight: .bold))
+                .font(.system(size: 9.5, weight: .bold))
             Text(ref.displayName)
-                .font(.system(size: 8.5, weight: .semibold))
+                .font(.system(size: 10.5, weight: .semibold))
                 .lineLimit(1)
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 1)
-        .background(badgeColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 3.5, style: .continuous))
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2.5)
+        .background(badgeColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 4.5, style: .continuous))
         .foregroundStyle(badgeColor)
         .overlay(
-            RoundedRectangle(cornerRadius: 3.5, style: .continuous)
-                .stroke(badgeColor.opacity(0.28), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: 4.5, style: .continuous)
+                .stroke(badgeColor.opacity(0.3), lineWidth: 0.5)
         )
         .liquidGlassTooltip(tooltipText)
     }
@@ -984,9 +975,9 @@ struct CommitDetailsPopoverView: View {
                 }
             }
 
-            // Ref badges (branches, tags, HEAD) - matching VS Code
+            // Ref badges (branches, tags, HEAD)
             if !commit.refDecorations.isEmpty {
-                HStack(spacing: 4) {
+                HStack(spacing: 5) {
                     ForEach(commit.refDecorations) { ref in
                         GitRefBadgeView(ref: ref)
                     }

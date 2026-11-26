@@ -384,10 +384,21 @@ final class WorkspaceModel {
         closing.close()
     }
 
+    /// Opens or starts a terminal in a tab rooted at the specified folder.
+    @discardableResult
+    func openTerminal(at directory: URL) -> TerminalSession {
+        let terminal = makeTerminal(at: directory)
+        if !isTerminalVisible {
+            withAnimation(.snappy(duration: 0.2)) { isTerminalVisible = true }
+        }
+        terminal.view.focus()
+        return terminal
+    }
+
     /// Starts a terminal in a new last tab, and makes it the one the card shows.
     @discardableResult
-    private func makeTerminal() -> TerminalSession {
-        let terminal = TerminalSession(directory: rootURL)
+    private func makeTerminal(at directory: URL? = nil) -> TerminalSession {
+        let terminal = TerminalSession(directory: directory ?? rootURL)
         // The shell was exited, with "exit" or ⌃D.
         terminal.onExit = { [weak self, weak terminal] in
             if let terminal { self?.closeTerminal(terminal) }
@@ -665,7 +676,7 @@ final class WorkspaceModel {
         return String(path.dropFirst(rootPath.count + 1))
     }
 
-    private func node(for url: URL) -> FileNode? {
+    func node(for url: URL) -> FileNode? {
         let rootComponents = rootURL.standardizedFileURL.pathComponents
         let components = url.standardizedFileURL.pathComponents
         guard components.starts(with: rootComponents) else { return nil }
@@ -776,6 +787,9 @@ final class WorkspaceModel {
         }
         for tab in savedTabs {
             closeTab(tab)
+        }
+        if openTabs.isEmpty {
+            activeDiff = nil
         }
     }
 
@@ -1026,6 +1040,106 @@ final class WorkspaceModel {
         }
         refresh()
         reveal(copy)
+    }
+
+    /// Copies the given URLs to the system pasteboard.
+    func copyToClipboard(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects(urls as [NSURL])
+    }
+
+    /// Copies the selected file(s) or folder(s) in the explorer tree to the system pasteboard.
+    func copySelectionToClipboard() {
+        let targets = !selections.isEmpty ? Array(selections) : (selection.map { [$0] } ?? [])
+        copyToClipboard(targets)
+    }
+
+    /// Whether the system clipboard contains any files or folders to paste.
+    var canPasteFromClipboard: Bool {
+        !Self.clipboardFileURLs().isEmpty
+    }
+
+    /// Reads file URLs currently on the system clipboard (from Finder or Silica).
+    static func clipboardFileURLs() -> [URL] {
+        let pasteboard = NSPasteboard.general
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL], !urls.isEmpty {
+            return urls.filter { $0.isFileURL }
+        }
+        if let files = pasteboard.propertyList(forType: .init("NSFilenamesPboardType")) as? [String] {
+            return files.map { URL(fileURLWithPath: $0) }
+        }
+        return []
+    }
+
+    /// Target folder in the explorer tree for paste operations based on current selection.
+    func targetFolderForPaste() -> URL {
+        if let selection {
+            if let node = node(for: selection) {
+                return node.isDirectory ? node.url : node.url.deletingLastPathComponent()
+            }
+            return selection.hasDirectoryPath ? selection : selection.deletingLastPathComponent()
+        }
+        return rootURL
+    }
+
+    /// Pastes files/folders currently on the system clipboard into the destination folder.
+    func pasteClipboard(into destinationFolder: URL) {
+        let sourceURLs = Self.clipboardFileURLs()
+        guard !sourceURLs.isEmpty else { return }
+        paste(urls: sourceURLs, into: destinationFolder)
+    }
+
+    /// Copies items from source URLs into the specified destination folder, handling name collisions.
+    func paste(urls sourceURLs: [URL], into destinationFolder: URL) {
+        let fileManager = FileManager.default
+        var isDir: ObjCBool = false
+        guard fileManager.fileExists(atPath: destinationFolder.path(percentEncoded: false), isDirectory: &isDir), isDir.boolValue else {
+            return
+        }
+
+        var pastedURLs: [URL] = []
+        for sourceURL in sourceURLs {
+            guard fileManager.fileExists(atPath: sourceURL.path(percentEncoded: false)) else { continue }
+            let isSourceDir = sourceURL.hasDirectoryPath || (try? sourceURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+            let originalName = sourceURL.lastPathComponent
+            guard !originalName.isEmpty else { continue }
+
+            // Guard against copying a directory into itself or a subfolder
+            if isSourceDir && Self.url(destinationFolder, isInside: sourceURL) {
+                continue
+            }
+
+            let ext = isSourceDir ? "" : sourceURL.pathExtension
+            let base = ext.isEmpty ? originalName : (originalName as NSString).deletingPathExtension
+
+            var targetURL = Self.normalized(destinationFolder.appending(path: originalName), isDirectory: isSourceDir)
+            if fileManager.fileExists(atPath: targetURL.path(percentEncoded: false)) {
+                var number = 1
+                repeat {
+                    let suffix = number == 1 ? " copy" : " copy \(number)"
+                    let newName = base + suffix + (ext.isEmpty ? "" : "." + ext)
+                    targetURL = Self.normalized(destinationFolder.appending(path: newName), isDirectory: isSourceDir)
+                    number += 1
+                } while fileManager.fileExists(atPath: targetURL.path(percentEncoded: false))
+            }
+
+            do {
+                try fileManager.copyItem(at: sourceURL, to: targetURL)
+                pastedURLs.append(targetURL)
+            } catch {
+                NSAlert(error: error).runModal()
+            }
+        }
+
+        if !pastedURLs.isEmpty {
+            refresh()
+            if let first = pastedURLs.first {
+                reveal(first)
+                selections = Set(pastedURLs)
+            }
+        }
     }
 
     /// Moves the item(s) to the Trash. Unedited tabs for them close; edited ones stay

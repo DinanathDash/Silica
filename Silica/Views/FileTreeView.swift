@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The sidebar: a header on the title bar row, then the file tree or, in search
 /// mode, Find in Project.
@@ -7,6 +8,7 @@ struct FileTreeView: View {
     @State private var pinnedFolders = PinnedFolderTracker()
     @State private var draggedURL: URL?
     @State private var isRestoringSelection = false
+    @State private var isTreeDropTargeted = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -138,6 +140,19 @@ struct FileTreeView: View {
             .contextMenu {
                 Button("New File…") { workspace.beginNewItem(isDirectory: false, in: workspace.rootURL) }
                 Button("New Folder…") { workspace.beginNewItem(isDirectory: true, in: workspace.rootURL) }
+                Divider()
+                Button("Paste") {
+                    workspace.pasteClipboard(into: workspace.rootURL)
+                }
+                .keyboardShortcut("v", modifiers: .command)
+                .disabled(!workspace.canPasteFromClipboard)
+                Divider()
+                Button("Open in Terminal") {
+                    workspace.openTerminal(at: workspace.rootURL)
+                }
+            }
+            .onDrop(of: [.fileURL], isTargeted: $isTreeDropTargeted) { providers in
+                handleFileDrop(providers, into: workspace.targetFolderForPaste(), workspace: workspace)
             }
             // Compact, editor-style rows, 22pt high at the default font size.
             .environment(\.sidebarRowSize, .small)
@@ -203,6 +218,16 @@ struct FileTreeView: View {
             }
             if press.modifiers == .command {
                 workspace.moveToTrash(targets)
+                return .handled
+            }
+        }
+        if press.modifiers == .command {
+            if press.key == KeyEquivalent("c") {
+                workspace.copySelectionToClipboard()
+                return .handled
+            }
+            if press.key == KeyEquivalent("v"), workspace.canPasteFromClipboard {
+                workspace.pasteClipboard(into: workspace.targetFolderForPaste())
                 return .handled
             }
         }
@@ -687,6 +712,7 @@ private struct FileNodeRow: View {
     }
 
     @State private var isHovered = false
+    @State private var isDropTargeted = false
 
     /// Formats file or folder size into human readable string using cached background provider.
     private var formattedSize: String? {
@@ -762,6 +788,10 @@ private struct FileNodeRow: View {
         .onHover { isHovered = $0 }
         .listRowBackground(SelectionHighlight(isSelected: workspace.selections.contains(node.url)))
         .contextMenu { FileNodeMenu(node: node, workspace: workspace) }
+        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
+            let folder = node.isDirectory ? node.url : node.url.deletingLastPathComponent()
+            return handleFileDrop(providers, into: folder, workspace: workspace)
+        }
     }
 
     /// A smaller chevron than the system outline's; files get the same width of space.
@@ -802,6 +832,23 @@ private struct FileNodeMenu: View {
         let folder = node.isDirectory ? node.url : node.url.deletingLastPathComponent()
         Button("New File…") { workspace.beginNewItem(isDirectory: false, in: folder) }
         Button("New Folder…") { workspace.beginNewItem(isDirectory: true, in: folder) }
+        Divider()
+        Button("Copy") {
+            let targets = workspace.selections.contains(node.url) && workspace.selections.count > 1
+                ? Array(workspace.selections)
+                : [node.url]
+            workspace.copyToClipboard(targets)
+        }
+        .keyboardShortcut("c", modifiers: .command)
+        Button("Paste") {
+            workspace.pasteClipboard(into: folder)
+        }
+        .keyboardShortcut("v", modifiers: .command)
+        .disabled(!workspace.canPasteFromClipboard)
+        Divider()
+        Button("Open in Terminal") {
+            workspace.openTerminal(at: folder)
+        }
         Divider()
         Button("Rename…") { workspace.beginRename(node.url) }
         Button("Duplicate") { workspace.duplicate(node.url) }
@@ -969,4 +1016,31 @@ private struct NameField: View {
         isFinished = true
         onFinish(result)
     }
+}
+
+private func handleFileDrop(_ providers: [NSItemProvider], into folder: URL, workspace: WorkspaceModel) -> Bool {
+    let eligible = providers.filter { $0.canLoadObject(ofClass: URL.self) }
+    guard !eligible.isEmpty else { return false }
+    let group = DispatchGroup()
+    var urls: [URL] = []
+    let lock = NSLock()
+
+    for provider in eligible {
+        group.enter()
+        _ = provider.loadObject(ofClass: URL.self) { url, _ in
+            if let url, url.isFileURL {
+                lock.lock()
+                urls.append(url)
+                lock.unlock()
+            }
+            group.leave()
+        }
+    }
+
+    group.notify(queue: .main) {
+        if !urls.isEmpty {
+            workspace.paste(urls: urls, into: folder)
+        }
+    }
+    return true
 }
